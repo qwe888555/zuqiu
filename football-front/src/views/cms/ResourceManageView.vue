@@ -129,7 +129,7 @@ async function removeResource(row: PortalResource) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await resourceApi.remove(row.id)
+    await resourceApi.remove(row.id, row.version)
     ElMessage.success('资源已删除')
     await load()
   } catch {

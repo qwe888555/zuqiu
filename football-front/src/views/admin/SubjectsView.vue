@@ -5,6 +5,7 @@ import { Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { orgApi, teamApi } from '../../api'
 import type { Organization, Team } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
 
 const loading = ref(false)
 const rows = ref<Organization[]>([])
@@ -157,7 +158,7 @@ async function removeOrg(row: Organization) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await orgApi.remove(row.id)
+    await orgApi.remove(row.id, row.version)
     ElMessage.success('参赛主体已删除')
     await load()
   } catch {
@@ -244,13 +245,10 @@ onMounted(() => {
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="keyword ? filteredRows.length : total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="load"
       />

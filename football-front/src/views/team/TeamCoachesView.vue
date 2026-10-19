@@ -89,7 +89,7 @@ async function removeCoach(coach: TeamCoach) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await teamApi.removeCoach(teamId.value, coach.id)
+    await teamApi.removeCoach(teamId.value, coach.id, coach.version)
     ElMessage.success('已移除')
     await load()
   } catch {

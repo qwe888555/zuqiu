@@ -2,19 +2,21 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import {
   CircleCheck,
   Delete,
   Document,
+  Edit,
   Link,
   Plus,
   Refresh,
   Timer,
   Trophy,
+  UploadFilled,
   VideoCamera,
 } from '@element-plus/icons-vue'
-import { matchApi } from '../../api'
+import { fileApi, matchApi } from '../../api'
 import type { LiveLink, LivePost, Match, MatchDocument, MatchEvent, MatchResult } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -34,6 +36,8 @@ const activeTab = ref('events')
 
 const eventVisible = ref(false)
 const savingEvent = ref(false)
+const editingEventId = ref('')
+const editingEventVersion = ref(0)
 const eventForm = reactive({
   eventType: 'GOAL',
   teamId: '',
@@ -53,7 +57,8 @@ const posting = ref(false)
 const linkVisible = ref(false)
 const linkForm = reactive({ title: '', url: '' })
 const docVisible = ref(false)
-const docForm = reactive({ documentType: 'SIGN_IN', fileName: '' })
+const uploadingDoc = ref(false)
+const docForm = reactive({ documentType: 'SIGN_IN', fileId: '', fileName: '' })
 const resultForm = reactive({ resultType: 'NORMAL', manualHomeScore: 0, manualAwayScore: 0, reason: '' })
 const savingResult = ref(false)
 
@@ -116,6 +121,8 @@ async function refreshMatch() {
 }
 
 function openEvent(type = 'GOAL', teamId?: string) {
+  editingEventId.value = ''
+  editingEventVersion.value = 0
   eventForm.eventType = type
   eventForm.teamId = teamId || match.value?.homeTeamId || ''
   eventForm.minute = 1
@@ -130,6 +137,23 @@ function openEvent(type = 'GOAL', teamId?: string) {
   eventVisible.value = true
 }
 
+function editEvent(event: MatchEvent) {
+  editingEventId.value = event.id
+  editingEventVersion.value = event.version
+  eventForm.eventType = event.eventType
+  eventForm.teamId = event.teamId || match.value?.homeTeamId || ''
+  eventForm.minute = event.minute ?? 1
+  eventForm.scorerName = event.scorerName || ''
+  eventForm.ownGoal = Boolean(event.ownGoal)
+  eventForm.athleteName = event.athleteName || ''
+  eventForm.penaltyType = event.penaltyType || 'YELLOW_CARD'
+  eventForm.reason = event.reason || ''
+  eventForm.outAthleteName = event.outAthleteName || ''
+  eventForm.inAthleteName = event.inAthleteName || ''
+  eventForm.note = event.note || ''
+  eventVisible.value = true
+}
+
 async function saveEvent() {
   if (!eventForm.teamId) return ElMessage.warning('请选择所属球队')
   if (eventForm.eventType === 'GOAL' && !eventForm.scorerName.trim()) return ElMessage.warning('请填写进球球员')
@@ -139,8 +163,16 @@ async function saveEvent() {
   }
   savingEvent.value = true
   try {
-    await matchApi.addEvent(matchId, { ...eventForm })
-    ElMessage.success('比赛事件已记录')
+    if (editingEventId.value) {
+      await matchApi.updateEvent(matchId, editingEventId.value, {
+        ...eventForm,
+        version: editingEventVersion.value,
+      })
+      ElMessage.success('比赛事件已更新')
+    } else {
+      await matchApi.addEvent(matchId, { ...eventForm })
+      ElMessage.success('比赛事件已记录')
+    }
     eventVisible.value = false
     await refreshMatch()
   } catch {
@@ -225,14 +257,46 @@ async function removeLink(link: LiveLink) {
   }
 }
 
-async function addDocument() {
-  if (!docForm.fileName.trim()) return ElMessage.warning('请填写文件名')
+function openDocument() {
+  docForm.documentType = 'SIGN_IN'
+  docForm.fileId = ''
+  docForm.fileName = ''
+  docVisible.value = true
+}
+
+async function uploadDoc(options: UploadRequestOptions) {
+  uploadingDoc.value = true
   try {
-    await matchApi.addDocument(matchId, { ...docForm })
+    const record = await fileApi.upload(options.file, 'MATCH', matchId, 'MATCH_DOCUMENT')
+    docForm.fileId = record.id
+    docForm.fileName = record.originalName
+    ElMessage.success('文件上传成功，请确认登记')
+  } catch {
+    // 拦截器提示
+  } finally {
+    uploadingDoc.value = false
+  }
+}
+
+async function addDocument() {
+  if (!docForm.fileId.trim()) return ElMessage.warning('请先上传比赛文件')
+  try {
+    await matchApi.addDocument(matchId, { documentType: docForm.documentType, fileId: docForm.fileId })
+    docForm.fileId = ''
     docForm.fileName = ''
     docVisible.value = false
     documents.value = await matchApi.documents(matchId)
     ElMessage.success('比赛文件已登记')
+  } catch {
+    // 拦截器提示
+  }
+}
+
+async function downloadDocument(doc: MatchDocument) {
+  if (!doc.fileId) return ElMessage.warning('文件编号缺失，无法下载')
+  try {
+    const downloaded = await fileApi.download(doc.fileId, doc.fileName)
+    ElMessage.success(downloaded ? '文件已开始下载' : '演示环境已模拟下载，接入后端后将下载真实文件')
   } catch {
     // 拦截器提示
   }
@@ -359,7 +423,10 @@ onMounted(loadAll)
                 </p>
                 <small v-if="event.note">{{ event.note }}</small>
               </div>
-              <el-button link type="danger" :icon="Delete" @click="removeEvent(event)">删除</el-button>
+              <div class="timeline-row__actions">
+                <el-button link type="primary" :icon="Edit" @click="editEvent(event)">编辑</el-button>
+                <el-button link type="danger" :icon="Delete" @click="removeEvent(event)">删除</el-button>
+              </div>
             </div>
             <el-empty v-if="!sortedEvents.length" description="尚未记录比赛事件" :image-size="80" />
           </div>
@@ -434,8 +501,8 @@ onMounted(loadAll)
             <span class="tab-label"><el-icon><Document /></el-icon>比赛文件 <b>{{ documents.length }}</b></span>
           </template>
           <div class="panel-toolbar">
-            <p class="muted">登记签到表、签字记录与裁判报告，正式文件请扫描后上传至文件服务。</p>
-            <el-button type="primary" plain :icon="Plus" @click="docVisible = true">登记文件</el-button>
+            <p class="muted">上传签到表、签字记录与裁判报告，文件将归档至比赛记录。</p>
+            <el-button type="primary" plain :icon="Plus" @click="openDocument">上传文件</el-button>
           </div>
           <el-table :data="documents" style="width: 100%">
             <el-table-column label="文件类型" width="140">
@@ -448,8 +515,8 @@ onMounted(loadAll)
               <template #default="{ row }">{{ dayjs(row.createdAt).format('YYYY-MM-DD HH:mm') }}</template>
             </el-table-column>
             <el-table-column label="操作" width="100" align="right">
-              <template #default>
-                <el-button link type="primary">查看</el-button>
+              <template #default="{ row }">
+                <el-button link type="primary" @click="downloadDocument(row)">下载</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -513,7 +580,7 @@ onMounted(loadAll)
       </el-tabs>
     </section>
 
-    <el-dialog v-model="eventVisible" title="记录比赛事件" width="560px">
+    <el-dialog v-model="eventVisible" :title="editingEventId ? '编辑比赛事件' : '记录比赛事件'" width="560px">
       <el-form :model="eventForm" label-position="top">
         <el-form-item label="事件类型">
           <el-radio-group v-model="eventForm.eventType">
@@ -575,7 +642,9 @@ onMounted(loadAll)
       </el-form>
       <template #footer>
         <el-button @click="eventVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingEvent" @click="saveEvent">提交事件</el-button>
+        <el-button type="primary" :loading="savingEvent" @click="saveEvent">
+          {{ editingEventId ? '保存修改' : '提交事件' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -594,7 +663,7 @@ onMounted(loadAll)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="docVisible" title="登记比赛文件" width="480px">
+    <el-dialog v-model="docVisible" title="上传比赛文件" width="520px">
       <el-form :model="docForm" label-position="top">
         <el-form-item label="文件类型">
           <el-select v-model="docForm.documentType" style="width: 100%">
@@ -603,13 +672,29 @@ onMounted(loadAll)
             <el-option label="裁判报告" value="REFEREE_REPORT" />
           </el-select>
         </el-form-item>
-        <el-form-item label="文件名">
-          <el-input v-model="docForm.fileName" placeholder="如：2026-10-18_成都七中_vs_石室中学_签到表.pdf" />
+        <el-form-item label="文件">
+          <el-upload
+            class="doc-uploader"
+            drag
+            :show-file-list="false"
+            :http-request="uploadDoc"
+            accept=".pdf,.jpg,.jpeg,.png"
+          >
+            <el-icon class="doc-uploader__icon"><UploadFilled /></el-icon>
+            <div v-if="docForm.fileName" class="doc-uploader__file">
+              已上传：<strong>{{ docForm.fileName }}</strong>（点击可重新上传）
+            </div>
+            <template v-else>
+              <div class="doc-uploader__text">将文件拖到此处，或<em>点击上传</em></div>
+              <div class="doc-uploader__hint">支持 PDF、JPG、PNG 扫描件</div>
+            </template>
+          </el-upload>
+          <span v-if="uploadingDoc" class="muted">文件上传中…</span>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="docVisible = false">取消</el-button>
-        <el-button type="primary" @click="addDocument">登记</el-button>
+        <el-button type="primary" :loading="uploadingDoc" @click="addDocument">保存登记</el-button>
       </template>
     </el-dialog>
   </div>
@@ -827,6 +912,13 @@ onMounted(loadAll)
   color: var(--ink-300);
 }
 
+.timeline-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
 .own-goal {
   color: #c07b3a;
 }
@@ -978,6 +1070,49 @@ onMounted(loadAll)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 14px;
+}
+
+.doc-uploader {
+  width: 100%;
+}
+
+.doc-uploader :deep(.el-upload-dragger) {
+  padding: 22px 16px;
+  border-color: var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.doc-uploader__icon {
+  font-size: 26px;
+  color: var(--brand-500);
+}
+
+.doc-uploader__text {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.doc-uploader__text em {
+  font-style: normal;
+  color: var(--brand-700);
+}
+
+.doc-uploader__hint {
+  margin-top: 5px;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.doc-uploader__file {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.doc-uploader__file strong {
+  color: var(--brand-700);
 }
 
 @media (max-width: 900px) {

@@ -4,13 +4,12 @@ import { useRouter } from 'vue-router'
 import { Location, Refresh, User, UserFilled } from '@element-plus/icons-vue'
 import { meApi } from '../../api'
 import type { Team } from '../../api/types'
+import { categoryLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 
 const router = useRouter()
 const loading = ref(false)
 const teams = ref<Team[]>([])
-
-const categoryLabel: Record<string, string> = { PRIMARY: '小学', MIDDLE: '初中', UNIVERSITY: '大学' }
 
 async function load() {
   loading.value = true
@@ -50,7 +49,7 @@ onMounted(load)
         <p>{{ team.schoolName || '学校未登记' }}</p>
         <div class="team-card__meta">
           <span><el-icon><Location /></el-icon>{{ team.cityName || '市州未设置' }}</span>
-          <span><el-icon><User /></el-icon>{{ categoryLabel[team.category || ''] || '学段未设置' }}</span>
+          <span><el-icon><User /></el-icon>{{ team.category ? categoryLabel(team.category) : '学段未设置' }}</span>
           <span><el-icon><UserFilled /></el-icon>{{ team.memberCount || 0 }} 名球员</span>
         </div>
         <div v-if="team.intro" class="team-card__intro">{{ team.intro }}</div>

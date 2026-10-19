@@ -6,6 +6,7 @@ import { dictApi } from '../../api'
 import type { DictionaryItem } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const TYPE_LABELS: Record<string, string> = {
   GROUP_CATEGORY: '组别类型',
@@ -143,7 +144,7 @@ async function removeItem(row: DictionaryItem) {
       '删除字典项',
       { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
     )
-    await dictApi.remove(row.id)
+    await dictApi.remove(row.id, row.version)
     ElMessage.success('字典项已删除')
     await load()
   } catch {
@@ -206,7 +207,7 @@ onMounted(load)
       </aside>
 
       <section class="page-card dict-main">
-        <div class="filter-bar">
+        <FilterBar :summary="'当前 ' + activeItems.length + ' 项'">
           <el-input
             v-model="keyword"
             placeholder="搜索名称或值"
@@ -214,9 +215,7 @@ onMounted(load)
             clearable
             style="width: 220px"
           />
-          <span class="filter-bar__spacer" />
-          <span class="muted">当前 {{ activeItems.length }} 项</span>
-        </div>
+        </FilterBar>
 
         <el-table v-loading="loading" :data="activeItems" style="width: 100%">
           <el-table-column label="显示名称" min-width="180">

@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
+import {
+  ElMessage,
+  ElMessageBox,
+  type UploadFile,
+  type UploadRequestOptions,
+} from 'element-plus'
 import {
   Check,
   CircleCheck,
   Close,
+  Delete,
   Download,
+  Edit,
   Plus,
   Refresh,
   UploadFilled,
@@ -15,12 +22,21 @@ import {
 } from '@element-plus/icons-vue'
 import { enrollmentApi, fileApi, personApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
-import type { ImportReport, Person, PrecheckIssue, ReviewRecord } from '../../api/types'
+import type {
+  EnrollmentAttachment,
+  ImportReport,
+  Person,
+  PrecheckIssue,
+  ReviewRecord,
+  RosterItem,
+} from '../../api/types'
+import { subjectTypeLabel } from '../../config/labels'
 import { usePermission } from '../../composables/usePermission'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 
 const route = useRoute()
+const router = useRouter()
 const { can } = usePermission()
 const loading = ref(false)
 const detail = ref<EnrollmentDetail | null>(null)
@@ -28,8 +44,16 @@ const reviews = ref<ReviewRecord[]>([])
 const precheckIssues = ref<PrecheckIssue[]>([])
 const precheckVisible = ref(false)
 const addPlayerVisible = ref(false)
+const editPlayerVisible = ref(false)
+const editingRoster = ref<RosterItem | null>(null)
+const savingPlayer = ref(false)
+const attachmentVisible = ref(false)
+const attachmentType = ref<'STAMPED_FORM' | 'STUDENT_STATUS'>('STAMPED_FORM')
+const attachmentUploading = ref(false)
 const importVisible = ref(false)
 const importReport = ref<ImportReport | null>(null)
+const importFile = ref<File | null>(null)
+const photoFile = ref<File | null>(null)
 const importing = ref(false)
 const actionLoading = ref(false)
 const exporting = ref<'registration' | 'players' | ''>('')
@@ -39,6 +63,11 @@ const searchLoading = ref(false)
 
 const playerForm = reactive({
   athleteId: '',
+  jerseyNumber: undefined as number | undefined,
+  position: '',
+})
+
+const rosterEditForm = reactive({
   jerseyNumber: undefined as number | undefined,
   position: '',
 })
@@ -222,14 +251,41 @@ async function addPlayer() {
   }
 }
 
-async function removePlayer(rid: string, name: string) {
+function openEditPlayer(row: RosterItem) {
+  editingRoster.value = row
+  rosterEditForm.jerseyNumber = row.jerseyNumber
+  rosterEditForm.position = row.position || ''
+  editPlayerVisible.value = true
+}
+
+async function savePlayerEdit() {
+  if (!editingRoster.value) return
+  savingPlayer.value = true
+  try {
+    await enrollmentApi.updatePlayer(enrollmentId.value, editingRoster.value.id, {
+      athleteId: editingRoster.value.athleteId,
+      jerseyNumber: rosterEditForm.jerseyNumber,
+      position: rosterEditForm.position || undefined,
+      version: editingRoster.value.version,
+    })
+    ElMessage.success('名单条目已更新')
+    editPlayerVisible.value = false
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    savingPlayer.value = false
+  }
+}
+
+async function removePlayer(rid: string, name: string, version: number) {
   try {
     await ElMessageBox.confirm(`确认将「${name}」移出本次报名名单？`, '移除球员', {
       confirmButtonText: '移除',
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await enrollmentApi.removePlayer(enrollmentId.value, rid)
+    await enrollmentApi.removePlayer(enrollmentId.value, rid, version)
     ElMessage.success('已移除')
     await load()
   } catch {
@@ -237,10 +293,38 @@ async function removePlayer(rid: string, name: string) {
   }
 }
 
+async function removeEnrollment() {
+  if (!detail.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除报名「${detail.value.teamName} · ${detail.value.groupName}」？仅草稿状态可删除。`,
+      '删除报名',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+    await enrollmentApi.remove(enrollmentId.value, detail.value.version)
+    ElMessage.success('报名已删除')
+    router.push('/console/enrollments')
+  } catch {
+    // 取消
+  }
+}
+
+function onImportFileChange(uploadFile: UploadFile) {
+  importFile.value = (uploadFile.raw as File) || null
+}
+
+function onPhotoFileChange(uploadFile: UploadFile) {
+  photoFile.value = (uploadFile.raw as File) || null
+}
+
 async function runImport(mode: 'VALIDATE_ONLY' | 'APPLY_VALID_ROWS') {
   importing.value = true
   try {
-    importReport.value = await enrollmentApi.importPlayers(enrollmentId.value, mode)
+    importReport.value = await enrollmentApi.importPlayers(
+      enrollmentId.value,
+      mode,
+      importFile.value || undefined,
+    )
     if (mode === 'APPLY_VALID_ROWS') await load()
   } catch {
     // 拦截器提示
@@ -252,7 +336,10 @@ async function runImport(mode: 'VALIDATE_ONLY' | 'APPLY_VALID_ROWS') {
 async function runPhotoImport() {
   importing.value = true
   try {
-    importReport.value = await enrollmentApi.importPhotos(enrollmentId.value)
+    importReport.value = await enrollmentApi.importPhotos(
+      enrollmentId.value,
+      photoFile.value || undefined,
+    )
     await load()
   } catch {
     // 拦截器提示
@@ -261,19 +348,70 @@ async function runPhotoImport() {
   }
 }
 
+async function downloadTemplate() {
+  try {
+    const downloaded = await enrollmentApi.downloadRosterTemplate()
+    ElMessage.success(downloaded ? '模板已开始下载' : '演示环境已模拟下载，接入后端后将下载真实模板')
+  } catch {
+    // 拦截器提示
+  }
+}
+
+async function downloadImportErrors() {
+  if (!importReport.value?.batchId) return
+  try {
+    const downloaded = await enrollmentApi.downloadImportErrors(importReport.value.batchId)
+    ElMessage.success(downloaded ? '错误清单已开始下载' : '演示环境已模拟下载，接入后端后将下载真实文件')
+  } catch {
+    // 拦截器提示
+  }
+}
+
+function openAttachmentUpload() {
+  attachmentType.value = 'STAMPED_FORM'
+  attachmentVisible.value = true
+}
+
 async function uploadAttachment(options: UploadRequestOptions) {
+  attachmentUploading.value = true
   try {
     const file = options.file
-    const record = await fileApi.upload(file, 'ENROLLMENT', enrollmentId.value)
+    const record = await fileApi.upload(file, 'ENROLLMENT', enrollmentId.value, 'ENROLLMENT_MATERIAL')
     await enrollmentApi.addAttachment(enrollmentId.value, {
-      materialType: 'STAMPED_FORM',
+      materialType: attachmentType.value,
       fileId: record.id,
-      fileName: record.originalName,
     })
     ElMessage.success('材料上传成功')
+    attachmentVisible.value = false
     await load()
   } catch {
     // 拦截器提示
+  } finally {
+    attachmentUploading.value = false
+  }
+}
+
+async function downloadAttachment(attachment: EnrollmentAttachment) {
+  try {
+    const downloaded = await fileApi.download(attachment.fileId, attachment.fileName)
+    ElMessage.success(downloaded ? '文件已开始下载' : '演示环境已模拟下载，接入后端后将下载真实文件')
+  } catch {
+    // 拦截器提示
+  }
+}
+
+async function removeAttachment(attachment: EnrollmentAttachment) {
+  try {
+    await ElMessageBox.confirm(`确认移除材料「${attachment.fileName}」？`, '移除材料', {
+      confirmButtonText: '移除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await enrollmentApi.removeAttachment(enrollmentId.value, attachment.id, attachment.version)
+    ElMessage.success('材料已移除')
+    await load()
+  } catch {
+    // 取消
   }
 }
 
@@ -320,6 +458,15 @@ onMounted(load)
         >
           撤回
         </el-button>
+        <el-button
+          v-if="canEdit && detail?.status === 'DRAFT'"
+          type="danger"
+          plain
+          :icon="Delete"
+          @click="removeEnrollment"
+        >
+          删除报名
+        </el-button>
         <template v-if="canReview">
           <el-button type="danger" plain @click="reject">驳回</el-button>
           <el-button type="success" @click="approve">审核通过</el-button>
@@ -364,7 +511,7 @@ onMounted(load)
           <section class="page-card">
             <div class="section-title">报名信息 <small>由参赛单位填写</small></div>
             <div class="info-grid">
-              <div class="info-item"><span>参赛主体</span><strong>{{ detail.subjectType === 'SCHOOL_TEAM' ? '学校球队' : detail.subjectType === 'UNIVERSITY' ? '高校' : '市州代报' }}</strong></div>
+              <div class="info-item"><span>参赛主体</span><strong>{{ subjectTypeLabel(detail.subjectType) }}</strong></div>
               <div class="info-item"><span>所属市州</span><strong>{{ detail.cityName || '—' }}</strong></div>
               <div class="info-item"><span>领队 / 联系人</span><strong>{{ detail.contactName }}</strong></div>
               <div class="info-item"><span>联系电话</span><strong>{{ detail.maskedContactPhone || '—' }}</strong></div>
@@ -417,9 +564,10 @@ onMounted(load)
               </el-table-column>
               <el-table-column prop="position" label="位置" width="90" />
               <el-table-column prop="schoolName" label="所在学校" min-width="160" />
-              <el-table-column v-if="canEdit" label="操作" width="80" align="right">
+              <el-table-column v-if="canEdit" label="操作" width="140" align="right">
                 <template #default="{ row }">
-                  <el-button link type="danger" @click="removePlayer(row.id, row.athleteName)">移除</el-button>
+                  <el-button link type="primary" :icon="Edit" @click="openEditPlayer(row)">编辑</el-button>
+                  <el-button link type="danger" @click="removePlayer(row.id, row.athleteName, row.version)">移除</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -433,14 +581,16 @@ onMounted(load)
           <section class="page-card">
             <div class="page-toolbar">
               <div class="section-title">报名材料 <small>盖章文件与学籍证明</small></div>
-              <el-upload
+              <el-button
                 v-if="canEdit"
-                :show-file-list="false"
-                :http-request="uploadAttachment"
-                accept=".pdf,.jpg,.jpeg,.png"
+                size="small"
+                type="primary"
+                plain
+                :icon="UploadFilled"
+                @click="openAttachmentUpload"
               >
-                <el-button size="small" type="primary" plain :icon="UploadFilled">上传材料</el-button>
-              </el-upload>
+                上传材料
+              </el-button>
             </div>
 
             <div class="attachment-list">
@@ -450,21 +600,19 @@ onMounted(load)
                   <strong>{{ att.fileName }}</strong>
                   <small>{{ att.materialType === 'STAMPED_FORM' ? '加盖公章的报名表' : '学籍证明' }}</small>
                 </div>
-                <StatusTag status="APPROVED" kind="review" />
+                <div class="attachment__actions">
+                  <el-button link type="primary" @click="downloadAttachment(att)">下载</el-button>
+                  <el-button v-if="canEdit" link type="danger" :icon="Delete" @click="removeAttachment(att)">移除</el-button>
+                </div>
               </div>
               <el-empty
                 v-if="!(detail.attachments || []).length"
                 description="尚未上传报名材料"
                 :image-size="70"
               >
-                <el-upload
-                  v-if="canEdit"
-                  :show-file-list="false"
-                  :http-request="uploadAttachment"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                >
-                  <el-button type="primary" plain size="small">上传第一份材料</el-button>
-                </el-upload>
+                <el-button v-if="canEdit" type="primary" plain size="small" @click="openAttachmentUpload">
+                  上传第一份材料
+                </el-button>
               </el-empty>
             </div>
           </section>
@@ -596,7 +744,56 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="importVisible" title="批量导入球员名单" width="640px">
+    <el-dialog v-model="editPlayerVisible" title="编辑名单条目" width="520px">
+      <div class="roster-person">
+        <strong>{{ editingRoster?.athleteName || '球员' }}</strong>
+        <small>{{ editingRoster?.maskedIdNumber || '证件号未登记' }}</small>
+      </div>
+      <el-form :model="rosterEditForm" label-position="top">
+        <div class="form-grid">
+          <el-form-item label="球衣号码">
+            <el-input-number v-model="rosterEditForm.jerseyNumber" :min="0" :max="999" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="场上位置">
+            <el-input v-model="rosterEditForm.position" placeholder="如：前锋" />
+          </el-form-item>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="editPlayerVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingPlayer" @click="savePlayerEdit">保存修改</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="attachmentVisible" title="上传报名材料" width="540px">
+      <el-form label-position="top">
+        <el-form-item label="材料类型">
+          <el-radio-group v-model="attachmentType">
+            <el-radio-button value="STAMPED_FORM">盖章报名表</el-radio-button>
+            <el-radio-button value="STUDENT_STATUS">学籍证明</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="材料文件">
+          <el-upload
+            class="attachment-uploader"
+            drag
+            :show-file-list="false"
+            :http-request="uploadAttachment"
+            accept=".pdf,.jpg,.jpeg,.png"
+          >
+            <el-icon class="attachment-uploader__icon"><UploadFilled /></el-icon>
+            <div class="attachment-uploader__text">将文件拖到此处，或<em>点击上传</em></div>
+            <div class="attachment-uploader__hint">支持 PDF、JPG、PNG，单个文件不超过 20MB</div>
+          </el-upload>
+          <span v-if="attachmentUploading" class="muted">文件上传中…</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="attachmentVisible = false">取消</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="importVisible" title="批量导入球员名单" width="680px">
       <el-alert
         type="info"
         :closable="false"
@@ -604,16 +801,49 @@ onMounted(load)
         title="请使用组委会提供的标准模板"
         description="导入分为「校验」与「应用有效行」两步，校验阶段不会修改名单。"
       />
+      <div class="template-row">
+        <span>尚未下载模板？</span>
+        <el-button link type="primary" :icon="Download" @click="downloadTemplate">下载球员导入模板</el-button>
+      </div>
+      <div class="import-file-row">
+        <el-upload
+          :auto-upload="false"
+          :show-file-list="false"
+          :limit="1"
+          accept=".xlsx,.xls"
+          :on-change="onImportFileChange"
+        >
+          <el-button plain>选择名单 Excel</el-button>
+        </el-upload>
+        <span class="muted">{{ importFile?.name || '未选择文件时按演示数据模拟导入' }}</span>
+      </div>
       <div class="import-actions">
         <el-button :loading="importing" @click="runImport('VALIDATE_ONLY')">仅校验</el-button>
         <el-button type="primary" :loading="importing" @click="runImport('APPLY_VALID_ROWS')">校验并应用有效行</el-button>
-        <el-button plain :loading="importing" @click="runPhotoImport">导入球员照片 ZIP</el-button>
+      </div>
+      <div class="import-file-row">
+        <el-upload
+          :auto-upload="false"
+          :show-file-list="false"
+          :limit="1"
+          accept=".zip"
+          :on-change="onPhotoFileChange"
+        >
+          <el-button plain>选择球员照片 ZIP</el-button>
+        </el-upload>
+        <span class="muted">{{ photoFile?.name || '照片以脱敏身份证号命名' }}</span>
+        <el-button :loading="importing" @click="runPhotoImport">导入照片</el-button>
       </div>
       <div v-if="importReport" class="import-report">
         <div class="import-report__stats">
           <div><strong class="num">{{ importReport.total }}</strong><span>总行数</span></div>
           <div><strong class="num ok">{{ importReport.successCount }}</strong><span>成功</span></div>
           <div><strong class="num fail">{{ importReport.failureCount }}</strong><span>失败</span></div>
+          <div class="import-report__export">
+            <el-button link type="primary" :icon="Download" @click="downloadImportErrors">
+              下载错误清单 CSV
+            </el-button>
+          </div>
         </div>
         <el-table :data="importReport.errors" size="small" max-height="220">
           <el-table-column label="行号 / 文件" width="130">
@@ -824,6 +1054,67 @@ onMounted(load)
   color: var(--ink-300);
 }
 
+.attachment__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.attachment-uploader {
+  width: 100%;
+}
+
+.attachment-uploader :deep(.el-upload-dragger) {
+  padding: 22px 16px;
+  border-color: var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.attachment-uploader__icon {
+  font-size: 26px;
+  color: var(--brand-500);
+}
+
+.attachment-uploader__text {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.attachment-uploader__text em {
+  font-style: normal;
+  color: var(--brand-700);
+}
+
+.attachment-uploader__hint {
+  margin-top: 5px;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.roster-person {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.roster-person strong {
+  font-size: 14px;
+}
+
+.roster-person small {
+  font-size: 10px;
+  color: var(--ink-300);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+
 .audit-timeline {
   display: flex;
   flex-direction: column;
@@ -1017,7 +1308,37 @@ onMounted(load)
 .import-actions {
   display: flex;
   gap: 10px;
-  margin: 16px 0;
+  margin: 12px 0;
+}
+
+.template-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+  font-size: 10.5px;
+  color: var(--ink-500);
+}
+
+.import-file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.import-file-row .muted {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+}
+
+.import-report__export {
+  margin-left: auto;
+  align-self: center;
 }
 
 .import-report__stats {

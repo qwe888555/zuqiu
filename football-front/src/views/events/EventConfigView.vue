@@ -5,8 +5,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Plus, Refresh, Setting, Delete } from '@element-plus/icons-vue'
 import { eventApi } from '../../api'
 import type { Event, EventGroup, GroupCategory } from '../../api/types'
+import { CATEGORY_LABELS } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<Event[]>([])
@@ -44,7 +47,7 @@ const groupForm = reactive({
   requiredMaterialTypes: ['STAMPED_FORM', 'STUDENT_STATUS'] as string[],
 })
 
-const categoryLabel: Record<string, string> = { PRIMARY: '小学', MIDDLE: '初中', UNIVERSITY: '大学' }
+const categoryLabel = CATEGORY_LABELS
 const genderLabel: Record<string, string> = { MALE: '男子', FEMALE: '女子', MIXED: '混合' }
 
 async function load() {
@@ -123,7 +126,7 @@ async function removeEvent(row: Event) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await eventApi.remove(row.id)
+    await eventApi.remove(row.id, row.version)
     ElMessage.success('赛事已删除')
     await load()
   } catch {
@@ -207,7 +210,7 @@ async function removeGroup(group: EventGroup) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await eventApi.removeGroup(currentEvent.value.id, group.id)
+    await eventApi.removeGroup(currentEvent.value.id, group.id, group.version)
     ElMessage.success('组别已删除')
     await loadGroups()
   } catch {
@@ -232,7 +235,7 @@ onMounted(load)
     </PageHeader>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + total + ' 项赛事'">
         <el-input
           v-model="keyword"
           placeholder="搜索赛事名称"
@@ -242,9 +245,7 @@ onMounted(load)
           @clear="search"
         />
         <el-button type="primary" plain @click="search">查询</el-button>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ total }} 项赛事</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="赛事" min-width="260">
@@ -284,13 +285,10 @@ onMounted(load)
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />

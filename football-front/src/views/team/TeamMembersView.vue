@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Plus, Refresh, Search, User } from '@element-plus/icons-vue'
+import { Delete, Edit, Plus, Refresh, Search, User } from '@element-plus/icons-vue'
 import { teamApi } from '../../api'
 import type { Person, TeamMember } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const { teams, teamId, loadTeams } = useTeamScope()
 const loading = ref(false)
@@ -24,6 +26,15 @@ const searching = ref(false)
 const candidates = ref<Person[]>([])
 const selected = ref<Person | null>(null)
 const memberForm = reactive({ jerseyNumber: 1, position: '中场' })
+const editVisible = ref(false)
+const editingMember = ref<TeamMember | null>(null)
+const savingEdit = ref(false)
+const editForm = reactive({
+  jerseyNumber: undefined as number | undefined,
+  position: '',
+  effectiveFrom: '',
+  effectiveTo: '',
+})
 
 const positions = ['门将', '后卫', '中场', '前锋']
 
@@ -110,6 +121,37 @@ async function addMember() {
   }
 }
 
+function openEdit(member: TeamMember) {
+  editingMember.value = member
+  editForm.jerseyNumber = member.jerseyNumber
+  editForm.position = member.position || ''
+  editForm.effectiveFrom = new Date().toISOString().slice(0, 10)
+  editForm.effectiveTo = ''
+  editVisible.value = true
+}
+
+async function saveMemberEdit() {
+  if (!teamId.value || !editingMember.value) return
+  savingEdit.value = true
+  try {
+    await teamApi.updateMember(teamId.value, editingMember.value.id, {
+      athleteId: editingMember.value.athleteId,
+      jerseyNumber: editForm.jerseyNumber,
+      position: editForm.position || undefined,
+      effectiveFrom: editForm.effectiveFrom,
+      effectiveTo: editForm.effectiveTo || undefined,
+      version: editingMember.value.version,
+    })
+    ElMessage.success('球员信息已更新')
+    editVisible.value = false
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    savingEdit.value = false
+  }
+}
+
 async function removeMember(member: TeamMember) {
   if (!teamId.value) return
   try {
@@ -118,7 +160,7 @@ async function removeMember(member: TeamMember) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await teamApi.removeMember(teamId.value, member.id)
+    await teamApi.removeMember(teamId.value, member.id, member.version)
     ElMessage.success('已移出球队')
     await load()
   } catch {
@@ -167,7 +209,7 @@ onMounted(async () => {
     </div>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar>
         <el-input
           v-model="keyword"
           placeholder="搜索球员姓名"
@@ -184,7 +226,7 @@ onMounted(async () => {
             {{ item.position }} <b class="num">{{ item.count }}</b>
           </span>
         </div>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="球员" min-width="200">
@@ -210,20 +252,19 @@ onMounted(async () => {
         <el-table-column label="资格状态" width="120">
           <template #default="{ row }"><StatusTag :status="row.status" kind="review" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="110" align="right">
+        <el-table-column label="操作" width="170" align="right">
           <template #default="{ row }">
+            <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" :icon="Delete" @click="removeMember(row)">移出</el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
         :page-sizes="[20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />
@@ -276,6 +317,54 @@ onMounted(async () => {
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="adding" @click="addMember">加入球队</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="editVisible" title="编辑球员信息" width="560px">
+      <el-form :model="editForm" label-position="top">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="仅修改球队成员关系"
+          description="球衣号码、场上位置与效力期限由球队维护；姓名、证件号等主档信息请前往人员管理修改。"
+        />
+        <div class="edit-person">
+          <strong>{{ editingMember?.athleteName || '球员' }}</strong>
+          <small>{{ editingMember?.maskedIdNumber || '证件号未登记' }}</small>
+        </div>
+        <div class="form-grid">
+          <el-form-item label="球衣号码">
+            <el-input-number v-model="editForm.jerseyNumber" :min="0" :max="999" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="场上位置">
+            <el-select v-model="editForm.position" clearable style="width: 100%">
+              <el-option v-for="position in positions" :key="position" :label="position" :value="position" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="生效日期" required>
+            <el-date-picker
+              v-model="editForm.effectiveFrom"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item label="结束日期">
+            <el-date-picker
+              v-model="editForm.effectiveTo"
+              type="date"
+              value-format="YYYY-MM-DD"
+              clearable
+              placeholder="留空表示仍有效"
+              style="width: 100%"
+            />
+          </el-form-item>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingEdit" @click="saveMemberEdit">保存修改</el-button>
       </template>
     </el-dialog>
   </div>
@@ -420,6 +509,22 @@ onMounted(async () => {
   font-size: 9.5px;
   font-weight: 700;
   color: var(--brand-700);
+}
+
+.edit-person {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 14px 0 4px;
+}
+
+.edit-person strong {
+  font-size: 14px;
+}
+
+.edit-person small {
+  font-size: 10px;
+  color: var(--ink-300);
 }
 
 .form-grid {

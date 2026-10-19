@@ -6,6 +6,8 @@ import { auditApi } from '../../api'
 import type { AuditLog } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<AuditLog[]>([])
@@ -91,7 +93,7 @@ onMounted(load)
     </div>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + total + ' 条日志'">
         <el-input
           v-model="filters.keyword"
           placeholder="操作人 / 摘要"
@@ -111,9 +113,7 @@ onMounted(load)
           <el-option label="失败" value="FAILURE" />
         </el-select>
         <el-button type="primary" plain @click="search">查询</el-button>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ total }} 条日志</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="时间" width="160">
@@ -151,13 +151,11 @@ onMounted(load)
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
         :page-sizes="[20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />

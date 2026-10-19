@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowRight, Lock, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
-import { DEMO_ACCOUNTS, IMG, ROLE_LABELS } from '../../mock/data'
+import { DEMO_ACCOUNTS, IMG } from '../../mock/data'
+import { ROLE_LABELS } from '../../config/labels'
 
 const router = useRouter()
 const route = useRoute()

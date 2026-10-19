@@ -7,6 +7,7 @@ import { meApi } from '../../api'
 import type { Message as MessageItem } from '../../api/types'
 import { useAppStore } from '../../stores/app'
 import PageHeader from '../../components/common/PageHeader.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
 
 const app = useAppStore()
 const loading = ref(false)
@@ -134,14 +135,13 @@ onMounted(() => load())
           <el-empty v-if="!loading && !rows.length" description="暂无消息" :image-size="70" />
         </div>
 
-        <el-pagination
-          v-if="total > pageSize"
-          v-model:current-page="page"
+        <PaginationBar
+          v-model:page="page"
           :page-size="pageSize"
           :total="total"
           layout="prev, pager, next"
           small
-          background
+          hide-when-single
           @current-change="load(true)"
         />
       </aside>

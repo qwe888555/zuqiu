@@ -5,6 +5,7 @@ import { Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { PublicContent } from '../../api/types'
 import { IMG } from '../../mock/data'
+import PaginationBar from '../../components/common/PaginationBar.vue'
 
 const loading = ref(false)
 const keyword = ref('')
@@ -110,13 +111,12 @@ onMounted(load)
         <el-empty v-if="!loading && !items.length" description="暂无资讯内容" class="empty" />
       </div>
 
-      <el-pagination
-        v-if="total > 9"
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         :page-size="9"
         :total="total"
         layout="prev, pager, next"
-        background
+        hide-when-single
         @current-change="load"
       />
     </div>

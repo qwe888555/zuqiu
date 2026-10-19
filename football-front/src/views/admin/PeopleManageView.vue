@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
-import { orgApi, personApi } from '../../api'
-import type { Organization, Person, PersonKind } from '../../api/types'
+import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
+import { Delete, Document, Edit, Plus, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
+import { fileApi, materialApi, orgApi, personApi } from '../../api'
+import type { Material, Organization, Person, PersonKind } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<Person[]>([])
@@ -18,7 +20,17 @@ const orgs = ref<Organization[]>([])
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
+const editingVersion = ref(0)
 const saving = ref(false)
+const avatarFileId = ref('')
+const avatarUrl = ref('')
+const avatarUploading = ref(false)
+
+const materialsVisible = ref(false)
+const materialsLoading = ref(false)
+const materials = ref<Material[]>([])
+const materialOwner = ref<Person | null>(null)
+const reviewingMaterialId = ref('')
 const form = reactive({
   realName: '',
   kinds: ['ATHLETE'] as PersonKind[],
@@ -66,6 +78,9 @@ function search() {
 
 function openCreate() {
   editingId.value = null
+  editingVersion.value = 0
+  avatarFileId.value = ''
+  avatarUrl.value = ''
   Object.assign(form, {
     realName: '',
     kinds: ['ATHLETE'],
@@ -82,6 +97,9 @@ function openCreate() {
 
 function openEdit(row: Person) {
   editingId.value = row.id
+  editingVersion.value = row.version
+  avatarFileId.value = row.avatarFileId || ''
+  avatarUrl.value = row.avatarUrl || ''
   Object.assign(form, {
     realName: row.realName,
     kinds: [...row.kinds],
@@ -108,8 +126,10 @@ async function save() {
         gender: form.gender,
         birthDate: form.birthDate || undefined,
         schoolOrgId: form.schoolOrgId || undefined,
+        avatarFileId: avatarFileId.value || undefined,
         education: form.education,
         coachCategory: form.coachCategory,
+        version: editingVersion.value,
       })
       ElMessage.success('人员档案已更新')
     } else {
@@ -125,6 +145,77 @@ async function save() {
   }
 }
 
+async function uploadAvatar(options: UploadRequestOptions) {
+  avatarUploading.value = true
+  try {
+    const record = await fileApi.upload(options.file, 'PERSON', editingId.value || '', 'AVATAR')
+    avatarFileId.value = record.id
+    avatarUrl.value = record.url || URL.createObjectURL(options.file)
+    ElMessage.success('头像上传成功，保存档案后生效')
+  } catch {
+    // 拦截器提示
+  } finally {
+    avatarUploading.value = false
+  }
+}
+
+async function openMaterials(row: Person) {
+  materialOwner.value = row
+  materialsVisible.value = true
+  await loadMaterials(row.id)
+}
+
+async function loadMaterials(personId?: string) {
+  const ownerId = personId || materialOwner.value?.id
+  if (!ownerId) return
+  materialsLoading.value = true
+  try {
+    const res = await materialApi.list({ page: 1, pageSize: 100, ownerType: 'PERSON', ownerId })
+    materials.value = res.items
+  } catch {
+    materials.value = []
+  } finally {
+    materialsLoading.value = false
+  }
+}
+
+async function downloadMaterial(material: Material) {
+  const fileId = material.fileIds?.[0]
+  if (!fileId) return ElMessage.warning('该材料暂无可下载文件，请本人重新上传')
+  try {
+    const downloaded = await fileApi.download(fileId, material.fileName || '履历材料')
+    ElMessage.success(downloaded ? '文件已开始下载' : '演示环境已模拟下载，接入后端后将下载真实文件')
+  } catch {
+    // 拦截器提示
+  }
+}
+
+async function reviewMaterial(material: Material, decision: 'APPROVE' | 'REJECT') {
+  let reason = ''
+  if (decision === 'REJECT') {
+    try {
+      const result = await ElMessageBox.prompt('请填写驳回原因，将通知本人重新提交。', '驳回材料', {
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消',
+        inputValidator: (value) => (value && value.trim().length >= 4 ? true : '请至少填写 4 个字符'),
+      })
+      reason = result.value
+    } catch {
+      return
+    }
+  }
+  reviewingMaterialId.value = material.id
+  try {
+    await materialApi.review(material.id, { decision, reason: reason || undefined, version: material.version })
+    ElMessage.success(decision === 'APPROVE' ? '材料已通过审核' : '材料已驳回')
+    await loadMaterials()
+  } catch {
+    // 拦截器提示
+  } finally {
+    reviewingMaterialId.value = ''
+  }
+}
+
 async function removePerson(row: Person) {
   try {
     await ElMessageBox.confirm(`确认删除「${row.realName}」的人员档案？请先确认无报名与球队关联。`, '删除人员', {
@@ -132,7 +223,7 @@ async function removePerson(row: Person) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await personApi.remove(row.id)
+    await personApi.remove(row.id, row.version)
     ElMessage.success('人员档案已删除')
     await load()
   } catch {
@@ -160,7 +251,7 @@ onMounted(() => {
     </PageHeader>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + total + ' 人'">
         <el-input
           v-model="filters.keyword"
           placeholder="姓名 / 证件号"
@@ -180,15 +271,16 @@ onMounted(() => {
           <el-option label="已驳回" value="REJECTED" />
         </el-select>
         <el-button type="primary" plain @click="search">查询</el-button>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ total }} 人</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="姓名" min-width="170">
           <template #default="{ row }">
             <div class="person-cell">
-              <span class="person-cell__avatar">{{ row.realName.slice(0, 1) }}</span>
+              <span class="person-cell__avatar">
+                <img v-if="row.avatarUrl" :src="row.avatarUrl" alt="" />
+                <template v-else>{{ row.realName.slice(0, 1) }}</template>
+              </span>
               <div>
                 <strong>{{ row.realName }}</strong>
                 <small>{{ row.maskedIdNumber || '证件号未登记' }}</small>
@@ -219,27 +311,42 @@ onMounted(() => {
             <span class="muted">{{ dayjs(row.createdAt).format('YYYY-MM-DD') }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="210" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" :icon="Document" @click="openMaterials(row)">材料</el-button>
             <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" :icon="Delete" @click="removePerson(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />
     </section>
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑人员档案' : '新建人员档案'" width="660px">
+      <div v-if="editingId" class="avatar-row">
+        <span class="avatar-preview">
+          <img v-if="avatarUrl" :src="avatarUrl" alt="头像" />
+          <template v-else>{{ form.realName.slice(0, 1) || '人' }}</template>
+        </span>
+        <div>
+          <strong>人员头像</strong>
+          <small>用于报名表、参赛证与身份核验，建议使用近期免冠照片。</small>
+        </div>
+        <el-upload
+          :show-file-list="false"
+          :http-request="uploadAvatar"
+          accept=".jpg,.jpeg,.png"
+        >
+          <el-button size="small" plain :icon="UploadFilled" :loading="avatarUploading">上传头像</el-button>
+        </el-upload>
+      </div>
       <el-form :model="form" label-position="top">
         <div class="form-grid">
           <el-form-item label="真实姓名" required>
@@ -300,6 +407,52 @@ onMounted(() => {
         <el-button type="primary" :loading="saving" @click="save">保存档案</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="materialsVisible" size="620px" :with-header="false">
+      <div class="material-head">
+        <span class="material-head__eyebrow">PERSON MATERIALS</span>
+        <h2>{{ materialOwner?.realName || '人员' }} · 履历材料</h2>
+        <p>{{ materialOwner?.schoolName || '学校未登记' }} · 待审核材料需逐份给出结论。</p>
+      </div>
+      <div v-loading="materialsLoading" class="material-list">
+        <div v-for="item in materials" :key="item.id" class="material-item">
+          <span class="material-item__icon"><el-icon><Document /></el-icon></span>
+          <div class="material-item__body">
+            <div class="material-item__title">
+              <strong>{{ item.title }}</strong>
+              <StatusTag :status="item.reviewStatus" kind="review" />
+            </div>
+            <small>{{ item.materialLabel }} · {{ item.fileName || '文件未登记' }}</small>
+            <p v-if="item.reviewReason">{{ item.reviewReason }}</p>
+            <div class="material-item__actions">
+              <el-button v-if="item.fileName" size="small" link type="primary" @click="downloadMaterial(item)">
+                下载
+              </el-button>
+              <template v-if="item.reviewStatus === 'PENDING'">
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :loading="reviewingMaterialId === item.id"
+                @click="reviewMaterial(item, 'REJECT')"
+              >
+                驳回
+              </el-button>
+              <el-button
+                size="small"
+                type="success"
+                :loading="reviewingMaterialId === item.id"
+                @click="reviewMaterial(item, 'APPROVE')"
+              >
+                通过
+              </el-button>
+              </template>
+            </div>
+          </div>
+        </div>
+        <el-empty v-if="!materialsLoading && !materials.length" description="该人员暂无履历材料" :image-size="80" />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -316,11 +469,18 @@ onMounted(() => {
   width: 34px;
   height: 34px;
   flex-shrink: 0;
+  overflow: hidden;
   border-radius: 50%;
   background: var(--brand-50);
   color: var(--brand-700);
   font-size: 12px;
   font-weight: 700;
+}
+
+.person-cell__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .person-cell strong {
@@ -337,6 +497,138 @@ onMounted(() => {
 
 .kind-tag {
   margin-right: 4px;
+}
+
+.avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.avatar-preview {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--brand-100);
+  color: var(--brand-700);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-row div {
+  flex: 1;
+}
+
+.avatar-row strong {
+  display: block;
+  font-size: 12.5px;
+}
+
+.avatar-row small {
+  display: block;
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.material-head {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.material-head__eyebrow {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--brand-600);
+}
+
+.material-head h2 {
+  margin-top: 5px;
+  font-size: 20px;
+}
+
+.material-head p {
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--ink-500);
+}
+
+.material-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.material-item {
+  display: flex;
+  gap: 11px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
+.material-item__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+
+.material-item__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.material-item__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.material-item__title strong {
+  font-size: 12.5px;
+}
+
+.material-item small {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--ink-300);
+}
+
+.material-item p {
+  margin-top: 5px;
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--ink-500);
+}
+
+.material-item__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .form-grid {

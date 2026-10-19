@@ -97,8 +97,8 @@ export const http = {
   put<T>(url: string, data?: unknown): Promise<T> {
     return request<T>({ method: 'put', url, data })
   },
-  delete<T>(url: string, data?: unknown): Promise<T> {
-    return request<T>({ method: 'delete', url, data })
+  delete<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+    return request<T>({ method: 'delete', url, params })
   },
 }
 

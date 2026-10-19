@@ -6,6 +6,7 @@ import { meApi, publicationApi } from '../../api'
 import type { Person, Publication } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const person = ref<Person | null>(null)
@@ -68,15 +69,13 @@ onMounted(load)
     </section>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + filtered.length + ' 条记录'">
         <el-radio-group v-model="activeFilter">
           <el-radio-button value="all">全部</el-radio-button>
           <el-radio-button value="active">公示中</el-radio-button>
           <el-radio-button value="cancelled">已撤销</el-radio-button>
         </el-radio-group>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ filtered.length }} 条记录</span>
-      </div>
+      </FilterBar>
 
       <div v-loading="loading" class="publication-list">
         <article v-for="item in filtered" :key="item.id" class="publication-card">

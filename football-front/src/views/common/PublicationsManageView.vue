@@ -8,6 +8,8 @@ import type { Enrollment, Person, Publication } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<Publication[]>([])
@@ -165,7 +167,7 @@ onMounted(load)
     </div>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + total + ' 条公示'">
         <el-select v-model="filters.targetType" placeholder="全部对象" clearable @change="search">
           <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
@@ -173,9 +175,7 @@ onMounted(load)
           <el-option label="公示中" value="active" />
           <el-option label="已撤销" value="cancelled" />
         </el-select>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ total }} 条公示</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="公示对象" min-width="220">
@@ -217,13 +217,10 @@ onMounted(load)
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />

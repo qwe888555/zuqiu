@@ -347,13 +347,4 @@ export function menuEntriesFor(roles: RoleCode[]): MenuEntry[] {
   return visibleSections(roles).flatMap((s) => s.items)
 }
 
-export const ROLE_MENU_LABELS: Record<RoleCode, string> = {
-  TEAM: '学校球队',
-  UNIVERSITY: '高校',
-  CITY: '市州管理员',
-  PROVINCE_REVIEWER: '省级审核员',
-  ATHLETE: '运动员',
-  COACH: '教练员',
-  ADMIN: '系统管理员',
-  MATCH_RECORDER: '比赛记录员',
-}
+export { ROLE_MENU_LABELS } from './labels'

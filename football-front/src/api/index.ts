@@ -78,7 +78,7 @@ export const accountApi = {
   list: (params: Query) => http.get<PageResult<Account>>('/accounts', params),
   create: (data: Query) => http.post<Account>('/accounts', data),
   update: (id: string, data: Query) => http.put<Account>(`/accounts/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/accounts/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/accounts/${id}`, { version }),
   resetPassword: (id: string) => http.post<{ success: boolean }>(`/accounts/${id}/password-reset`),
   invite: () => http.post<{ registrationToken: string; expiresAt: string }>('/accounts/registration-invitations'),
 }
@@ -87,7 +87,7 @@ export const orgApi = {
   list: (params: Query) => http.get<PageResult<Organization>>('/organizations', params),
   create: (data: Query) => http.post<Organization>('/organizations', data),
   update: (id: string, data: Query) => http.put<Organization>(`/organizations/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/organizations/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/organizations/${id}`, { version }),
 }
 
 export const dictApi = {
@@ -95,7 +95,7 @@ export const dictApi = {
   options: (dictType: string) => http.get<OptionItem[]>(`/dictionaries/${dictType}/options`),
   create: (data: Query) => http.post<DictionaryItem>('/dictionary-items', data),
   update: (id: string, data: Query) => http.put<DictionaryItem>(`/dictionary-items/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/dictionary-items/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/dictionary-items/${id}`, { version }),
 }
 
 export const auditApi = {
@@ -103,13 +103,16 @@ export const auditApi = {
 }
 
 export const fileApi = {
-  upload: (file: File, ownerType = 'PERSON', ownerId = '') => {
+  upload: (file: File, ownerType = 'PERSON', ownerId = '', category = 'MATERIAL') => {
     const form = new FormData()
     form.append('file', file)
     form.append('ownerType', ownerType)
     form.append('ownerId', ownerId)
+    form.append('category', category)
     return http.postForm<FileRecord>('/files', form)
   },
+  download: (fileId: string, fileName: string) =>
+    http.download(`/files/${fileId}/content`, fileName),
 }
 
 export const personApi = {
@@ -118,15 +121,15 @@ export const personApi = {
   get: (id: string) => http.get<Person>(`/people/${id}`),
   create: (data: Query) => http.post<Person>('/people', data),
   update: (id: string, data: Query) => http.put<Person>(`/people/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/people/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/people/${id}`, { version }),
 }
 
 export const materialApi = {
   list: (params: Query) => http.get<PageResult<Material>>('/materials', params),
   create: (data: Query) => http.post<Material>('/materials', data),
   update: (id: string, data: Query) => http.put<Material>(`/materials/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/materials/${id}`),
-  review: (id: string, data: { decision: 'APPROVE' | 'REJECT'; reason?: string }) =>
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/materials/${id}`, { version }),
+  review: (id: string, data: { decision: 'APPROVE' | 'REJECT'; reason?: string; version: number }) =>
     http.post<Material>(`/materials/${id}/review`, data),
 }
 
@@ -135,7 +138,7 @@ export const teamApi = {
   get: (id: string) => http.get<Team>(`/teams/${id}`),
   create: (data: Query) => http.post<Team>('/teams', data),
   update: (id: string, data: Query) => http.put<Team>(`/teams/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/teams/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/teams/${id}`, { version }),
   members: (id: string, params: Query) =>
     http.get<PageResult<TeamMember>>(`/teams/${id}/members`, params),
   addMember: (id: string, data: Query) => http.post<TeamMember>(`/teams/${id}/members`, data),
@@ -143,13 +146,13 @@ export const teamApi = {
     http.post<Person[]>(`/teams/${id}/members/search`, { keyword }),
   updateMember: (id: string, memberId: string, data: Query) =>
     http.put<TeamMember>(`/teams/${id}/members/${memberId}`, data),
-  removeMember: (id: string, memberId: string) =>
-    http.delete<{ success: boolean }>(`/teams/${id}/members/${memberId}`),
+  removeMember: (id: string, memberId: string, version?: number) =>
+    http.delete<{ success: boolean }>(`/teams/${id}/members/${memberId}`, { version }),
   coaches: (id: string, params: Query) =>
     http.get<PageResult<TeamCoach>>(`/teams/${id}/coaches`, params),
   addCoach: (id: string, data: Query) => http.post<TeamCoach>(`/teams/${id}/coaches`, data),
-  removeCoach: (id: string, coachId: string) =>
-    http.delete<{ success: boolean }>(`/teams/${id}/coaches/${coachId}`),
+  removeCoach: (id: string, coachId: string, version?: number) =>
+    http.delete<{ success: boolean }>(`/teams/${id}/coaches/${coachId}`, { version }),
   matches: (id: string, params: Query) =>
     http.get<PageResult<Match>>(`/teams/${id}/matches`, params),
 }
@@ -160,15 +163,15 @@ export const eventApi = {
   get: (id: string) => http.get<Event>(`/events/${id}`),
   create: (data: Query) => http.post<Event>('/events', data),
   update: (id: string, data: Query) => http.put<Event>(`/events/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/events/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/events/${id}`, { version }),
   groups: (id: string) => http.get<PageResult<EventGroup>>(`/events/${id}/groups`),
   availableGroups: (id: string) =>
     http.get<EventGroup[]>(`/available-events/${id}/groups`),
   createGroup: (id: string, data: Query) => http.post<EventGroup>(`/events/${id}/groups`, data),
   updateGroup: (id: string, groupId: string, data: Query) =>
     http.put<EventGroup>(`/events/${id}/groups/${groupId}`, data),
-  removeGroup: (id: string, groupId: string) =>
-    http.delete<{ success: boolean }>(`/events/${id}/groups/${groupId}`),
+  removeGroup: (id: string, groupId: string, version?: number) =>
+    http.delete<{ success: boolean }>(`/events/${id}/groups/${groupId}`, { version }),
   formConfig: (params: Query) =>
     http.get<Record<string, unknown>>('/enrollment-form-config', params),
 }
@@ -183,14 +186,14 @@ export const enrollmentApi = {
   get: (id: string) => http.get<EnrollmentDetail>(`/enrollments/${id}`),
   create: (data: Query) => http.post<Enrollment>('/enrollments', data),
   update: (id: string, data: Query) => http.put<Enrollment>(`/enrollments/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/enrollments/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/enrollments/${id}`, { version }),
   players: (id: string, params?: Query) =>
     http.get<PageResult<RosterItem>>(`/enrollments/${id}/players`, params),
   addPlayer: (id: string, data: Query) => http.post<RosterItem>(`/enrollments/${id}/players`, data),
   updatePlayer: (id: string, rid: string, data: Query) =>
     http.put<RosterItem>(`/enrollments/${id}/players/${rid}`, data),
-  removePlayer: (id: string, rid: string) =>
-    http.delete<{ success: boolean }>(`/enrollments/${id}/players/${rid}`),
+  removePlayer: (id: string, rid: string, version?: number) =>
+    http.delete<{ success: boolean }>(`/enrollments/${id}/players/${rid}`, { version }),
   precheck: (id: string) => http.post<PrecheckResult>(`/enrollments/${id}/precheck`),
   submit: (id: string) => http.post<Enrollment>(`/enrollments/${id}/submit`),
   withdraw: (id: string, reason: string) => http.post<Enrollment>(`/enrollments/${id}/withdraw`, { reason }),
@@ -200,11 +203,29 @@ export const enrollmentApi = {
   attachments: (id: string) => http.get<EnrollmentAttachment[]>(`/enrollments/${id}/attachments`),
   addAttachment: (id: string, data: Query) =>
     http.post<EnrollmentAttachment>(`/enrollments/${id}/attachments`, data),
-  removeAttachment: (id: string, aid: string) =>
-    http.delete<{ success: boolean }>(`/enrollments/${id}/attachments/${aid}`),
-  importPlayers: (id: string, mode: 'VALIDATE_ONLY' | 'APPLY_VALID_ROWS') =>
-    http.post<ImportReport>(`/enrollments/${id}/imports/players`, { mode }),
-  importPhotos: (id: string) => http.post<ImportReport>(`/enrollments/${id}/imports/photos`),
+  removeAttachment: (id: string, aid: string, version?: number) =>
+    http.delete<{ success: boolean }>(`/enrollments/${id}/attachments/${aid}`, { version }),
+  importPlayers: (id: string, mode: 'VALIDATE_ONLY' | 'APPLY_VALID_ROWS', file?: File) => {
+    if (file) {
+      const form = new FormData()
+      form.append('mode', mode)
+      form.append('file', file)
+      return http.postForm<ImportReport>(`/enrollments/${id}/imports/players`, form)
+    }
+    return http.post<ImportReport>(`/enrollments/${id}/imports/players`, { mode })
+  },
+  importPhotos: (id: string, file?: File) => {
+    if (file) {
+      const form = new FormData()
+      form.append('file', file)
+      return http.postForm<ImportReport>(`/enrollments/${id}/imports/photos`, form)
+    }
+    return http.post<ImportReport>(`/enrollments/${id}/imports/photos`)
+  },
+  downloadRosterTemplate: () =>
+    http.download('/imports/templates/roster.xlsx', '球员名单导入模板.xlsx'),
+  downloadImportErrors: (batchId: string) =>
+    http.download(`/imports/${batchId}/errors.csv`, `导入错误清单-${batchId}.csv`),
   statistics: (params: Query) => http.get<StatRow[]>('/enrollment-statistics', params),
   downloadRegistration: (id: string, enrollmentNo?: string) =>
     http.download(
@@ -227,7 +248,7 @@ export const matchApi = {
   get: (id: string) => http.get<Match>(`/matches/${id}`),
   create: (data: Query) => http.post<Match>('/matches', data),
   update: (id: string, data: Query) => http.put<Match>(`/matches/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/matches/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/matches/${id}`, { version }),
   publish: (id: string) => http.post<{ success: boolean }>(`/matches/${id}/publish`),
   unpublish: (id: string) => http.post<{ success: boolean }>(`/matches/${id}/unpublish`),
   events: (id: string, params?: Query) =>
@@ -260,7 +281,7 @@ export const contentApi = {
   get: (id: string) => http.get<Content>(`/contents/${id}`),
   create: (data: Query) => http.post<Content>('/contents', data),
   update: (id: string, data: Query) => http.put<Content>(`/contents/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/contents/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/contents/${id}`, { version }),
   publish: (id: string) => http.post<Content>(`/contents/${id}/publish`),
   unpublish: (id: string) => http.post<Content>(`/contents/${id}/unpublish`),
 }
@@ -269,7 +290,7 @@ export const resourceApi = {
   list: (params: Query) => http.get<PageResult<PortalResource>>('/portal-resources', params),
   create: (data: Query) => http.post<PortalResource>('/portal-resources', data),
   update: (id: string, data: Query) => http.put<PortalResource>(`/portal-resources/${id}`, data),
-  remove: (id: string) => http.delete<{ success: boolean }>(`/portal-resources/${id}`),
+  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/portal-resources/${id}`, { version }),
 }
 
 export const publicationApi = {

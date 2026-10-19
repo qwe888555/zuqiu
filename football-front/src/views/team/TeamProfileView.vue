@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Edit, Location, Refresh, User, UserFilled } from '@element-plus/icons-vue'
-import { teamApi } from '../../api'
+import { ElMessage, type UploadRequestOptions } from 'element-plus'
+import { Edit, Location, Refresh, UploadFilled, User, UserFilled } from '@element-plus/icons-vue'
+import { fileApi, teamApi } from '../../api'
 import type { Team } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import { usePermission } from '../../composables/usePermission'
+import { categoryLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 
 const router = useRouter()
@@ -26,7 +27,17 @@ const form = reactive({
   intro: '',
 })
 
-const categoryLabel: Record<string, string> = { PRIMARY: '小学', MIDDLE: '初中', UNIVERSITY: '大学' }
+const media = reactive({
+  flagFileId: '',
+  emblemFileId: '',
+  groupPhotoFileId: '',
+  flagUrl: '',
+  emblemUrl: '',
+  groupPhotoUrl: '',
+})
+
+const uploadingMedia = ref('')
+
 const canEdit = computed(() => can('team.manage'))
 
 async function loadTeam() {
@@ -44,6 +55,14 @@ async function loadTeam() {
       cityName: team.value.cityName || '',
       coachName: team.value.coachName || '',
       intro: team.value.intro || '',
+    })
+    Object.assign(media, {
+      flagFileId: '',
+      emblemFileId: '',
+      groupPhotoFileId: '',
+      flagUrl: team.value.flagUrl || '',
+      emblemUrl: team.value.emblemUrl || '',
+      groupPhotoUrl: team.value.groupPhotoUrl || '',
     })
     editing.value = false
   } catch {
@@ -72,6 +91,46 @@ function cancelEdit() {
       coachName: team.value.coachName || '',
       intro: team.value.intro || '',
     })
+    Object.assign(media, {
+      flagFileId: '',
+      emblemFileId: '',
+      groupPhotoFileId: '',
+      flagUrl: team.value.flagUrl || '',
+      emblemUrl: team.value.emblemUrl || '',
+      groupPhotoUrl: team.value.groupPhotoUrl || '',
+    })
+  }
+}
+
+function uploadFlag(options: UploadRequestOptions) {
+  return uploadMedia('flag', options)
+}
+
+function uploadEmblem(options: UploadRequestOptions) {
+  return uploadMedia('emblem', options)
+}
+
+function uploadGroupPhoto(options: UploadRequestOptions) {
+  return uploadMedia('groupPhoto', options)
+}
+
+async function uploadMedia(
+  kind: 'flag' | 'emblem' | 'groupPhoto',
+  options: UploadRequestOptions,
+) {
+  if (!team.value) return
+  uploadingMedia.value = kind
+  try {
+    const record = await fileApi.upload(options.file, 'TEAM', team.value.id, 'TEAM_MEDIA')
+    const idKey = `${kind}FileId` as const
+    const urlKey = `${kind}Url` as const
+    media[idKey] = record.id
+    media[urlKey] = record.url || URL.createObjectURL(options.file)
+    ElMessage.success('图片上传成功，保存后生效')
+  } catch {
+    // 拦截器提示
+  } finally {
+    uploadingMedia.value = ''
   }
 }
 
@@ -80,7 +139,15 @@ async function save() {
   if (!form.name.trim()) return ElMessage.warning('请填写球队名称')
   saving.value = true
   try {
-    team.value = await teamApi.update(team.value.id, { ...form })
+    team.value = await teamApi.update(team.value.id, {
+      ...form,
+      schoolOrgId: team.value.orgId,
+      groupCategory: team.value.category,
+      flagFileId: media.flagFileId || undefined,
+      emblemFileId: media.emblemFileId || undefined,
+      groupPhotoFileId: media.groupPhotoFileId || undefined,
+      version: team.value.version,
+    })
     ElMessage.success('球队资料已保存')
     editing.value = false
     await loadTeams(team.value.id)
@@ -126,7 +193,10 @@ onMounted(async () => {
     <div v-loading="detailLoading || loading" class="profile-grid">
       <section class="page-card profile-main">
         <div class="team-hero">
-          <span class="team-hero__badge">{{ team?.name?.slice(0, 1) || '队' }}</span>
+          <span class="team-hero__badge">
+            <img v-if="media.emblemUrl" :src="media.emblemUrl" alt="队徽" />
+            <template v-else>{{ team?.name?.slice(0, 1) || '队' }}</template>
+          </span>
           <div class="team-hero__info">
             <div class="team-hero__title">
               <h2>{{ team?.name || '暂无球队' }}</h2>
@@ -134,7 +204,7 @@ onMounted(async () => {
                 {{ team?.status === 'APPROVED' ? '已认证' : '待认证' }}
               </el-tag>
             </div>
-            <p>{{ team?.schoolName || '未绑定学校' }} · {{ categoryLabel[team?.category || ''] || '学段未设置' }}</p>
+            <p>{{ team?.schoolName || '未绑定学校' }} · {{ team?.category ? categoryLabel(team.category) : '学段未设置' }}</p>
             <div class="team-hero__meta">
               <span><el-icon><Location /></el-icon>{{ team?.cityName || '未设置市州' }}</span>
               <span><el-icon><User /></el-icon>主教练 {{ team?.coachName || '未设置' }}</span>
@@ -147,12 +217,31 @@ onMounted(async () => {
           <div class="section-title">球队简介</div>
           <p class="intro-text">{{ team?.intro || '尚未填写球队简介。可介绍球队历史、训练情况与参赛成绩。' }}</p>
 
+          <div class="section-title">球队形象 <small>队徽、队旗与球队合影</small></div>
+          <div class="media-grid">
+            <div class="media-card media-card--emblem">
+              <img v-if="media.emblemUrl" :src="media.emblemUrl" alt="队徽" />
+              <span v-else>队徽</span>
+              <small>队徽</small>
+            </div>
+            <div class="media-card media-card--flag">
+              <img v-if="media.flagUrl" :src="media.flagUrl" alt="队旗" />
+              <span v-else>队旗</span>
+              <small>队旗</small>
+            </div>
+            <div class="media-card media-card--photo">
+              <img v-if="media.groupPhotoUrl" :src="media.groupPhotoUrl" alt="球队合影" />
+              <span v-else>球队合影</span>
+              <small>球队合影</small>
+            </div>
+          </div>
+
           <div class="info-grid">
             <div><span>球队全称</span><strong>{{ team?.name || '—' }}</strong></div>
             <div><span>球队简称</span><strong>{{ team?.shortName || '—' }}</strong></div>
             <div><span>所属学校</span><strong>{{ team?.schoolName || '—' }}</strong></div>
             <div><span>所属市州</span><strong>{{ team?.cityName || '—' }}</strong></div>
-            <div><span>学段</span><strong>{{ categoryLabel[team?.category || ''] || '—' }}</strong></div>
+            <div><span>学段</span><strong>{{ categoryLabel(team?.category) }}</strong></div>
             <div><span>主教练</span><strong>{{ team?.coachName || '—' }}</strong></div>
           </div>
         </template>
@@ -184,6 +273,59 @@ onMounted(async () => {
               show-word-limit
               placeholder="介绍球队历史、训练情况与参赛成绩"
             />
+          </el-form-item>
+          <div class="form-grid">
+            <el-form-item label="队徽">
+              <div class="media-upload">
+                <span class="media-upload__preview">
+                  <img v-if="media.emblemUrl" :src="media.emblemUrl" alt="队徽" />
+                  <template v-else>队徽</template>
+                </span>
+                <el-upload
+                  :show-file-list="false"
+                  :http-request="uploadEmblem"
+                  accept=".jpg,.jpeg,.png"
+                >
+                  <el-button size="small" plain :icon="UploadFilled" :loading="uploadingMedia === 'emblem'">
+                    上传队徽
+                  </el-button>
+                </el-upload>
+              </div>
+            </el-form-item>
+            <el-form-item label="队旗">
+              <div class="media-upload">
+                <span class="media-upload__preview">
+                  <img v-if="media.flagUrl" :src="media.flagUrl" alt="队旗" />
+                  <template v-else>队旗</template>
+                </span>
+                <el-upload
+                  :show-file-list="false"
+                  :http-request="uploadFlag"
+                  accept=".jpg,.jpeg,.png"
+                >
+                  <el-button size="small" plain :icon="UploadFilled" :loading="uploadingMedia === 'flag'">
+                    上传队旗
+                  </el-button>
+                </el-upload>
+              </div>
+            </el-form-item>
+          </div>
+          <el-form-item label="球队合影">
+            <div class="media-upload media-upload--wide">
+              <span class="media-upload__preview media-upload__preview--wide">
+                <img v-if="media.groupPhotoUrl" :src="media.groupPhotoUrl" alt="球队合影" />
+                <template v-else>球队合影</template>
+              </span>
+              <el-upload
+                :show-file-list="false"
+                :http-request="uploadGroupPhoto"
+                accept=".jpg,.jpeg,.png"
+              >
+                <el-button size="small" plain :icon="UploadFilled" :loading="uploadingMedia === 'groupPhoto'">
+                  上传合影
+                </el-button>
+              </el-upload>
+            </div>
           </el-form-item>
           <div class="edit-actions">
             <el-button @click="cancelEdit">取消</el-button>
@@ -251,11 +393,88 @@ onMounted(async () => {
   width: 72px;
   height: 72px;
   flex-shrink: 0;
+  overflow: hidden;
   border-radius: 18px;
   background: linear-gradient(145deg, var(--brand-700), var(--brand-900));
   color: var(--lime);
   font-size: 26px;
   font-weight: 700;
+}
+
+.team-hero__badge img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: 96px 96px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.media-card {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 96px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink-300);
+  font-size: 10px;
+}
+
+.media-card--photo {
+  height: 96px;
+}
+
+.media-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-card small {
+  position: absolute;
+  left: 7px;
+  bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(4, 40, 27, 0.62);
+  color: #fff;
+  font-size: 8.5px;
+}
+
+.media-upload {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.media-upload__preview {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink-300);
+  font-size: 9px;
+}
+
+.media-upload__preview--wide {
+  width: 96px;
+}
+
+.media-upload__preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .team-hero__title {

@@ -7,6 +7,8 @@ import { contentApi } from '../../api'
 import type { Content, ContentType } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<Content[]>([])
@@ -150,7 +152,7 @@ async function removeContent(row: Content) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await contentApi.remove(row.id)
+    await contentApi.remove(row.id, row.version)
     ElMessage.success('内容已删除')
     await load()
   } catch {
@@ -180,7 +182,7 @@ onMounted(load)
     </PageHeader>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'已发布 ' + publishedCount + ' · 草稿 ' + draftCount">
         <el-select v-model="filters.contentType" placeholder="全部类型" clearable @change="search">
           <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
@@ -198,9 +200,7 @@ onMounted(load)
           @clear="search"
         />
         <el-button type="primary" plain @click="search">查询</el-button>
-        <span class="filter-bar__spacer" />
-        <span class="muted">已发布 {{ publishedCount }} · 草稿 {{ draftCount }}</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="标题" min-width="300">
@@ -248,13 +248,10 @@ onMounted(load)
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />

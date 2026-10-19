@@ -116,7 +116,7 @@ async function removeMaterial(row: Material) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await materialApi.remove(row.id)
+    await materialApi.remove(row.id, row.version)
     ElMessage.success('材料已删除')
     await load()
   } catch {

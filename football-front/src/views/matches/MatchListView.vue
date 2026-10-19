@@ -3,12 +3,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Monitor, Plus, Refresh, Search, VideoCamera } from '@element-plus/icons-vue'
+import { Delete, Edit, Monitor, Plus, Refresh, Search, VideoCamera } from '@element-plus/icons-vue'
 import { eventApi, matchApi, teamApi } from '../../api'
 import type { Event, EventGroup, Match, Team } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const router = useRouter()
 const { can } = usePermission()
@@ -22,6 +24,8 @@ const teams = ref<Team[]>([])
 const groups = ref<EventGroup[]>([])
 const createVisible = ref(false)
 const creating = ref(false)
+const editingId = ref('')
+const editingVersion = ref(0)
 
 const filters = reactive({ eventId: '', status: '', keyword: '' })
 
@@ -44,7 +48,11 @@ const form = reactive({
   kickoffAt: '',
   venue: '',
   stage: '',
+  status: 'SCHEDULED',
+  referees: [] as { name: string; role: string; level?: string }[],
 })
+
+const refereeRoles = ['主裁判', '助理裁判', '第四官员', '比赛监督']
 
 async function load() {
   loading.value = true
@@ -96,7 +104,7 @@ function search() {
   load()
 }
 
-function openCreate() {
+function resetForm() {
   form.eventId = filters.eventId || events.value[0]?.id || ''
   form.groupId = ''
   form.homeTeamId = ''
@@ -104,19 +112,56 @@ function openCreate() {
   form.kickoffAt = ''
   form.venue = ''
   form.stage = ''
+  form.status = 'SCHEDULED'
+  form.referees = []
+  editingId.value = ''
+  editingVersion.value = 0
+}
+
+function openCreate() {
+  resetForm()
   createVisible.value = true
   loadGroups()
 }
 
-async function create() {
+async function openEdit(row: Match) {
+  editingId.value = row.id
+  editingVersion.value = row.version
+  form.eventId = row.eventId
+  form.homeTeamId = row.homeTeamId
+  form.awayTeamId = row.awayTeamId
+  form.kickoffAt = dayjs(row.kickoffAt).format('YYYY-MM-DDTHH:mm:ssZ')
+  form.venue = row.venue || ''
+  form.stage = row.stage || ''
+  form.status = row.status
+  form.referees = (row.referees || []).map((referee) => ({ ...referee }))
+  createVisible.value = true
+  await loadGroups()
+  form.groupId = row.groupId
+}
+
+function addReferee() {
+  form.referees.push({ name: '', role: '主裁判', level: '' })
+}
+
+async function saveMatch() {
   if (!form.eventId || !form.groupId) return ElMessage.warning('请选择赛事与组别')
   if (!form.homeTeamId || !form.awayTeamId) return ElMessage.warning('请选择对阵双方')
   if (form.homeTeamId === form.awayTeamId) return ElMessage.warning('对阵双方不能相同')
   if (!form.kickoffAt) return ElMessage.warning('请选择开赛时间')
   creating.value = true
+  const payload = {
+    ...form,
+    referees: form.referees.filter((referee) => referee.name.trim()),
+  }
   try {
-    await matchApi.create({ ...form })
-    ElMessage.success('比赛已创建')
+    if (editingId.value) {
+      await matchApi.update(editingId.value, { ...payload, version: editingVersion.value })
+      ElMessage.success('比赛信息已更新')
+    } else {
+      await matchApi.create(payload)
+      ElMessage.success('比赛已创建')
+    }
     createVisible.value = false
     await load()
   } catch {
@@ -148,7 +193,7 @@ async function removeMatch(row: Match) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await matchApi.remove(row.id)
+    await matchApi.remove(row.id, row.version)
     ElMessage.success('比赛已删除')
     await load()
   } catch {
@@ -176,7 +221,7 @@ onMounted(() => {
     </PageHeader>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + total + ' 场比赛'">
         <el-select v-model="filters.eventId" placeholder="全部赛事" clearable @change="search">
           <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
         </el-select>
@@ -192,9 +237,7 @@ onMounted(() => {
           @clear="search"
         />
         <el-button type="primary" plain @click="search">查询</el-button>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ total }} 场比赛</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="对阵" min-width="260">
@@ -229,7 +272,7 @@ onMounted(() => {
             <span v-else class="muted">未发布</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="canRecord"
@@ -240,6 +283,7 @@ onMounted(() => {
             >
               记录台
             </el-button>
+            <el-button v-if="canManage" link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
             <el-button link type="primary" @click="router.push(`/matches/${row.id}`)">门户预览</el-button>
             <el-button v-if="canPublish" link :type="row.published ? 'warning' : 'success'" @click="togglePublish(row)">
               {{ row.published ? '取消发布' : '发布' }}
@@ -249,13 +293,10 @@ onMounted(() => {
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />
@@ -270,7 +311,7 @@ onMounted(() => {
       <el-button type="primary" plain size="small" @click="router.push('/console/identity')">身份核验</el-button>
     </section>
 
-    <el-dialog v-model="createVisible" title="新建比赛" width="600px">
+    <el-dialog v-model="createVisible" :title="editingId ? '编辑比赛' : '新建比赛'" width="640px">
       <el-form :model="form" label-position="top">
         <div class="form-grid">
           <el-form-item label="赛事">
@@ -305,14 +346,34 @@ onMounted(() => {
           <el-form-item label="阶段">
             <el-input v-model="form.stage" placeholder="如：小组赛第 2 轮" />
           </el-form-item>
+          <el-form-item v-if="editingId" label="比赛状态">
+            <el-select v-model="form.status" style="width: 100%">
+              <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
         </div>
         <el-form-item label="比赛场地">
           <el-input v-model="form.venue" placeholder="如：成都市青羊区体育中心 1 号场" />
         </el-form-item>
+        <el-form-item label="裁判信息">
+          <div class="referee-list">
+            <div v-for="(referee, index) in form.referees" :key="index" class="referee-row">
+              <el-input v-model="referee.name" placeholder="姓名" />
+              <el-select v-model="referee.role" style="width: 130px">
+                <el-option v-for="role in refereeRoles" :key="role" :label="role" :value="role" />
+              </el-select>
+              <el-input v-model="referee.level" placeholder="等级（选填）" style="width: 130px" />
+              <el-button link type="danger" :icon="Delete" @click="form.referees.splice(index, 1)" />
+            </div>
+            <el-button size="small" plain :icon="Plus" @click="addReferee">添加裁判</el-button>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="create">创建比赛</el-button>
+        <el-button type="primary" :loading="creating" @click="saveMatch">
+          {{ editingId ? '保存修改' : '创建比赛' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -404,6 +465,23 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.referee-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.referee-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.referee-row .el-input:first-child {
+  flex: 1;
 }
 
 @media (max-width: 640px) {

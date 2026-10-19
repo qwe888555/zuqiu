@@ -6,6 +6,7 @@ import { orgApi } from '../../api'
 import type { Organization } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 type OrgType = Organization['orgType']
 
@@ -171,7 +172,7 @@ async function removeOrg(row: Organization) {
       '删除组织',
       { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
     )
-    await orgApi.remove(row.id)
+    await orgApi.remove(row.id, row.version)
     ElMessage.success('组织已删除')
     await load()
   } catch {
@@ -203,7 +204,7 @@ onMounted(load)
     </div>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + orgs.length + ' 个组织'">
         <el-input
           v-model="keyword"
           placeholder="搜索名称或编码"
@@ -214,9 +215,7 @@ onMounted(load)
         <el-select v-model="filterType" placeholder="全部层级" clearable>
           <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ orgs.length }} 个组织</span>
-      </div>
+      </FilterBar>
 
       <el-table
         v-loading="loading"

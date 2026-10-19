@@ -5,6 +5,7 @@ import { ElMessage, type FormRules } from 'element-plus'
 import { ArrowRight, Check, InfoFilled } from '@element-plus/icons-vue'
 import { enrollmentApi, eventApi, meApi, teamApi } from '../../api'
 import type { Event, EventGroup, Team } from '../../api/types'
+import { subjectTypeLabel } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
 
@@ -243,7 +244,7 @@ onMounted(loadBase)
                   <div><dt>赛事</dt><dd>{{ selectedEvent?.name || '—' }}</dd></div>
                   <div><dt>组别</dt><dd>{{ selectedGroup?.name || '—' }}</dd></div>
                   <div><dt>参赛球队</dt><dd>{{ selectedTeam?.name || '—' }}</dd></div>
-                  <div><dt>报送主体</dt><dd>{{ subjectType === 'SCHOOL_TEAM' ? '学校球队' : subjectType === 'UNIVERSITY' ? '高校' : '市州代报' }}</dd></div>
+                  <div><dt>报送主体</dt><dd>{{ subjectTypeLabel(subjectType) }}</dd></div>
                   <div><dt>联系人</dt><dd>{{ form.contactName }}</dd></div>
                   <div><dt>联系电话</dt><dd>{{ form.contactPhone }}</dd></div>
                   <div class="full"><dt>备注</dt><dd>{{ form.remarks || '无' }}</dd></div>

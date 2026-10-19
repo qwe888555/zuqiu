@@ -406,6 +406,7 @@ export interface MatchDocument {
   id: string
   matchId: string
   documentType: 'SIGN_IN' | 'SIGNED_RECORD' | 'REFEREE_REPORT'
+  fileId?: string
   fileName: string
   version: number
   createdAt?: string

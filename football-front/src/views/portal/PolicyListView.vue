@@ -4,6 +4,7 @@ import dayjs from 'dayjs'
 import { Document, Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { PublicContent } from '../../api/types'
+import PaginationBar from '../../components/common/PaginationBar.vue'
 
 const loading = ref(false)
 const keyword = ref('')
@@ -97,13 +98,12 @@ onMounted(load)
         <el-empty v-if="!loading && !items.length" description="暂无政策文件" />
       </div>
 
-      <el-pagination
-        v-if="total > 10"
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         :page-size="10"
         :total="total"
         layout="prev, pager, next"
-        background
+        hide-when-single
         @current-change="load"
       />
     </div>

@@ -3,13 +3,15 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Close, Refresh, Search, Stamp } from '@element-plus/icons-vue'
-import { enrollmentApi } from '../../api'
+import { enrollmentApi, fileApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
-import type { Enrollment, ReviewRecord } from '../../api/types'
+import type { Enrollment, EnrollmentAttachment, ReviewRecord } from '../../api/types'
+import { subjectTypeLabel } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
 
 const auth = useAuthStore()
 const loading = ref(false)
@@ -136,6 +138,15 @@ async function reject() {
   }
 }
 
+async function downloadAttachment(attachment: EnrollmentAttachment) {
+  try {
+    const downloaded = await fileApi.download(attachment.fileId, attachment.fileName)
+    ElMessage.success(downloaded ? '文件已开始下载' : '演示环境已模拟下载，接入后端后将下载真实文件')
+  } catch {
+    // 拦截器提示
+  }
+}
+
 function switchStatus(value: string) {
   activeStatus.value = value
   page.value = 1
@@ -246,13 +257,10 @@ onMounted(() => {
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />
@@ -273,7 +281,7 @@ onMounted(() => {
           <section class="drawer-section">
             <h3>报名信息</h3>
             <div class="drawer-grid">
-              <div><span>参赛主体</span><strong>{{ detail.subjectType === 'SCHOOL_TEAM' ? '学校球队' : detail.subjectType === 'UNIVERSITY' ? '高校' : '市州代报' }}</strong></div>
+              <div><span>参赛主体</span><strong>{{ subjectTypeLabel(detail.subjectType) }}</strong></div>
               <div><span>联系人</span><strong>{{ detail.contactName }}</strong></div>
               <div><span>联系电话</span><strong>{{ detail.maskedContactPhone || '—' }}</strong></div>
               <div><span>球员人数</span><strong class="num">{{ detail.playerCount }}</strong></div>
@@ -300,7 +308,7 @@ onMounted(() => {
               <div v-for="att in detail.attachments || []" :key="att.id" class="material">
                 <span class="material__type">{{ att.materialType === 'STAMPED_FORM' ? '盖章报名表' : '学籍证明' }}</span>
                 <strong>{{ att.fileName }}</strong>
-                <el-button size="small" text type="primary">预览</el-button>
+                <el-button size="small" text type="primary" @click="downloadAttachment(att)">下载</el-button>
               </div>
               <el-empty v-if="!(detail.attachments || []).length" description="未上传材料" :image-size="60" />
             </div>

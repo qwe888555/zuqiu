@@ -8,6 +8,7 @@ import type { Material, Person } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<Material[]>([])
@@ -129,7 +130,7 @@ async function removeMaterial(row: Material) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await materialApi.remove(row.id)
+    await materialApi.remove(row.id, row.version)
     ElMessage.success('材料已删除')
     await load()
   } catch {
@@ -161,16 +162,14 @@ onMounted(load)
     </div>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + filteredRows.length + ' 份材料'">
         <el-radio-group v-model="filterStatus">
           <el-radio-button value="">全部</el-radio-button>
           <el-radio-button value="PENDING">待审核</el-radio-button>
           <el-radio-button value="APPROVED">已通过</el-radio-button>
           <el-radio-button value="REJECTED">已驳回</el-radio-button>
         </el-radio-group>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ filteredRows.length }} 份材料</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="filteredRows" style="width: 100%">
         <el-table-column label="材料名称" min-width="260">

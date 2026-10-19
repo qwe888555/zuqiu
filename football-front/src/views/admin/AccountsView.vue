@@ -5,22 +5,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Edit, Key, Link, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { accountApi, orgApi, teamApi } from '../../api'
 import type { Account, Organization, RoleCode, Team } from '../../api/types'
+import { ROLE_LABELS } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const auth = useAuthStore()
-
-const ROLE_LABELS: Record<RoleCode, string> = {
-  TEAM: '中小学球队端',
-  UNIVERSITY: '高校端',
-  CITY: '市州审核端',
-  PROVINCE_REVIEWER: '省级审核端',
-  ATHLETE: '运动员',
-  COACH: '教练员',
-  ADMIN: '管理员',
-  MATCH_RECORDER: '赛事录入员',
-}
 
 const roleOptions = Object.entries(ROLE_LABELS)
   .filter(([value]) => auth.isAdmin || value !== 'ADMIN')
@@ -184,7 +176,7 @@ async function removeAccount(row: Account) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await accountApi.remove(row.id)
+    await accountApi.remove(row.id, row.version)
     ElMessage.success('账号已删除')
     await load()
   } catch {
@@ -243,7 +235,7 @@ onMounted(() => {
     </div>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + total + ' 个账号'">
         <el-input
           v-model="filters.keyword"
           placeholder="账号 / 名称"
@@ -257,9 +249,7 @@ onMounted(() => {
           <el-option v-for="role in roleOptions" :key="role.value" :label="role.label" :value="role.value" />
         </el-select>
         <el-button type="primary" plain @click="search">查询</el-button>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ total }} 个账号</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="账号" min-width="210">
@@ -315,13 +305,10 @@ onMounted(() => {
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />

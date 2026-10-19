@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
+import PaginationBar from '../../components/common/PaginationBar.vue'
 
 interface PublicCard {
   publicationId: string
@@ -115,13 +116,12 @@ onMounted(load)
         <el-empty v-if="!loading && !items.length" description="暂无公示信息" class="empty" />
       </div>
 
-      <el-pagination
-        v-if="total > 12"
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         :page-size="12"
         :total="total"
         layout="prev, pager, next"
-        background
+        hide-when-single
         @current-change="load"
       />
 

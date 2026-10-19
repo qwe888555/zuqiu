@@ -5,6 +5,7 @@ import { Calendar, Location } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { PublicMatch } from '../../api/types'
 import StatusTag from '../../components/common/StatusTag.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
 
 const loading = ref(false)
 const items = ref<PublicMatch[]>([])
@@ -170,13 +171,12 @@ onMounted(load)
         </el-empty>
       </div>
 
-      <el-pagination
-        v-if="total > 20"
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         :page-size="20"
         :total="total"
         layout="prev, pager, next"
-        background
+        hide-when-single
         @current-change="load"
       />
     </div>

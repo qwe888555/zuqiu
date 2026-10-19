@@ -1460,6 +1460,7 @@ on('POST', '/matches/:id/documents', ({ params, body }) => {
     id: nextId('doc'),
     matchId: params.id,
     documentType: body.documentType || 'SIGN_IN',
+    fileId: str(body.fileId),
     fileName: str(body.fileName) || '比赛文件.pdf',
     version: 1,
     createdAt: now(),

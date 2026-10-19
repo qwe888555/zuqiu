@@ -6,8 +6,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { enrollmentApi, eventApi } from '../../api'
 import type { Enrollment, Event, PrecheckIssue } from '../../api/types'
+import { subjectTypeLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -34,9 +37,6 @@ const statusOptions = [
   { value: 'REJECTED', label: '已驳回' },
   { value: 'WITHDRAWN', label: '已撤回' },
 ]
-
-const subjectLabel = (type: string) =>
-  type === 'SCHOOL_TEAM' ? '学校球队' : type === 'UNIVERSITY' ? '高校' : '市州代报'
 
 async function load() {
   loading.value = true
@@ -151,7 +151,7 @@ onMounted(() => {
     </PageHeader>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + total + ' 条报名记录'">
         <el-select v-model="filters.eventId" placeholder="全部赛事" clearable @change="search">
           <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
         </el-select>
@@ -168,9 +168,7 @@ onMounted(() => {
         />
         <el-button type="primary" plain @click="search">查询</el-button>
         <el-button text @click="reset">重置</el-button>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ total }} 条报名记录</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="参赛球队" min-width="200">
@@ -179,7 +177,7 @@ onMounted(() => {
               <span class="team-cell__avatar">{{ row.teamName.slice(0, 1) }}</span>
               <div>
                 <strong>{{ row.teamName }}</strong>
-                <small>{{ subjectLabel(row.subjectType) }}</small>
+                <small>{{ subjectTypeLabel(row.subjectType) }}</small>
               </div>
             </div>
           </template>
@@ -237,13 +235,10 @@ onMounted(() => {
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />

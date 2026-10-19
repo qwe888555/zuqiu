@@ -2,20 +2,30 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { OfficeBuilding, Refresh, Search, Trophy, User, View } from '@element-plus/icons-vue'
-import { orgApi, teamApi } from '../../api'
-import type { GroupCategory, Match, Organization, Team, TeamCoach, TeamMember } from '../../api/types'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Delete,
+  Download,
+  OfficeBuilding,
+  Plus,
+  Refresh,
+  Search,
+  Trophy,
+  User,
+  View,
+} from '@element-plus/icons-vue'
+import { fileApi, materialApi, orgApi, teamApi } from '../../api'
+import type { GroupCategory, Match, Material, Organization, Team, TeamCoach, TeamMember } from '../../api/types'
+import { CATEGORY_GROUP_LABELS } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const router = useRouter()
 
-const categoryLabels: Record<GroupCategory, string> = {
-  PRIMARY: '小学组',
-  MIDDLE: '初中组',
-  UNIVERSITY: '大学组',
-}
+const categoryLabels = CATEGORY_GROUP_LABELS
 
 const rows = ref<Team[]>([])
 const total = ref(0)
@@ -23,7 +33,19 @@ const page = ref(1)
 const pageSize = ref(12)
 const loading = ref(false)
 const cities = ref<Organization[]>([])
+const schools = ref<Organization[]>([])
 const filters = reactive({ cityOrgId: '', category: '' as '' | GroupCategory, keyword: '' })
+
+const createVisible = ref(false)
+const creating = ref(false)
+const createForm = reactive({
+  name: '',
+  orgId: '',
+  cityOrgId: '',
+  category: 'MIDDLE' as GroupCategory,
+  coachName: '',
+  intro: '',
+})
 
 const drawerVisible = ref(false)
 const detailLoading = ref(false)
@@ -31,6 +53,9 @@ const detail = ref<Team | null>(null)
 const members = ref<TeamMember[]>([])
 const coaches = ref<TeamCoach[]>([])
 const recentMatches = ref<Match[]>([])
+const materials = ref<Material[]>([])
+const materialsLoading = ref(false)
+const reviewingMaterialId = ref('')
 const activeTab = ref('roster')
 
 const citiesCovered = computed(
@@ -47,6 +72,59 @@ async function loadCities() {
     cities.value = res.items
   } catch {
     cities.value = []
+  }
+}
+
+async function loadSchools() {
+  try {
+    const res = await orgApi.list({ page: 1, pageSize: 500 })
+    schools.value = res.items.filter(
+      (org) => org.enabled && (org.orgType === 'SCHOOL' || org.orgType === 'UNIVERSITY'),
+    )
+  } catch {
+    schools.value = []
+  }
+}
+
+function openCreate() {
+  createForm.name = ''
+  createForm.orgId = ''
+  createForm.cityOrgId = filters.cityOrgId || ''
+  createForm.category = 'MIDDLE'
+  createForm.coachName = ''
+  createForm.intro = ''
+  createVisible.value = true
+}
+
+async function createTeam() {
+  if (!createForm.name.trim()) return ElMessage.warning('请填写球队名称')
+  if (!createForm.orgId) return ElMessage.warning('请选择所属学校')
+  creating.value = true
+  try {
+    await teamApi.create({ ...createForm })
+    ElMessage.success('球队已创建')
+    createVisible.value = false
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    creating.value = false
+  }
+}
+
+async function removeTeam(team: Team) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除球队「${team.name}」？存在报名或比赛记录时将无法删除。`,
+      '删除球队',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+    await teamApi.remove(team.id, team.version)
+    ElMessage.success('球队已删除')
+    drawerVisible.value = false
+    await load()
+  } catch {
+    // 取消
   }
 }
 
@@ -109,6 +187,7 @@ async function openDetail(team: Team) {
   members.value = []
   coaches.value = []
   recentMatches.value = []
+  materials.value = []
   try {
     const [teamDetail, memberRes, coachRes, matchRes] = await Promise.all([
       teamApi.get(team.id),
@@ -125,6 +204,66 @@ async function openDetail(team: Team) {
   } finally {
     detailLoading.value = false
   }
+  await loadMaterials(team.id)
+}
+
+async function loadMaterials(teamId: string) {
+  materialsLoading.value = true
+  try {
+    const res = await materialApi.list({
+      page: 1,
+      pageSize: 100,
+      ownerType: 'TEAM',
+      ownerId: teamId,
+    })
+    materials.value = res.items
+  } catch {
+    materials.value = []
+  } finally {
+    materialsLoading.value = false
+  }
+}
+
+async function reviewMaterial(material: Material, decision: 'APPROVE' | 'REJECT') {
+  let reason = ''
+  if (decision === 'REJECT') {
+    try {
+      const { value } = await ElMessageBox.prompt('请填写驳回原因，球队将收到通知并可重新上传。', '驳回材料', {
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：训练计划缺少教练签字',
+        inputValidator: (val) => (val && val.trim().length >= 4 ? true : '请至少填写 4 个字符'),
+      })
+      reason = value || ''
+    } catch {
+      return
+    }
+  }
+  reviewingMaterialId.value = material.id
+  try {
+    await materialApi.review(material.id, {
+      decision,
+      reason: reason || undefined,
+      version: material.version,
+    })
+    ElMessage.success(decision === 'APPROVE' ? '材料已通过' : '材料已驳回')
+    if (detail.value) await loadMaterials(detail.value.id)
+  } catch {
+    // 拦截器提示
+  } finally {
+    reviewingMaterialId.value = ''
+  }
+}
+
+async function downloadMaterial(material: Material) {
+  const fileId = material.fileIds?.[0]
+  if (!fileId) return ElMessage.warning('该材料暂无可下载文件，请球队重新上传')
+  try {
+    const downloaded = await fileApi.download(fileId, material.fileName || '球队材料')
+    ElMessage.success(downloaded ? '文件已开始下载' : '演示环境已模拟下载，接入后端后将下载真实文件')
+  } catch {
+    // 拦截器提示
+  }
 }
 
 function goMatches() {
@@ -133,7 +272,7 @@ function goMatches() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCities(), load()])
+  await Promise.all([loadCities(), loadSchools(), load()])
 })
 </script>
 
@@ -146,6 +285,7 @@ onMounted(async () => {
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button type="primary" plain :icon="Plus" @click="openCreate">新建球队</el-button>
         <el-button type="primary" :icon="Trophy" @click="goMatches">前往赛事编排</el-button>
       </template>
     </PageHeader>
@@ -157,7 +297,7 @@ onMounted(async () => {
       <StatCard label="已认证" :value="approvedCount" hint="当前页已通过队伍" :icon="User" tone="amber" />
     </div>
 
-    <div class="filter-bar">
+    <FilterBar>
       <el-select
         v-model="filters.cityOrgId"
         placeholder="全部市州"
@@ -189,7 +329,7 @@ onMounted(async () => {
       />
       <el-button type="primary" :icon="Search" @click="search">查询</el-button>
       <el-button @click="resetFilters">重置</el-button>
-    </div>
+    </FilterBar>
 
     <section class="page-card table-card">
       <el-table v-loading="loading" :data="rows" row-key="id" style="width: 100%">
@@ -239,12 +379,11 @@ onMounted(async () => {
 
       <div class="pagination-row">
         <span class="pagination-hint">共 {{ total }} 支队伍</span>
-        <el-pagination
-          background
-          layout="prev, pager, next"
-          :current-page="page"
+        <PaginationBar
+          :page="page"
           :page-size="pageSize"
           :total="total"
+          layout="prev, pager, next"
           @current-change="changePage"
         />
       </div>
@@ -333,14 +472,117 @@ onMounted(async () => {
             </div>
             <div v-else class="drawer-empty">暂无比赛安排</div>
           </el-tab-pane>
+
+          <el-tab-pane name="materials">
+            <template #label>
+              球队材料
+              <el-badge
+                v-if="materials.filter((m) => m.reviewStatus === 'PENDING').length"
+                :value="materials.filter((m) => m.reviewStatus === 'PENDING').length"
+                type="warning"
+                class="tab-badge"
+              />
+            </template>
+            <el-table v-loading="materialsLoading" :data="materials" size="small" max-height="340">
+              <el-table-column prop="materialLabel" label="类型" width="90" />
+              <el-table-column label="材料标题" min-width="160">
+                <template #default="{ row }">
+                  <strong class="material-title">{{ row.title }}</strong>
+                  <small v-if="row.fileName" class="material-file">{{ row.fileName }}</small>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" width="90">
+                <template #default="{ row }">
+                  <StatusTag :status="row.reviewStatus" kind="review" />
+                </template>
+              </el-table-column>
+              <el-table-column label="提交时间" width="110">
+                <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="150" align="right">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.fileName"
+                    link
+                    type="primary"
+                    :icon="Download"
+                    @click="downloadMaterial(row)"
+                  >
+                    下载
+                  </el-button>
+                  <template v-if="row.reviewStatus === 'PENDING'">
+                    <el-button
+                      link
+                      type="success"
+                      :loading="reviewingMaterialId === row.id"
+                      @click="reviewMaterial(row, 'APPROVE')"
+                    >
+                      通过
+                    </el-button>
+                    <el-button
+                      link
+                      type="danger"
+                      :loading="reviewingMaterialId === row.id"
+                      @click="reviewMaterial(row, 'REJECT')"
+                    >
+                      驳回
+                    </el-button>
+                  </template>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div class="drawer-empty">
+                  暂无球队材料。队徽、队旗、合影在球队档案中维护，训练计划与荣誉可在此审核。
+                </div>
+              </template>
+            </el-table>
+          </el-tab-pane>
         </el-tabs>
 
         <div class="drawer-actions">
+          <el-button type="danger" plain :icon="Delete" @click="detail && removeTeam(detail)">删除球队</el-button>
           <el-button @click="drawerVisible = false">关闭</el-button>
           <el-button type="primary" :icon="Trophy" @click="goMatches">查看全部赛程</el-button>
         </div>
       </div>
     </el-drawer>
+
+    <el-dialog v-model="createVisible" title="新建球队" width="560px">
+      <el-form :model="createForm" label-position="top">
+        <el-form-item label="球队名称" required>
+          <el-input v-model="createForm.name" placeholder="如：成都七中初中男子足球队" />
+        </el-form-item>
+        <div class="create-grid">
+          <el-form-item label="所属学校" required>
+            <el-select v-model="createForm.orgId" filterable placeholder="选择学校" style="width: 100%">
+              <el-option v-for="org in schools" :key="org.id" :label="org.name" :value="org.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="所属市州">
+            <el-select v-model="createForm.cityOrgId" clearable filterable placeholder="选择市州" style="width: 100%">
+              <el-option v-for="city in cities" :key="city.id" :label="city.name" :value="city.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="参赛组别" required>
+            <el-select v-model="createForm.category" style="width: 100%">
+              <el-option label="小学组" value="PRIMARY" />
+              <el-option label="初中组" value="MIDDLE" />
+              <el-option label="大学组" value="UNIVERSITY" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="主教练">
+            <el-input v-model="createForm.coachName" placeholder="主教练姓名" />
+          </el-form-item>
+        </div>
+        <el-form-item label="球队简介">
+          <el-input v-model="createForm.intro" type="textarea" :rows="3" placeholder="选填" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="createTeam">创建球队</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -503,6 +745,24 @@ onMounted(async () => {
   color: var(--ink-300);
 }
 
+.tab-badge {
+  margin-left: 4px;
+  transform: translateY(-1px);
+}
+
+.material-title {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.material-file {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  color: var(--ink-300);
+}
+
 .match-list {
   display: flex;
   flex-direction: column;
@@ -566,9 +826,19 @@ onMounted(async () => {
   border-top: 1px dashed var(--line);
 }
 
+.create-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+
 @media (max-width: 720px) {
   .drawer-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .create-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

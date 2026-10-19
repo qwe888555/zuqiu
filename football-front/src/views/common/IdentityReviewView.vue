@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Camera, Check, Close, Refresh, VideoCamera } from '@element-plus/icons-vue'
-import { identityApi } from '../../api'
-import type { IdentityCheck } from '../../api/types'
+import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
+import { Camera, Check, Close, Plus, Refresh, UploadFilled, VideoCamera } from '@element-plus/icons-vue'
+import { enrollmentApi, fileApi, identityApi, matchApi } from '../../api'
+import type { Enrollment, IdentityCheck, Match, RosterItem } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import PaginationBar from '../../components/common/PaginationBar.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<IdentityCheck[]>([])
@@ -19,6 +21,23 @@ const filters = reactive({ manualStatus: '', machineStatus: '' })
 const drawerVisible = ref(false)
 const reviewing = ref(false)
 const detail = ref<IdentityCheck | null>(null)
+
+const createVisible = ref(false)
+const creating = ref(false)
+const matches = ref<Match[]>([])
+const enrollmentOptions = ref<Enrollment[]>([])
+const rosterOptions = ref<RosterItem[]>([])
+const loadingEnrollments = ref(false)
+const loadingRoster = ref(false)
+const photoUploading = ref(false)
+const photoFileName = ref('')
+const createForm = reactive({
+  matchId: '',
+  enrollmentId: '',
+  athleteId: '',
+  mode: 'FACE_COMPARE' as 'FACE_COMPARE' | 'MANUAL',
+  capturedPhotoFileId: '',
+})
 
 const machineLabel: Record<string, string> = {
   NOT_RUN: '未比对',
@@ -114,6 +133,91 @@ async function review(decision: 'CONFIRM_IDENTITY' | 'REJECT_IDENTITY') {
   }
 }
 
+async function openCreate() {
+  createForm.matchId = ''
+  createForm.enrollmentId = ''
+  createForm.athleteId = ''
+  createForm.mode = 'FACE_COMPARE'
+  createForm.capturedPhotoFileId = ''
+  photoFileName.value = ''
+  enrollmentOptions.value = []
+  rosterOptions.value = []
+  createVisible.value = true
+  try {
+    const res = await matchApi.list({ page: 1, pageSize: 50 })
+    matches.value = res.items
+  } catch {
+    matches.value = []
+  }
+}
+
+async function onMatchChange() {
+  createForm.enrollmentId = ''
+  createForm.athleteId = ''
+  enrollmentOptions.value = []
+  rosterOptions.value = []
+  const match = matches.value.find((item) => item.id === createForm.matchId)
+  if (!match) return
+  loadingEnrollments.value = true
+  try {
+    const res = await enrollmentApi.list({ page: 1, pageSize: 100, eventId: match.eventId })
+    enrollmentOptions.value = res.items.filter((item) => item.status === 'APPROVED')
+  } catch {
+    enrollmentOptions.value = []
+  } finally {
+    loadingEnrollments.value = false
+  }
+}
+
+async function onEnrollmentChange() {
+  createForm.athleteId = ''
+  rosterOptions.value = []
+  if (!createForm.enrollmentId) return
+  loadingRoster.value = true
+  try {
+    const res = await enrollmentApi.players(createForm.enrollmentId, { page: 1, pageSize: 100 })
+    rosterOptions.value = res.items
+  } catch {
+    rosterOptions.value = []
+  } finally {
+    loadingRoster.value = false
+  }
+}
+
+async function uploadCapturePhoto(options: UploadRequestOptions) {
+  if (!createForm.matchId) return ElMessage.warning('请先选择比赛')
+  photoUploading.value = true
+  try {
+    const record = await fileApi.upload(options.file, 'MATCH', createForm.matchId, 'CAPTURE_PHOTO')
+    createForm.capturedPhotoFileId = record.id
+    photoFileName.value = record.originalName
+    ElMessage.success('现场照片已上传')
+  } catch {
+    // 拦截器提示
+  } finally {
+    photoUploading.value = false
+  }
+}
+
+async function createCheck() {
+  if (!createForm.matchId) return ElMessage.warning('请选择比赛')
+  if (!createForm.enrollmentId) return ElMessage.warning('请选择报名单')
+  if (!createForm.athleteId) return ElMessage.warning('请选择球员')
+  if (!createForm.capturedPhotoFileId) return ElMessage.warning('请上传现场采集照片')
+  creating.value = true
+  try {
+    const created = await identityApi.create({ ...createForm })
+    ElMessage.success('身份核验记录已创建')
+    createVisible.value = false
+    await load()
+    await openDetail(created)
+  } catch {
+    // 拦截器提示
+  } finally {
+    creating.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -126,6 +230,7 @@ onMounted(load)
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreate">发起核验</el-button>
       </template>
     </PageHeader>
 
@@ -137,7 +242,7 @@ onMounted(load)
     </div>
 
     <section class="page-card">
-      <div class="filter-bar">
+      <FilterBar :summary="'共 ' + total + ' 条记录'">
         <el-select v-model="filters.manualStatus" placeholder="人工核验状态" clearable @change="search">
           <el-option label="未复核" value="NOT_REVIEWED" />
           <el-option label="待核验" value="PENDING" />
@@ -150,9 +255,7 @@ onMounted(load)
           <el-option label="未比对" value="NOT_RUN" />
           <el-option label="服务不可用" value="UNAVAILABLE" />
         </el-select>
-        <span class="filter-bar__spacer" />
-        <span class="muted">共 {{ total }} 条记录</span>
-      </div>
+      </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="运动员" min-width="180">
@@ -200,13 +303,10 @@ onMounted(load)
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="page"
+      <PaginationBar
+        v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        :page-sizes="[10, 20, 50]"
-        layout="total, sizes, prev, pager, next"
-        background
         @current-change="load"
         @size-change="search"
       />
@@ -262,6 +362,95 @@ onMounted(load)
         </footer>
       </div>
     </el-drawer>
+
+    <el-dialog v-model="createVisible" title="发起现场身份核验" width="580px">
+      <el-form :model="createForm" label-position="top">
+        <el-form-item label="比赛" required>
+          <el-select
+            v-model="createForm.matchId"
+            placeholder="选择当前现场比赛"
+            filterable
+            style="width: 100%"
+            @change="onMatchChange"
+          >
+            <el-option
+              v-for="match in matches"
+              :key="match.id"
+              :label="`${match.homeTeamName} vs ${match.awayTeamName} · ${dayjs(match.kickoffAt).format('MM-DD HH:mm')}`"
+              :value="match.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="报名单" required>
+          <el-select
+            v-model="createForm.enrollmentId"
+            placeholder="选择已通过的报名单"
+            filterable
+            :loading="loadingEnrollments"
+            :disabled="!createForm.matchId"
+            style="width: 100%"
+            @change="onEnrollmentChange"
+          >
+            <el-option
+              v-for="item in enrollmentOptions"
+              :key="item.id"
+              :label="`${item.teamName} · ${item.groupName}`"
+              :value="item.id"
+            />
+          </el-select>
+          <span v-if="createForm.matchId && !loadingEnrollments && !enrollmentOptions.length" class="form-hint">
+            该赛事暂无已通过审核的报名单
+          </span>
+        </el-form-item>
+        <el-form-item label="球员" required>
+          <el-select
+            v-model="createForm.athleteId"
+            placeholder="从报名名单中选择球员"
+            filterable
+            :loading="loadingRoster"
+            :disabled="!createForm.enrollmentId"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in rosterOptions"
+              :key="item.athleteId"
+              :label="`${item.athleteName} · ${item.jerseyNumber ?? '—'} 号 · ${item.position || '位置未填'}`"
+              :value="item.athleteId"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="核验方式">
+          <el-radio-group v-model="createForm.mode">
+            <el-radio-button value="FACE_COMPARE">人脸比对</el-radio-button>
+            <el-radio-button value="MANUAL">人工核验</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="现场采集照片" required>
+          <el-upload
+            class="capture-uploader"
+            drag
+            :show-file-list="false"
+            :disabled="!createForm.matchId"
+            :http-request="uploadCapturePhoto"
+            accept=".jpg,.jpeg,.png"
+          >
+            <el-icon class="capture-uploader__icon"><UploadFilled /></el-icon>
+            <div v-if="photoFileName" class="capture-uploader__file">
+              已上传：<strong>{{ photoFileName }}</strong>
+            </div>
+            <template v-else>
+              <div class="capture-uploader__text">拍摄或上传现场照片</div>
+              <div class="capture-uploader__hint">照片将与人脸库比对，请确保面部清晰无遮挡</div>
+            </template>
+          </el-upload>
+          <span v-if="photoUploading" class="muted">照片上传中…</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="createCheck">发起核验</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -426,5 +615,49 @@ onMounted(load)
 
 .identity-detail :deep(.el-alert) {
   margin-top: 14px;
+}
+
+.form-hint {
+  margin-top: 4px;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.capture-uploader {
+  width: 100%;
+}
+
+.capture-uploader :deep(.el-upload-dragger) {
+  padding: 22px 16px;
+  border-color: var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.capture-uploader__icon {
+  font-size: 26px;
+  color: var(--brand-500);
+}
+
+.capture-uploader__text {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.capture-uploader__hint {
+  margin-top: 5px;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.capture-uploader__file {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.capture-uploader__file strong {
+  color: var(--brand-700);
 }
 </style>

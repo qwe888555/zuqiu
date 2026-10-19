@@ -146,16 +146,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
   },
 ]
 
-export const ROLE_LABELS: Record<string, string> = {
-  TEAM: '中小学球队端',
-  UNIVERSITY: '高校端',
-  CITY: '市州审核端',
-  PROVINCE_REVIEWER: '省级审核端',
-  ATHLETE: '运动员',
-  COACH: '教练员',
-  ADMIN: '管理员',
-  MATCH_RECORDER: '赛事录入员',
-}
+export { ROLE_LABELS } from '../config/labels'
 
 export const organizations: Organization[] = [
   { id: 'org_province', name: '四川省教育厅', orgType: 'PROVINCE', code: 'SC', enabled: true, version: 1 },
