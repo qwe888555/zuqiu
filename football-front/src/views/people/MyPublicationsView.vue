@@ -1,0 +1,264 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import dayjs from 'dayjs'
+import { Medal, Refresh, View } from '@element-plus/icons-vue'
+import { meApi, publicationApi } from '../../api'
+import type { Person, Publication } from '../../api/types'
+import PageHeader from '../../components/common/PageHeader.vue'
+import StatusTag from '../../components/common/StatusTag.vue'
+
+const loading = ref(false)
+const person = ref<Person | null>(null)
+const rows = ref<Publication[]>([])
+const activeFilter = ref<'all' | 'active' | 'cancelled'>('all')
+
+const mine = computed(() => {
+  const personId = person.value?.id
+  if (!personId) return []
+  return rows.value.filter((item) => item.targetId === personId)
+})
+
+const filtered = computed(() => {
+  if (activeFilter.value === 'active') return mine.value.filter((item) => item.active)
+  if (activeFilter.value === 'cancelled') return mine.value.filter((item) => !item.active)
+  return mine.value
+})
+
+const activeCount = computed(() => mine.value.filter((item) => item.active).length)
+
+async function load() {
+  loading.value = true
+  try {
+    person.value = await meApi.profile()
+    const res = await publicationApi.list({ page: 1, pageSize: 200 })
+    rows.value = res.items
+  } catch {
+    rows.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
+</script>
+
+<template>
+  <div class="page">
+    <PageHeader
+      title="我的公示"
+      eyebrow="MY PUBLICATIONS"
+      description="查看本人被纳入赛事公示的信息。公示内容仅供赛事展示，不包含身份证号、手机号等敏感信息。"
+    >
+      <template #actions>
+        <el-button :icon="Refresh" @click="load">刷新</el-button>
+      </template>
+    </PageHeader>
+
+    <section class="publication-hero">
+      <div class="publication-hero__icon"><el-icon :size="26"><Medal /></el-icon></div>
+      <div>
+        <span>PUBLIC PROFILE</span>
+        <h2>{{ person?.realName || '—' }}</h2>
+        <p>{{ person?.schoolName || '学校未登记' }} · 公示中的运动员 / 教练员信息</p>
+      </div>
+      <div class="publication-hero__count">
+        <strong class="num">{{ activeCount }}</strong>
+        <span>条公示中</span>
+      </div>
+    </section>
+
+    <section class="page-card">
+      <div class="filter-bar">
+        <el-radio-group v-model="activeFilter">
+          <el-radio-button value="all">全部</el-radio-button>
+          <el-radio-button value="active">公示中</el-radio-button>
+          <el-radio-button value="cancelled">已撤销</el-radio-button>
+        </el-radio-group>
+        <span class="filter-bar__spacer" />
+        <span class="muted">共 {{ filtered.length }} 条记录</span>
+      </div>
+
+      <div v-loading="loading" class="publication-list">
+        <article v-for="item in filtered" :key="item.id" class="publication-card">
+          <div class="publication-card__head">
+            <span class="publication-card__tag">
+              {{ item.targetType === 'ATHLETE' ? '运动员' : item.targetType === 'COACH' ? '教练员' : '参赛单位' }}
+            </span>
+            <StatusTag :status="item.active" kind="publication" />
+          </div>
+          <h3>{{ item.targetName || person?.realName || '—' }}</h3>
+          <p>{{ item.teamName || '球队未登记' }} · {{ item.groupName || '组别未登记' }}</p>
+          <div class="publication-card__meta">
+            <span>市州：{{ item.cityName || '—' }}</span>
+            <span>公示时间：{{ item.publishedAt ? dayjs(item.publishedAt).format('YYYY-MM-DD') : '—' }}</span>
+          </div>
+          <div v-if="!item.active" class="publication-card__cancelled">
+            撤销于 {{ item.cancelledAt ? dayjs(item.cancelledAt).format('YYYY-MM-DD') : '—' }}
+          </div>
+        </article>
+        <el-empty v-if="!loading && !filtered.length" description="暂无公示记录" :image-size="90" />
+      </div>
+    </section>
+
+    <section class="page-card privacy-card">
+      <div class="privacy-card__icon"><el-icon :size="19"><View /></el-icon></div>
+      <div>
+        <strong>公示信息说明</strong>
+        <p>
+          公示仅展示姓名、球队、组别与市州等必要信息。如需更正或撤销公示，请联系赛事管理员处理；公示撤销后不再展示在门户。
+        </p>
+      </div>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+.publication-hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 24px 28px;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(200, 241, 105, 0.2), transparent 50%),
+    linear-gradient(135deg, #075c40, #053c2b);
+  color: #fff;
+}
+
+.publication-hero__icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--lime);
+}
+
+.publication-hero > div:nth-child(2) {
+  flex: 1;
+}
+
+.publication-hero span {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.publication-hero h2 {
+  margin-top: 5px;
+  font-size: 22px;
+}
+
+.publication-hero p {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.publication-hero__count {
+  text-align: right;
+}
+
+.publication-hero__count strong {
+  display: block;
+  font-size: 32px;
+  color: var(--lime);
+}
+
+.publication-hero__count span {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+}
+
+.publication-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.publication-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.publication-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.publication-card__tag {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.publication-card h3 {
+  margin-top: 12px;
+  font-size: 16px;
+}
+
+.publication-card > p {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--ink-500);
+}
+
+.publication-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+  font-size: 10px;
+  color: var(--ink-500);
+}
+
+.publication-card__cancelled {
+  margin-top: 10px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: #f8f1f1;
+  font-size: 9.5px;
+  color: #a06565;
+}
+
+.privacy-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 18px 20px;
+}
+
+.privacy-card__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+}
+
+.privacy-card strong {
+  font-size: 12.5px;
+}
+
+.privacy-card p {
+  margin-top: 4px;
+  font-size: 10.5px;
+  line-height: 1.8;
+  color: var(--ink-500);
+}
+</style>
