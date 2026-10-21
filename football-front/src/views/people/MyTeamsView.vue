@@ -29,7 +29,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="我的球队"
-      eyebrow="MY TEAMS"
       description="查看当前账号关联的球队。球队资料、球员名单由球队管理员维护，如有出入可通过所属队伍记录反馈。"
     >
       <template #actions>
@@ -81,7 +80,7 @@ onMounted(load)
 .team-card {
   padding: 22px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: #fff;
 }
 
@@ -96,9 +95,9 @@ onMounted(load)
   place-items: center;
   width: 52px;
   height: 52px;
-  border-radius: 14px;
-  background: linear-gradient(145deg, var(--brand-700), var(--brand-900));
-  color: var(--lime);
+  border-radius: var(--radius-md);
+  background: var(--brand-700);
+  color: #fff;
   font-size: 19px;
   font-weight: 700;
 }

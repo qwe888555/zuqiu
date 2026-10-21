@@ -159,7 +159,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="数据字典"
-      eyebrow="DICTIONARY"
       description="维护组别、场上位置、材料类型等枚举数据。停用后新的业务表单不再展示该项，历史数据保持可读。"
     >
       <template #actions>

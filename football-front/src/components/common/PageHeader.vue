@@ -6,10 +6,9 @@ withDefaults(
   defineProps<{
     title: string
     description?: string
-    eyebrow?: string
     showBack?: boolean
   }>(),
-  { description: '', eyebrow: '', showBack: false },
+  { description: '', showBack: false },
 )
 
 const router = useRouter()
@@ -22,7 +21,6 @@ const router = useRouter()
         <el-icon><ArrowLeft /></el-icon>
       </button>
       <div>
-        <span v-if="eyebrow" class="page-header__eyebrow">{{ eyebrow }}</span>
         <h1>{{ title }}</h1>
         <p v-if="description">{{ description }}</p>
       </div>
@@ -36,7 +34,7 @@ const router = useRouter()
 <style scoped>
 .page-header {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
   flex-wrap: wrap;
@@ -48,26 +46,15 @@ const router = useRouter()
   gap: 12px;
 }
 
-.page-header__eyebrow {
-  display: block;
-  margin-bottom: 5px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: var(--brand-600);
-  text-transform: uppercase;
-}
-
 .page-header h1 {
-  font-size: 25px;
-  line-height: 1.2;
-  letter-spacing: 0.01em;
+  font-size: 22px;
+  line-height: 1.3;
   color: var(--ink-900);
 }
 
 .page-header p {
-  margin-top: 7px;
-  max-width: 720px;
+  margin-top: 6px;
+  max-width: 760px;
   font-size: 12.5px;
   line-height: 1.7;
   color: var(--ink-500);
@@ -88,7 +75,7 @@ const router = useRouter()
   height: 36px;
   margin-top: 3px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 6px;
   background: #fff;
   color: var(--ink-700);
   cursor: pointer;
@@ -101,7 +88,7 @@ const router = useRouter()
 
 @media (max-width: 640px) {
   .page-header h1 {
-    font-size: 21px;
+    font-size: 20px;
   }
 }
 </style>

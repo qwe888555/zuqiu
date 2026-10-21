@@ -211,7 +211,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="比赛管理"
-      eyebrow="MATCH OPERATIONS"
       description="查看赛程与赛果。记录员进入记录台提交进球、判罚、换人事件，并维护图文直播。"
     >
       <template #actions>
@@ -430,20 +429,22 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 18px 22px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #075c40, #064a35);
-  color: #fff;
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand-700);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  color: var(--ink-900);
 }
 
 .broadcast-banner__icon {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: rgba(200, 241, 105, 0.14);
-  color: var(--lime);
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  background: var(--brand-50);
+  color: var(--brand-700);
 }
 
 .broadcast-banner div {
@@ -451,14 +452,14 @@ onMounted(() => {
 }
 
 .broadcast-banner strong {
-  font-size: 13.5px;
+  font-size: 13px;
 }
 
 .broadcast-banner p {
   margin-top: 3px;
   font-size: 10.5px;
   line-height: 1.7;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--ink-500);
 }
 
 .form-grid {

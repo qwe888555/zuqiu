@@ -18,14 +18,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../layouts/PortalLayout.vue'),
     children: [
       { path: '', name: 'portal-home', component: () => import('../views/portal/HomeView.vue'), meta: { title: '首页' } },
-      { path: 'news', name: 'news', component: () => import('../views/portal/NewsListView.vue'), meta: { title: '新闻资讯' } },
+      { path: 'news', name: 'news', component: () => import('../views/portal/NewsListView.vue'), meta: { title: '赛事资讯' } },
       { path: 'news/:id', name: 'news-detail', component: () => import('../views/portal/ContentDetailView.vue'), meta: { title: '新闻详情' } },
       { path: 'policies', name: 'policies', component: () => import('../views/portal/PolicyListView.vue'), meta: { title: '政策公告' } },
       { path: 'policies/:id', name: 'policy-detail', component: () => import('../views/portal/ContentDetailView.vue'), meta: { title: '政策详情' } },
-      { path: 'matches', name: 'portal-matches', component: () => import('../views/portal/PortalMatchesView.vue'), meta: { title: '赛事中心' } },
+      { path: 'matches', name: 'portal-matches', component: () => import('../views/portal/PortalMatchesView.vue'), meta: { title: '赛程与比分' } },
       { path: 'matches/:id', name: 'portal-match-detail', component: () => import('../views/portal/PublicMatchDetailView.vue'), meta: { title: '比赛详情' } },
       { path: 'rankings', name: 'rankings', component: () => import('../views/portal/RankingsView.vue'), meta: { title: '射手榜' } },
-      { path: 'publications', name: 'portal-publications', component: () => import('../views/portal/PublicationsView.vue'), meta: { title: '公示信息' } },
+      { path: 'publications', name: 'portal-publications', component: () => import('../views/portal/PublicationsView.vue'), meta: { title: '公示查询' } },
     ],
   },
   {

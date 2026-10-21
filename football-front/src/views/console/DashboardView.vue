@@ -194,22 +194,23 @@ onMounted(load)
   <div class="page dashboard" v-loading="loading">
     <section class="welcome-card">
       <div class="welcome-card__body">
-        <span class="welcome-card__eyebrow">2026 赛季 · {{ auth.roles.includes('ADMIN') ? 'ADMIN CONSOLE' : 'WORKSPACE' }}</span>
+        <span class="welcome-card__eyebrow">2026 赛季 · {{ auth.roles.includes('ADMIN') ? '管理中心' : '工作台' }}</span>
         <h1>{{ greeting }}，{{ auth.displayName }}</h1>
         <p>{{ roleText }}</p>
         <div class="welcome-card__meta">
           <span><el-icon><Calendar /></el-icon>{{ today }}</span>
           <span class="dot" />
           <span>{{ auth.user?.orgName || '省级联赛组委会' }}</span>
-          <span v-if="app.unreadCount" class="unread-pill">{{ app.unreadCount }} 条未读消息</span>
         </div>
       </div>
-      <div class="welcome-card__art" aria-hidden="true">
-        <span class="ring ring--1" />
-        <span class="ring ring--2" />
-        <span class="ball">⚽</span>
-        <span class="pitch-line" />
-      </div>
+      <button v-if="app.unreadCount" type="button" class="welcome-card__notice" @click="go('/console/messages')">
+        <span class="notice-count num">{{ app.unreadCount }}</span>
+        <span class="notice-text">
+          条未读消息
+          <small>查看组委会通知与审核结果</small>
+        </span>
+        <el-icon><ArrowRight /></el-icon>
+      </button>
     </section>
 
     <div class="stat-grid">
@@ -338,7 +339,7 @@ onMounted(load)
         </section>
 
         <section class="page-card season-card">
-          <span class="season-card__eyebrow">SEASON PROGRESS</span>
+          <span class="season-card__eyebrow">赛季进度</span>
           <h3>2026 赛季进行中</h3>
           <div class="season-progress">
             <div class="season-progress__bar"><span style="width: 62%" /></div>
@@ -364,47 +365,43 @@ onMounted(load)
 
 <style scoped>
 .dashboard {
-  gap: 20px;
+  gap: 16px;
 }
 
 .welcome-card {
-  position: relative;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 30px;
-  padding: 30px 34px;
-  border-radius: 20px;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 82% 18%, rgba(200, 241, 105, 0.18), transparent 34%),
-    linear-gradient(135deg, #075c40 0%, #064a35 58%, #043c2b 100%);
-  color: #fff;
+  gap: 24px;
+  padding: 22px 24px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand-700);
+  border-radius: var(--radius-lg);
+  background: #fff;
 }
 
 .welcome-card__body {
-  position: relative;
-  z-index: 2;
-  max-width: 640px;
+  min-width: 0;
+  max-width: 660px;
 }
 
 .welcome-card__eyebrow {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  color: var(--lime);
+  font-size: 11px;
+  color: var(--ink-500);
 }
 
 .welcome-card h1 {
-  margin-top: 10px;
-  font-size: 28px;
-  letter-spacing: 0.02em;
+  margin-top: 6px;
+  font-size: 23px;
+  font-weight: 700;
+  color: var(--ink-900);
 }
 
 .welcome-card p {
-  margin-top: 9px;
+  margin-top: 7px;
   font-size: 12.5px;
-  line-height: 1.8;
-  color: rgba(255, 255, 255, 0.58);
+  line-height: 1.7;
+  color: var(--ink-500);
 }
 
 .welcome-card__meta {
@@ -412,9 +409,9 @@ onMounted(load)
   align-items: center;
   flex-wrap: wrap;
   gap: 9px;
-  margin-top: 18px;
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.45);
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--ink-300);
 }
 
 .welcome-card__meta span {
@@ -427,61 +424,56 @@ onMounted(load)
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--line-strong);
 }
 
-.unread-pill {
-  margin-left: 4px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: rgba(200, 241, 105, 0.14);
-  color: var(--lime) !important;
+.welcome-card__notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink-700);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
 }
 
-.welcome-card__art {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
+.welcome-card__notice:hover {
+  border-color: var(--brand-500);
+  background: var(--brand-50);
 }
 
-.ring {
-  position: absolute;
-  border: 1px solid rgba(200, 241, 105, 0.14);
-  border-radius: 50%;
+.welcome-card__notice .el-icon {
+  color: var(--ink-300);
 }
 
-.ring--1 {
-  width: 260px;
-  height: 260px;
-  right: -40px;
-  top: -80px;
+.notice-count {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--brand-700);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
 }
 
-.ring--2 {
-  width: 380px;
-  height: 380px;
-  right: -100px;
-  top: -140px;
+.notice-text {
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 
-.ball {
-  position: absolute;
-  right: 100px;
-  bottom: 22px;
-  font-size: 56px;
-  opacity: 0.16;
-  transform: rotate(-12deg);
-}
-
-.pitch-line {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 48%;
-  height: 100%;
-  background:
-    linear-gradient(90deg, transparent 49.6%, rgba(255, 255, 255, 0.06) 50%, transparent 50.4%),
-    radial-gradient(circle at 100% 50%, transparent 64px, rgba(255, 255, 255, 0.06) 65px, transparent 66px);
+.notice-text small {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--ink-300);
 }
 
 .team-cell {
@@ -495,7 +487,7 @@ onMounted(load)
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 9px;
+  border-radius: 6px;
   background: var(--brand-50);
   color: var(--brand-700);
   font-size: 12px;
@@ -533,7 +525,7 @@ onMounted(load)
 
 .mini-row--link {
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 6px;
   padding-left: 6px;
   padding-right: 6px;
   margin: 0 -6px;
@@ -549,7 +541,7 @@ onMounted(load)
   width: 34px;
   height: 34px;
   flex-shrink: 0;
-  border-radius: 9px;
+  border-radius: 6px;
   background: var(--brand-50);
   color: var(--brand-700);
 }
@@ -596,7 +588,7 @@ onMounted(load)
   gap: 11px;
   padding: 10px;
   border: none;
-  border-radius: 11px;
+  border-radius: 6px;
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -610,10 +602,10 @@ onMounted(load)
 .quick-item__icon {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--brand-50);
   color: var(--brand-700);
 }
@@ -646,18 +638,16 @@ onMounted(load)
 }
 
 .season-card {
-  background: linear-gradient(160deg, #f4fbf7, #ffffff);
+  background: #fff;
 }
 
 .season-card__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: var(--brand-600);
+  font-size: 10.5px;
+  color: var(--ink-500);
 }
 
 .season-card h3 {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 16px;
 }
 
@@ -676,7 +666,7 @@ onMounted(load)
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--brand-700), var(--brand-500));
+  background: var(--brand-700);
 }
 
 .season-progress__meta {
@@ -719,7 +709,7 @@ onMounted(load)
   margin-top: 14px;
   padding: 9px 11px;
   border: none;
-  border-radius: 9px;
+  border-radius: 6px;
   background: var(--brand-50);
   color: var(--brand-700);
   font-size: 11px;
@@ -729,15 +719,17 @@ onMounted(load)
 
 @media (max-width: 760px) {
   .welcome-card {
-    padding: 24px 20px;
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 18px;
   }
 
   .welcome-card h1 {
-    font-size: 22px;
+    font-size: 20px;
   }
 
-  .welcome-card__art {
-    display: none;
+  .welcome-card__notice {
+    width: 100%;
   }
 }
 </style>

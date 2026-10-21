@@ -1,22 +1,32 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, type UploadRequestOptions } from 'element-plus'
-import { Edit, Location, Refresh, UploadFilled, User, UserFilled } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
+import { Edit, Location, Plus, Refresh, UploadFilled, User, UserFilled } from '@element-plus/icons-vue'
 import { fileApi, teamApi } from '../../api'
-import type { Team } from '../../api/types'
+import type { GroupCategory, Team } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import { usePermission } from '../../composables/usePermission'
-import { categoryLabel } from '../../config/labels'
+import { CATEGORY_GROUP_LABELS, categoryLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 
 const router = useRouter()
 const { can } = usePermission()
-const { teams, teamId, loading, loadTeams } = useTeamScope()
+const { auth, teams, teamId, loading, loadTeams } = useTeamScope()
 const team = ref<Team | null>(null)
 const detailLoading = ref(false)
 const editing = ref(false)
 const saving = ref(false)
+const createVisible = ref(false)
+const creating = ref(false)
+const removing = ref(false)
+const createForm = reactive({
+  name: '',
+  category: 'MIDDLE' as GroupCategory,
+  intro: '',
+})
+
+const categoryOptions = Object.entries(CATEGORY_GROUP_LABELS).map(([value, label]) => ({ value, label }))
 
 const form = reactive({
   name: '',
@@ -158,6 +168,57 @@ async function save() {
   }
 }
 
+function openCreate() {
+  createForm.name = ''
+  createForm.category = 'MIDDLE'
+  createForm.intro = ''
+  createVisible.value = true
+}
+
+async function createTeam() {
+  if (!createForm.name.trim()) return ElMessage.warning('请填写球队名称')
+  if (!auth.user?.orgId) return ElMessage.warning('当前账号未绑定学校，无法创建球队')
+  creating.value = true
+  try {
+    const created = await teamApi.create({
+      name: createForm.name.trim(),
+      schoolOrgId: auth.user.orgId,
+      groupCategory: createForm.category,
+      intro: createForm.intro || undefined,
+    })
+    ElMessage.success('球队已创建')
+    createVisible.value = false
+    await loadTeams(created.id)
+    await loadTeam()
+  } catch {
+    // 拦截器提示
+  } finally {
+    creating.value = false
+  }
+}
+
+async function removeTeam() {
+  if (!team.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确认删除球队「${team.value.name}」？存在报名或比赛记录时将无法删除。`,
+      '删除球队',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+    removing.value = true
+    await teamApi.remove(team.value.id, team.value.version)
+    ElMessage.success('球队已删除')
+    team.value = null
+    editing.value = false
+    await loadTeams()
+    await loadTeam()
+  } catch {
+    // 取消或接口错误
+  } finally {
+    removing.value = false
+  }
+}
+
 async function refresh() {
   await loadTeams(teamId.value)
   await loadTeam()
@@ -173,7 +234,6 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="球队资料"
-      eyebrow="TEAM PROFILE"
       description="维护球队名称、学校归属与简介。球队资料将在报名审核、门户公示与比赛介绍中展示。"
     >
       <template #actions>
@@ -186,7 +246,8 @@ onMounted(async () => {
           <el-option v-for="item in teams" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-button :icon="Refresh" @click="refresh">刷新</el-button>
-        <el-button v-if="canEdit && !editing" type="primary" :icon="Edit" @click="startEdit">编辑资料</el-button>
+        <el-button v-if="canEdit" type="primary" plain :icon="Plus" @click="openCreate">新建球队</el-button>
+        <el-button v-if="canEdit && team && !editing" type="primary" :icon="Edit" @click="startEdit">编辑资料</el-button>
       </template>
     </PageHeader>
 
@@ -350,11 +411,21 @@ onMounted(async () => {
               <span>球队材料</span>
               <small>资质与荣誉</small>
             </button>
+            <button
+              v-if="canEdit && team"
+              type="button"
+              class="side-link side-link--danger"
+              :disabled="removing"
+              @click="removeTeam"
+            >
+              <span>删除球队</span>
+              <small>{{ removing ? '处理中…' : '不可恢复' }}</small>
+            </button>
           </div>
         </div>
 
         <div class="page-card side-card side-card--tip">
-          <span class="side-card__eyebrow">CHECKLIST</span>
+          <span class="side-card__eyebrow">资料清单</span>
           <h3>资料完善度</h3>
           <ul>
             <li :class="{ done: team?.schoolName }">绑定所属学校</li>
@@ -365,6 +436,33 @@ onMounted(async () => {
         </div>
       </aside>
     </div>
+
+    <el-dialog v-model="createVisible" title="新建球队" width="520px">
+      <el-form :model="createForm" label-position="top">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="球队归属当前账号所在学校"
+          :description="auth.user?.orgName || '当前账号未绑定学校'"
+        />
+        <el-form-item label="球队名称" required>
+          <el-input v-model="createForm.name" placeholder="如：成都七中初中男子足球队" />
+        </el-form-item>
+        <el-form-item label="参赛组别" required>
+          <el-select v-model="createForm.category" style="width: 100%">
+            <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="球队简介">
+          <el-input v-model="createForm.intro" type="textarea" :rows="3" placeholder="选填" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="createTeam">创建球队</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -394,9 +492,9 @@ onMounted(async () => {
   height: 72px;
   flex-shrink: 0;
   overflow: hidden;
-  border-radius: 18px;
-  background: linear-gradient(145deg, var(--brand-700), var(--brand-900));
-  color: var(--lime);
+  border-radius: var(--radius-md);
+  background: var(--brand-700);
+  color: #fff;
   font-size: 26px;
   font-weight: 700;
 }
@@ -583,15 +681,29 @@ onMounted(async () => {
   color: var(--ink-300);
 }
 
+.side-link--danger {
+  color: #b34545;
+  border-color: #f0d6d6;
+}
+
+.side-link--danger:hover {
+  border-color: #d86969;
+  background: #fdf6f6;
+}
+
+.side-link--danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .side-card--tip {
   background: var(--lime-soft);
   border-color: #dcefb9;
 }
 
 .side-card__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: #5b7310;
 }
 

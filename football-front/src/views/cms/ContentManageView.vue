@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit, Plus, Refresh, Search, View } from '@element-plus/icons-vue'
-import { contentApi } from '../../api'
-import type { Content, ContentType } from '../../api/types'
+import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
+import { Delete, Edit, Plus, Refresh, Search, UploadFilled, View } from '@element-plus/icons-vue'
+import { contentApi, dictApi, eventApi, fileApi } from '../../api'
+import type { Content, ContentType, Event, EventGroup, OptionItem } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
@@ -16,13 +16,21 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 
-const filters = reactive({ contentType: '', status: '', keyword: '' })
+const filters = reactive({ contentType: '', eventCategory: '', eventId: '', groupId: '', status: '', keyword: '' })
+const events = ref<Event[]>([])
+const filterGroups = ref<EventGroup[]>([])
+const formGroups = ref<EventGroup[]>([])
+const eventCategories = ref<OptionItem[]>([])
 
 const dialogVisible = ref(false)
 const previewVisible = ref(false)
 const editingId = ref<string | null>(null)
+const editingVersion = ref(0)
 const saving = ref(false)
 const preview = ref<Content | null>(null)
+const coverFile = ref<File | null>(null)
+const coverPreview = ref('')
+const uploadingCover = ref(false)
 
 const form = reactive({
   contentType: 'NEWS' as ContentType,
@@ -30,6 +38,9 @@ const form = reactive({
   summary: '',
   bodyHtml: '',
   coverUrl: '',
+  coverFileId: '',
+  eventId: '',
+  groupId: '',
   pinned: false,
   policyDocumentNo: '',
   policyEffectiveFrom: '',
@@ -60,6 +71,9 @@ async function load() {
       page: page.value,
       pageSize: pageSize.value,
       contentType: filters.contentType || undefined,
+      eventCategory: filters.eventCategory || undefined,
+      eventId: filters.eventId || undefined,
+      groupId: filters.groupId || undefined,
       status: filters.status || undefined,
       keyword: filters.keyword || undefined,
     })
@@ -77,36 +91,133 @@ function search() {
   load()
 }
 
-function openCreate() {
-  editingId.value = null
+async function loadEvents() {
+  try {
+    const res = await eventApi.list({ page: 1, pageSize: 100 })
+    events.value = res.items
+  } catch {
+    events.value = []
+  }
+}
+
+async function loadEventCategories() {
+  try {
+    eventCategories.value = await dictApi.options('EVENT_CATEGORY')
+  } catch {
+    eventCategories.value = []
+  }
+}
+
+async function loadFilterGroups(eventId: string) {
+  if (!eventId) {
+    filterGroups.value = []
+    return
+  }
+  try {
+    filterGroups.value = await eventApi.groups(eventId).then((res) => res.items)
+  } catch {
+    filterGroups.value = []
+  }
+}
+
+async function loadFormGroups(eventId: string) {
+  if (!eventId) {
+    formGroups.value = []
+    return
+  }
+  try {
+    formGroups.value = await eventApi.groups(eventId).then((res) => res.items)
+  } catch {
+    formGroups.value = []
+  }
+}
+
+async function changeFilterEvent(eventId: string) {
+  filters.groupId = ''
+  await loadFilterGroups(eventId)
+  search()
+}
+
+async function changeFormEvent(eventId: string) {
+  form.groupId = ''
+  await loadFormGroups(eventId)
+}
+
+function resetFilters() {
+  filters.contentType = ''
+  filters.eventCategory = ''
+  filters.eventId = ''
+  filters.groupId = ''
+  filters.status = ''
+  filters.keyword = ''
+  filterGroups.value = []
+  search()
+}
+
+function resetForm() {
   Object.assign(form, {
     contentType: 'NEWS',
     title: '',
     summary: '',
     bodyHtml: '',
     coverUrl: '',
+    coverFileId: '',
+    eventId: '',
+    groupId: '',
     pinned: false,
     policyDocumentNo: '',
     policyEffectiveFrom: '',
     policyEffectiveTo: '',
   })
+  formGroups.value = []
+  coverFile.value = null
+  coverPreview.value = ''
+}
+
+function openCreate() {
+  editingId.value = null
+  editingVersion.value = 0
+  resetForm()
   dialogVisible.value = true
 }
 
 function openEdit(row: Content) {
   editingId.value = row.id
+  editingVersion.value = row.version
   Object.assign(form, {
     contentType: row.contentType,
     title: row.title,
     summary: row.summary || '',
     bodyHtml: row.bodyHtml,
     coverUrl: row.coverUrl || '',
+    coverFileId: row.coverFileId || '',
+    eventId: row.eventId || '',
+    groupId: row.groupId || '',
     pinned: row.pinned || false,
     policyDocumentNo: row.policyDocumentNo || '',
     policyEffectiveFrom: row.policyEffectiveFrom || '',
     policyEffectiveTo: row.policyEffectiveTo || '',
   })
+  coverFile.value = null
+  coverPreview.value = row.coverUrl || ''
+  loadFormGroups(row.eventId || '')
   dialogVisible.value = true
+}
+
+async function pickCover(options: UploadRequestOptions) {
+  const file = options.file
+  if (!/\.(jpg|jpeg|png|webp)$/i.test(file.name) && !file.type.startsWith('image/')) {
+    ElMessage.warning('请选择 JPG、PNG 或 WebP 图片')
+    return
+  }
+  coverFile.value = file
+  coverPreview.value = URL.createObjectURL(file)
+}
+
+function clearCover() {
+  coverFile.value = null
+  form.coverFileId = ''
+  coverPreview.value = form.coverUrl || ''
 }
 
 async function save() {
@@ -114,11 +225,42 @@ async function save() {
   if (!form.bodyHtml.trim()) return ElMessage.warning('请填写正文内容')
   saving.value = true
   try {
+    const payload = {
+      contentType: form.contentType,
+      title: form.title,
+      summary: form.summary || undefined,
+      bodyHtml: form.bodyHtml,
+      eventId: form.eventId || undefined,
+      groupId: form.groupId || undefined,
+      policyDocumentNo: form.policyDocumentNo || undefined,
+      policyEffectiveFrom: form.policyEffectiveFrom || undefined,
+      policyEffectiveTo: form.policyEffectiveTo || undefined,
+      pinned: form.pinned,
+    }
     if (editingId.value) {
-      await contentApi.update(editingId.value, { ...form })
+      let coverFileId = form.coverFileId || undefined
+      if (coverFile.value) {
+        uploadingCover.value = true
+        const record = await fileApi.upload(coverFile.value, 'CONTENT', editingId.value, 'CMS_IMAGE')
+        coverFileId = record.id
+      }
+      await contentApi.update(editingId.value, {
+        ...payload,
+        coverFileId,
+        version: editingVersion.value,
+      })
       ElMessage.success('内容已更新')
     } else {
-      await contentApi.create({ ...form })
+      const created = await contentApi.create(payload)
+      if (coverFile.value) {
+        uploadingCover.value = true
+        const record = await fileApi.upload(coverFile.value, 'CONTENT', created.id, 'CMS_IMAGE')
+        await contentApi.update(created.id, {
+          ...payload,
+          coverFileId: record.id,
+          version: created.version,
+        })
+      }
       ElMessage.success('内容已创建，当前为草稿')
     }
     dialogVisible.value = false
@@ -127,6 +269,7 @@ async function save() {
     // 拦截器提示
   } finally {
     saving.value = false
+    uploadingCover.value = false
   }
 }
 
@@ -165,14 +308,17 @@ function openPreview(row: Content) {
   previewVisible.value = true
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadEvents()
+  loadEventCategories()
+})
 </script>
 
 <template>
   <div class="page">
     <PageHeader
       title="内容管理"
-      eyebrow="CONTENT MANAGEMENT"
       description="维护门户新闻、政策公告、精彩瞬间与最佳阵容。发布前请确认正文与封面无误，政策公告需填写文号与有效期。"
     >
       <template #actions>
@@ -185,6 +331,27 @@ onMounted(load)
       <FilterBar :summary="'已发布 ' + publishedCount + ' · 草稿 ' + draftCount">
         <el-select v-model="filters.contentType" placeholder="全部类型" clearable @change="search">
           <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
+        <el-select v-model="filters.eventCategory" placeholder="全部赛事类别" clearable @change="search">
+          <el-option v-for="item in eventCategories" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
+        <el-select
+          v-model="filters.eventId"
+          placeholder="全部赛事"
+          clearable
+          filterable
+          @change="changeFilterEvent"
+        >
+          <el-option v-for="item in events" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
+        <el-select
+          v-model="filters.groupId"
+          placeholder="全部组别"
+          clearable
+          :disabled="!filters.eventId"
+          @change="search"
+        >
+          <el-option v-for="item in filterGroups" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-select v-model="filters.status" placeholder="全部状态" clearable @change="search">
           <el-option label="草稿" value="DRAFT" />
@@ -200,6 +367,7 @@ onMounted(load)
           @clear="search"
         />
         <el-button type="primary" plain @click="search">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
       </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
@@ -265,10 +433,51 @@ onMounted(load)
               <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
-          <el-form-item label="封面图地址">
-            <el-input v-model="form.coverUrl" placeholder="https://..." />
+          <el-form-item label="关联赛事">
+            <el-select
+              v-model="form.eventId"
+              placeholder="选填，可关联赛事"
+              clearable
+              filterable
+              style="width: 100%"
+              @change="changeFormEvent"
+            >
+              <el-option v-for="item in events" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="关联组别">
+            <el-select
+              v-model="form.groupId"
+              placeholder="选填，需先选择赛事"
+              clearable
+              :disabled="!form.eventId"
+              style="width: 100%"
+            >
+              <el-option v-for="item in formGroups" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
           </el-form-item>
         </div>
+        <el-form-item label="封面图">
+          <div class="cover-upload">
+            <el-upload
+              :show-file-list="false"
+              :http-request="pickCover"
+              accept=".jpg,.jpeg,.png,.webp"
+            >
+              <div class="cover-upload__box">
+                <img v-if="coverPreview" :src="coverPreview" alt="封面预览" />
+                <template v-else>
+                  <el-icon><UploadFilled /></el-icon>
+                  <span>点击上传封面</span>
+                </template>
+              </div>
+            </el-upload>
+            <div class="cover-upload__hint">
+              <span>建议尺寸 16:9，支持 JPG / PNG / WebP，保存时统一上传。</span>
+              <el-button v-if="coverPreview" link type="danger" @click="clearCover">移除</el-button>
+            </div>
+          </div>
+        </el-form-item>
         <el-form-item label="标题" required>
           <el-input v-model="form.title" maxlength="80" show-word-limit placeholder="请输入内容标题" />
         </el-form-item>
@@ -315,7 +524,9 @@ onMounted(load)
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存内容</el-button>
+        <el-button type="primary" :loading="saving" @click="save">
+          {{ uploadingCover ? '封面上传中…' : '保存内容' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -395,6 +606,45 @@ onMounted(load)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.cover-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cover-upload__box {
+  display: grid;
+  place-items: center;
+  width: 240px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--brand-500);
+  font-size: 10px;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.cover-upload__box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cover-upload__box .el-icon {
+  font-size: 24px;
+}
+
+.cover-upload__hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 9.5px;
+  color: var(--ink-300);
 }
 
 .date-range {

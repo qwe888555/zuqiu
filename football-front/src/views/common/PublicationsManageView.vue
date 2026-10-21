@@ -3,8 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Medal, Plus, Refresh, Search } from '@element-plus/icons-vue'
-import { enrollmentApi, personApi, publicationApi } from '../../api'
-import type { Enrollment, Person, Publication } from '../../api/types'
+import { enrollmentApi, eventApi, orgApi, personApi, publicationApi } from '../../api'
+import type { Enrollment, Event, EventGroup, Organization, Person, Publication } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
@@ -16,14 +16,25 @@ const rows = ref<Publication[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
-const filters = reactive({ targetType: '', active: '' })
+const filters = reactive({ targetType: '', eventId: '', groupId: '', cityOrgId: '', active: '' })
+const events = ref<Event[]>([])
+const filterGroups = ref<EventGroup[]>([])
+const cities = ref<Organization[]>([])
+
+interface Candidate {
+  id: string
+  name: string
+  sub: string
+  eventId?: string
+  groupId?: string
+}
 
 const dialogVisible = ref(false)
 const saving = ref(false)
 const searching = ref(false)
 const searchKeyword = ref('')
-const candidates = ref<{ id: string; name: string; sub: string }[]>([])
-const selectedTarget = ref<{ id: string; name: string; sub: string } | null>(null)
+const candidates = ref<Candidate[]>([])
+const selectedTarget = ref<Candidate | null>(null)
 const form = reactive({
   targetType: 'ATHLETE',
   keyword: '',
@@ -52,6 +63,9 @@ async function load() {
       page: page.value,
       pageSize: pageSize.value,
       targetType: filters.targetType || undefined,
+      eventId: filters.eventId || undefined,
+      groupId: filters.groupId || undefined,
+      cityOrgId: filters.cityOrgId || undefined,
       active: filters.active === '' ? undefined : filters.active === 'active',
     })
     rows.value = res.items
@@ -66,6 +80,54 @@ async function load() {
 function search() {
   page.value = 1
   load()
+}
+
+function eventName(eventId?: string) {
+  if (!eventId) return '—'
+  return events.value.find((item) => item.id === eventId)?.name || '赛事未匹配'
+}
+
+async function loadEvents() {
+  try {
+    const res = await eventApi.list({ page: 1, pageSize: 100 })
+    events.value = res.items
+  } catch {
+    events.value = []
+  }
+}
+
+async function loadCities() {
+  try {
+    const res = await orgApi.list({ page: 1, pageSize: 100, orgType: 'CITY' })
+    cities.value = res.items
+  } catch {
+    cities.value = []
+  }
+}
+
+async function changeFilterEvent(eventId: string) {
+  filters.groupId = ''
+  if (!eventId) {
+    filterGroups.value = []
+  } else {
+    try {
+      const res = await eventApi.groups(eventId)
+      filterGroups.value = res.items
+    } catch {
+      filterGroups.value = []
+    }
+  }
+  search()
+}
+
+function resetFilters() {
+  filters.targetType = ''
+  filters.eventId = ''
+  filters.groupId = ''
+  filters.cityOrgId = ''
+  filters.active = ''
+  filterGroups.value = []
+  search()
 }
 
 function openCreate() {
@@ -91,6 +153,8 @@ async function doSearch() {
         id: item.id,
         name: item.teamName,
         sub: `${item.eventName} · ${item.groupName}`,
+        eventId: item.eventId,
+        groupId: item.groupId,
       }))
     } else {
       const res = await personApi.search({ keyword: searchKeyword.value.trim() })
@@ -117,6 +181,8 @@ async function create() {
     await publicationApi.create({
       targetType: form.targetType,
       targetId: selectedTarget.value.id,
+      eventId: form.targetType === 'ENROLLMENT' ? selectedTarget.value.eventId : undefined,
+      groupId: form.targetType === 'ENROLLMENT' ? selectedTarget.value.groupId : undefined,
     })
     ElMessage.success('公示已发布')
     dialogVisible.value = false
@@ -130,12 +196,20 @@ async function create() {
 
 async function cancel(row: Publication) {
   try {
-    await ElMessageBox.confirm(`确认撤销「${row.targetName || '该对象'}」的公示？撤销后将不再展示在门户。`, '撤销公示', {
-      confirmButtonText: '确认撤销',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
-    await publicationApi.cancel(row.id)
+    const { value } = await ElMessageBox.prompt(
+      `确认撤销「${row.targetName || '该对象'}」的公示？撤销后将不再展示在门户，请填写撤销原因。`,
+      '撤销公示',
+      {
+        confirmButtonText: '确认撤销',
+        cancelButtonText: '取消',
+        type: 'warning',
+        inputType: 'textarea',
+        inputPlaceholder: '请填写撤销原因（不少于 4 个字）',
+        inputValidator: (input: string) =>
+          (input && input.trim().length >= 4) || '撤销原因至少填写 4 个字',
+      },
+    )
+    await publicationApi.cancel(row.id, { version: row.version, reason: value.trim() })
     ElMessage.success('公示已撤销')
     await load()
   } catch {
@@ -143,14 +217,17 @@ async function cancel(row: Publication) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadEvents()
+  loadCities()
+})
 </script>
 
 <template>
   <div class="page">
     <PageHeader
       title="公示管理"
-      eyebrow="PUBLICATION MANAGEMENT"
       description="管理门户公示的运动员、教练员与参赛单位名单。公示仅展示必要信息，撤销后立即从门户下线。"
     >
       <template #actions>
@@ -171,10 +248,32 @@ onMounted(load)
         <el-select v-model="filters.targetType" placeholder="全部对象" clearable @change="search">
           <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
+        <el-select
+          v-model="filters.eventId"
+          placeholder="全部赛事"
+          clearable
+          filterable
+          @change="changeFilterEvent"
+        >
+          <el-option v-for="item in events" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
+        <el-select
+          v-model="filters.groupId"
+          placeholder="全部组别"
+          clearable
+          :disabled="!filters.eventId"
+          @change="search"
+        >
+          <el-option v-for="item in filterGroups" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
+        <el-select v-model="filters.cityOrgId" placeholder="全部市州" clearable filterable @change="search">
+          <el-option v-for="item in cities" :key="item.id" :label="item.name" :value="item.id" />
+        </el-select>
         <el-select v-model="filters.active" placeholder="全部状态" clearable @change="search">
           <el-option label="公示中" value="active" />
           <el-option label="已撤销" value="cancelled" />
         </el-select>
+        <el-button @click="resetFilters">重置</el-button>
       </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
@@ -195,12 +294,14 @@ onMounted(load)
         <el-table-column label="赛事 / 组别" min-width="200">
           <template #default="{ row }">
             <div class="stack">
-              <strong>{{ row.eventId ? '赛事' : '—' }}</strong>
+              <strong>{{ eventName(row.eventId) }}</strong>
               <small>{{ row.groupName || '组别未设置' }}</small>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="cityName" label="市州" width="100" />
+        <el-table-column label="市州" width="100">
+          <template #default="{ row }">{{ row.cityName || '—' }}</template>
+        </el-table-column>
         <el-table-column label="公示时间" width="160">
           <template #default="{ row }">
             <span class="muted">{{ dayjs(row.publishedAt).format('YYYY-MM-DD HH:mm') }}</span>

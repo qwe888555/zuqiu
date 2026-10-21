@@ -145,7 +145,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="履历材料"
-      eyebrow="MY MATERIALS"
       description="上传学籍、证书、获奖与参赛经历等材料。材料经管理员审核后进入个人档案，用于资格审查与遴选。"
     >
       <template #actions>

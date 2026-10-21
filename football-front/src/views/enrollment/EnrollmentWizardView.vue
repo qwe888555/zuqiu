@@ -140,7 +140,6 @@ onMounted(loadBase)
   <div class="page">
     <PageHeader
       title="新建报名"
-      eyebrow="NEW ENROLLMENT"
       description="选择赛事与组别后创建报名单。创建完成后可继续维护球员名单、上传材料并提交审核。"
       show-back
     />
@@ -268,7 +267,7 @@ onMounted(loadBase)
             </ul>
           </div>
           <div class="side-card side-card--tip">
-            <span class="side-card__eyebrow">TIP</span>
+            <span class="side-card__eyebrow">提示</span>
             <p>建议先准备好球队球员名单 Excel 与证件照，创建后可在详情页批量导入。</p>
           </div>
         </aside>
@@ -443,7 +442,7 @@ onMounted(loadBase)
 
 .summary-card {
   padding: 20px;
-  border-radius: 13px;
+  border-radius: var(--radius-md);
   background: var(--paper);
   margin-bottom: 16px;
 }
@@ -485,7 +484,7 @@ onMounted(loadBase)
 
 .side-card {
   padding: 18px;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: var(--paper);
   border: 1px solid var(--line);
 }
@@ -516,9 +515,8 @@ onMounted(loadBase)
 }
 
 .side-card__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: #5b7310;
 }
 

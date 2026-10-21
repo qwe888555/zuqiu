@@ -217,7 +217,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="参赛账号"
-      eyebrow="ACCOUNT & ACCESS"
       description="统一管理各端登录账号与角色授权。角色决定侧边栏可见范围，球队账号可额外绑定具体球队。"
     >
       <template #actions>

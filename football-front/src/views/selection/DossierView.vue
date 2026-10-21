@@ -103,7 +103,6 @@ onMounted(loadTeams)
   <div class="page">
     <PageHeader
       title="遴选档案"
-      eyebrow="SELECTION DOSSIERS"
       description="按姓名、证件号后四位或球队检索运动员档案。档案聚合个人资料、履历材料、比赛经历与历史评分。"
     >
       <template #actions>
@@ -186,7 +185,7 @@ onMounted(loadTeams)
           <header class="dossier-head">
             <span class="dossier-head__avatar">{{ detail.person.realName.slice(0, 1) }}</span>
             <div class="dossier-head__info">
-              <span class="dossier-head__eyebrow">ATHLETE DOSSIER</span>
+              <span class="dossier-head__eyebrow">运动员档案</span>
               <h2>{{ detail.person.realName }}</h2>
               <p>
                 {{ detail.person.maskedIdNumber || '证件号未登记' }} ·
@@ -323,9 +322,9 @@ onMounted(loadTeams)
   place-items: center;
   width: 64px;
   height: 64px;
-  border-radius: 18px;
+  border-radius: var(--radius-md);
   background: var(--brand-50);
-  color: var(--brand-600);
+  color: var(--brand-700);
 }
 
 .empty-state h3 {
@@ -354,8 +353,8 @@ onMounted(loadTeams)
   height: 60px;
   flex-shrink: 0;
   border-radius: 50%;
-  background: linear-gradient(145deg, var(--brand-700), var(--brand-900));
-  color: var(--lime);
+  background: var(--brand-700);
+  color: #fff;
   font-size: 22px;
   font-weight: 700;
 }
@@ -365,9 +364,8 @@ onMounted(loadTeams)
 }
 
 .dossier-head__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 

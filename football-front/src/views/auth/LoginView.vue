@@ -2,7 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { ArrowRight, Lock, User } from '@element-plus/icons-vue'
+import { ArrowRight } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import { DEMO_ACCOUNTS, IMG } from '../../mock/data'
 import { ROLE_LABELS } from '../../config/labels'
@@ -50,8 +50,8 @@ function useDemo(username: string) {
         <router-link to="/" class="hero-brand">
           <span class="hero-brand__mark">
             <svg viewBox="0 0 40 40" aria-hidden="true">
-              <circle cx="20" cy="20" r="18" fill="#c8f169" />
-              <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="#064a35" />
+              <circle cx="20" cy="20" r="18" fill="var(--lime)" />
+              <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="var(--brand-900)" />
             </svg>
           </span>
           <span>
@@ -61,25 +61,29 @@ function useDemo(username: string) {
         </router-link>
 
         <div class="hero-copy">
-          <span class="hero-eyebrow">2026 SEASON · PROVINCIAL YOUTH FOOTBALL</span>
-          <h1>让每一场比赛<br /><em>都有迹可循</em></h1>
+          <span class="hero-eyebrow">2026 赛季 · 省级青少年足球联赛</span>
+          <h1>全省校园足球<br /><em>赛事管理平台</em></h1>
           <p>
-            从报名送审到比赛记录、从人才遴选到公示发布，一个平台连接学校、球队、裁判与管理机构。
+            连接学校、高校、市州与赛事组委会，覆盖报名审核、赛程编排、比赛记录、人才遴选与公示发布。
           </p>
         </div>
 
         <div class="hero-stats">
           <div>
-            <strong class="num">120+</strong>
-            <span>参赛学校</span>
+            <strong class="num">128</strong>
+            <span>参赛球队</span>
           </div>
           <div>
-            <strong class="num">2,400+</strong>
-            <span>注册运动员</span>
+            <strong class="num">2,436</strong>
+            <span>注册球员</span>
           </div>
           <div>
-            <strong class="num">8</strong>
-            <span>业务角色</span>
+            <strong class="num">21</strong>
+            <span>覆盖市州</span>
+          </div>
+          <div>
+            <strong class="num">186</strong>
+            <span>已完赛场次</span>
           </div>
         </div>
 
@@ -89,38 +93,61 @@ function useDemo(username: string) {
 
     <section class="login-panel">
       <div class="login-box">
+        <router-link to="/" class="panel-brand">
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <circle cx="20" cy="20" r="18" fill="var(--brand-700)" />
+            <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="var(--lime)" />
+          </svg>
+          <span>
+            <strong>绿茵少年</strong>
+            <small>省级中小学足球联赛</small>
+          </span>
+        </router-link>
+
         <router-link to="/" class="back-home">← 返回门户首页</router-link>
 
         <header class="login-head">
-          <span class="login-kicker">CONSOLE ACCESS</span>
-          <h2>登录管理端</h2>
-          <p>使用赛事组委会分配的账号进入对应角色工作台。</p>
+          <span class="login-kicker">赛事组委会工作台</span>
+          <h2>账号登录</h2>
+          <p>使用组委会分配的账号登录，系统将按角色进入对应工作台。</p>
         </header>
 
-        <el-form ref="formRef" :model="form" :rules="rules" size="large" @submit.prevent="submit">
-          <el-form-item prop="username">
-            <el-input v-model="form.username" placeholder="账号 / 用户名" :prefix-icon="User" />
+        <el-form
+          ref="formRef"
+          :model="form"
+          :rules="rules"
+          label-position="top"
+          size="large"
+          hide-required-asterisk
+          @submit.prevent="submit"
+        >
+          <el-form-item label="账号" prop="username">
+            <el-input
+              v-model="form.username"
+              placeholder="请输入账号或用户名"
+              autocomplete="username"
+            />
           </el-form-item>
-          <el-form-item prop="password">
+          <el-form-item label="密码" prop="password">
             <el-input
               v-model="form.password"
               type="password"
               show-password
-              placeholder="登录密码"
-              :prefix-icon="Lock"
+              placeholder="请输入登录密码"
+              autocomplete="current-password"
               @keyup.enter="submit"
             />
           </el-form-item>
           <el-button type="primary" size="large" class="submit-btn" :loading="auth.loading" @click="submit">
-            登录工作台
+            登录
             <el-icon><ArrowRight /></el-icon>
           </el-button>
         </el-form>
 
         <div class="demo-block">
           <div class="demo-block__head">
-            <span>演示账号 · 点击填充</span>
-            <small>统一密码 12345678</small>
+            <span>演示账号</span>
+            <small>点击填充 · 统一密码 12345678</small>
           </div>
           <div class="demo-grid">
             <button
@@ -131,11 +158,8 @@ function useDemo(username: string) {
               :class="{ 'is-selected': form.username === demo.username }"
               @click="useDemo(demo.username)"
             >
-              <span class="demo-item__avatar">{{ demo.displayName.slice(0, 1) }}</span>
-              <span class="demo-item__meta">
-                <strong>{{ ROLE_LABELS[demo.role] || demo.role }}</strong>
-                <small>{{ demo.username }}</small>
-              </span>
+              <strong>{{ ROLE_LABELS[demo.role] || demo.role }}</strong>
+              <small>{{ demo.username }}</small>
             </button>
           </div>
         </div>
@@ -176,9 +200,12 @@ function useDemo(username: string) {
 .login-hero__overlay {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(180deg, rgba(4, 37, 26, 0.42) 0%, rgba(4, 37, 26, 0.76) 62%, rgba(4, 37, 26, 0.96) 100%),
-    radial-gradient(circle at 70% 18%, rgba(200, 241, 105, 0.18), transparent 42%);
+  background: linear-gradient(
+    180deg,
+    rgba(4, 37, 26, 0.42) 0%,
+    rgba(4, 37, 26, 0.76) 62%,
+    rgba(4, 37, 26, 0.96) 100%
+  );
 }
 
 .login-hero__content {
@@ -211,13 +238,11 @@ function useDemo(username: string) {
 
 .hero-brand strong {
   font-size: 17px;
-  letter-spacing: 0.1em;
 }
 
 .hero-brand small {
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .hero-copy {
@@ -226,17 +251,16 @@ function useDemo(username: string) {
 }
 
 .hero-eyebrow {
-  font-size: 9.5px;
-  letter-spacing: 0.28em;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--lime);
 }
 
 .hero-copy h1 {
   margin-top: 18px;
-  font-size: clamp(38px, 4.6vw, 62px);
-  font-weight: 800;
-  line-height: 1.14;
-  letter-spacing: 0.01em;
+  font-size: clamp(36px, 4.3vw, 56px);
+  font-weight: 700;
+  line-height: 1.18;
 }
 
 .hero-copy h1 em {
@@ -254,7 +278,8 @@ function useDemo(username: string) {
 
 .hero-stats {
   display: flex;
-  gap: 48px;
+  flex-wrap: wrap;
+  gap: 18px 44px;
   padding: 22px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
@@ -266,9 +291,8 @@ function useDemo(username: string) {
 }
 
 .hero-stats strong {
-  font-size: 26px;
+  font-size: 24px;
   color: var(--lime);
-  letter-spacing: 0.02em;
 }
 
 .hero-stats span {
@@ -286,16 +310,20 @@ function useDemo(username: string) {
   align-items: center;
   justify-content: center;
   padding: 44px 40px;
-  background:
-    radial-gradient(circle at 92% 4%, var(--brand-50), transparent 36%),
-    #fff;
+  background: #fff;
 }
 
 .login-box {
-  width: min(440px, 100%);
+  width: min(420px, 100%);
+}
+
+.panel-brand {
+  display: none;
 }
 
 .back-home {
+  display: inline-block;
+  margin-bottom: 30px;
   font-size: 12px;
   color: var(--ink-500);
 }
@@ -305,48 +333,58 @@ function useDemo(username: string) {
 }
 
 .login-head {
-  margin: 28px 0 26px;
+  margin: 0 0 26px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
 }
 
 .login-kicker {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  color: var(--brand-600);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand-700);
 }
 
 .login-head h2 {
   margin-top: 8px;
-  font-size: 30px;
-  letter-spacing: 0.02em;
+  font-size: 26px;
 }
 
 .login-head p {
   margin-top: 8px;
   font-size: 12.5px;
+  line-height: 1.7;
   color: var(--ink-500);
+}
+
+.login-box :deep(.el-form-item) {
+  margin-bottom: 18px;
+}
+
+.login-box :deep(.el-form-item__label) {
+  padding-bottom: 6px;
+  font-size: 12px;
 }
 
 .submit-btn {
   width: 100%;
-  height: 48px;
-  margin-top: 6px;
-  border-radius: 12px;
+  height: 44px;
+  margin-top: 4px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
-  letter-spacing: 0.06em;
 }
 
 .demo-block {
-  margin-top: 30px;
-  padding-top: 22px;
-  border-top: 1px dashed var(--line);
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
 }
 
 .demo-block__head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 10px;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ink-700);
@@ -354,70 +392,60 @@ function useDemo(username: string) {
 
 .demo-block__head small {
   font-weight: 400;
+  font-size: 10px;
   color: var(--ink-300);
 }
 
 .demo-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .demo-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 10px;
+  justify-content: space-between;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: var(--radius-sm);
   background: #fff;
   text-align: left;
   cursor: pointer;
-  transition: 0.15s;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.demo-item:hover {
-  border-color: var(--brand-500);
-  background: var(--brand-50);
-}
-
-.demo-item.is-selected {
-  border-color: var(--brand-700);
-  background: var(--brand-50);
-  box-shadow: 0 0 0 2px var(--brand-100);
-}
-
-.demo-item__avatar {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--brand-700), var(--brand-500));
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.demo-item__meta {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-  overflow: hidden;
-}
-
-.demo-item__meta strong {
+.demo-item strong {
   font-size: 11.5px;
-  color: var(--ink-900);
+  font-weight: 500;
+  color: var(--ink-700);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.demo-item__meta small {
+.demo-item small {
+  flex-shrink: 0;
+  font-family: var(--font-display);
   font-size: 10px;
   color: var(--ink-300);
+}
+
+.demo-item:hover {
+  border-color: var(--brand-500);
+}
+
+.demo-item.is-selected {
+  border-color: var(--brand-500);
+  background: var(--brand-50);
+  box-shadow: inset 2px 0 0 var(--brand-700);
+}
+
+.demo-item.is-selected strong {
+  color: var(--brand-800);
+  font-weight: 600;
 }
 
 .login-foot {
@@ -435,7 +463,7 @@ function useDemo(username: string) {
 
 @media (max-width: 1000px) {
   .login-page {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .login-hero {
@@ -443,7 +471,56 @@ function useDemo(username: string) {
   }
 
   .login-panel {
+    min-width: 0;
     padding: 34px 22px;
+  }
+
+  .login-box {
+    width: 100%;
+    max-width: 420px;
+  }
+
+  .panel-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: fit-content;
+    margin-bottom: 26px;
+  }
+
+  .panel-brand svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .panel-brand > span {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+  }
+
+  .panel-brand strong {
+    font-size: 14px;
+    color: var(--ink-900);
+  }
+
+  .panel-brand small {
+    font-size: 10px;
+    color: var(--ink-500);
+  }
+
+  .back-home {
+    margin-bottom: 22px;
+  }
+}
+
+@media (max-width: 480px) {
+  .demo-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .login-head h2 {
+    font-size: 23px;
   }
 }
 </style>

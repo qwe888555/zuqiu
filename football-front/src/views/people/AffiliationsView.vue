@@ -117,7 +117,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="所属队伍"
-      eyebrow="TEAM AFFILIATIONS"
       description="维护与球队的历史归属关系。当前归属将用于报名资格审查，历史记录用于教练员与运动员履历。"
     >
       <template #actions>

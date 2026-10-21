@@ -28,6 +28,7 @@ const form = reactive({
 
 const materialTypes = [
   { value: 'TEAM_HONOR', label: '球队荣誉' },
+  { value: 'COMPETITION', label: '参赛记录' },
   { value: 'MATCH_RECORD', label: '对阵记录' },
   { value: 'TRAINING_PLAN', label: '训练计划' },
   { value: 'COACH_LICENSE', label: '教练员证书' },
@@ -134,8 +135,7 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="球队材料"
-      eyebrow="TEAM MATERIALS"
-      description="维护球队荣誉、对阵记录与训练计划等材料。材料提交后由省级管理员审核，通过后可用于遴选与公示。"
+      description="维护球队荣誉、参赛记录、对阵记录与训练计划等材料。材料提交后由省级管理员审核，通过后可用于遴选与公示。"
     >
       <template #actions>
         <el-select

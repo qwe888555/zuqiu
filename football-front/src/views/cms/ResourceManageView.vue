@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit, Picture, Plus, Refresh } from '@element-plus/icons-vue'
-import { contentApi, resourceApi } from '../../api'
+import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
+import { Delete, Edit, Picture, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { contentApi, fileApi, resourceApi } from '../../api'
 import type { Content, PortalResource } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 
@@ -14,12 +14,17 @@ const activeType = ref('CAROUSEL')
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
+const editingVersion = ref(0)
 const saving = ref(false)
+const imageFile = ref<File | null>(null)
+const imagePreview = ref('')
+const uploadingImage = ref(false)
 
 const form = reactive({
   resourceType: 'CAROUSEL',
   title: '',
   imageUrl: '',
+  imageFileId: '',
   targetContentId: '',
   targetUrl: '',
   sortOrder: 0,
@@ -66,41 +71,94 @@ async function loadContents() {
 
 function openCreate() {
   editingId.value = null
+  editingVersion.value = 0
   Object.assign(form, {
     resourceType: activeType.value,
     title: '',
     imageUrl: '',
+    imageFileId: '',
     targetContentId: '',
     targetUrl: '',
     sortOrder: filteredRows.value.length,
     enabled: true,
   })
+  imageFile.value = null
+  imagePreview.value = ''
   dialogVisible.value = true
 }
 
 function openEdit(row: PortalResource) {
   editingId.value = row.id
+  editingVersion.value = row.version
   Object.assign(form, {
     resourceType: row.resourceType,
     title: row.title,
     imageUrl: row.imageUrl || '',
+    imageFileId: row.imageFileId || '',
     targetContentId: row.targetContentId || '',
     targetUrl: row.targetUrl || '',
     sortOrder: row.sortOrder || 0,
     enabled: row.enabled,
   })
+  imageFile.value = null
+  imagePreview.value = row.imageUrl || ''
   dialogVisible.value = true
+}
+
+async function pickImage(options: UploadRequestOptions) {
+  const file = options.file
+  if (!file.type.startsWith('image/')) {
+    ElMessage.warning('请选择图片文件')
+    return
+  }
+  imageFile.value = file
+  imagePreview.value = URL.createObjectURL(file)
+}
+
+function clearImage() {
+  imageFile.value = null
+  imagePreview.value = form.imageUrl || ''
 }
 
 async function save() {
   if (!form.title.trim()) return ElMessage.warning('请填写资源标题')
+  if (form.targetContentId && form.targetUrl.trim()) {
+    return ElMessage.warning('关联内容与外部跳转地址只能填写一项')
+  }
   saving.value = true
   try {
+    const payload = {
+      resourceType: form.resourceType,
+      title: form.title,
+      targetContentId: form.targetContentId || undefined,
+      targetUrl: form.targetUrl || undefined,
+      sortOrder: form.sortOrder,
+      enabled: form.enabled,
+    }
     if (editingId.value) {
-      await resourceApi.update(editingId.value, { ...form })
+      let imageFileId = form.imageFileId || undefined
+      if (imageFile.value) {
+        uploadingImage.value = true
+        const record = await fileApi.upload(imageFile.value, 'RESOURCE', editingId.value, 'CMS_IMAGE')
+        imageFileId = record.id
+      }
+      await resourceApi.update(editingId.value, {
+        ...payload,
+        imageFileId,
+        version: editingVersion.value,
+      })
       ElMessage.success('资源已更新')
     } else {
-      await resourceApi.create({ ...form })
+      const created = await resourceApi.create(payload)
+      if (imageFile.value) {
+        uploadingImage.value = true
+        const record = await fileApi.upload(imageFile.value, 'RESOURCE', created.id, 'CMS_IMAGE')
+        await resourceApi.update(created.id, {
+          ...payload,
+          imageFileId: record.id,
+          version: created.version,
+        })
+      }
       ElMessage.success('资源已创建')
     }
     dialogVisible.value = false
@@ -109,12 +167,22 @@ async function save() {
     // 拦截器提示
   } finally {
     saving.value = false
+    uploadingImage.value = false
   }
 }
 
 async function toggleEnabled(row: PortalResource) {
   try {
-    await resourceApi.update(row.id, { enabled: !row.enabled })
+    await resourceApi.update(row.id, {
+      resourceType: row.resourceType,
+      title: row.title,
+      imageFileId: row.imageFileId,
+      targetContentId: row.targetContentId,
+      targetUrl: row.targetContentId ? undefined : row.targetUrl,
+      sortOrder: row.sortOrder,
+      enabled: !row.enabled,
+      version: row.version,
+    })
     ElMessage.success(row.enabled ? '资源已停用' : '资源已启用')
     await load()
   } catch {
@@ -147,7 +215,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="门户资源"
-      eyebrow="PORTAL RESOURCES"
       description="配置首页轮播、新闻配图与合作伙伴 Logo。排序值越小越靠前，停用后立即从门户移除。"
     >
       <template #actions>
@@ -214,8 +281,22 @@ onMounted(() => {
         <el-form-item label="标题" required>
           <el-input v-model="form.title" placeholder="资源标题或说明" />
         </el-form-item>
-        <el-form-item label="图片地址">
-          <el-input v-model="form.imageUrl" placeholder="https://...，留空则使用占位图" />
+        <el-form-item label="资源图片">
+          <div class="image-upload">
+            <el-upload :show-file-list="false" :http-request="pickImage" accept=".jpg,.jpeg,.png,.webp">
+              <div class="image-upload__box">
+                <img v-if="imagePreview" :src="imagePreview" alt="资源图片预览" />
+                <template v-else>
+                  <el-icon><UploadFilled /></el-icon>
+                  <span>点击上传图片</span>
+                </template>
+              </div>
+            </el-upload>
+            <div class="image-upload__hint">
+              <span>轮播图建议 16:9，Logo 建议正方形，保存时统一上传。</span>
+              <el-button v-if="imagePreview" link type="danger" @click="clearImage">移除</el-button>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="关联内容">
           <el-select v-model="form.targetContentId" clearable filterable placeholder="可选，选择门户内容" style="width: 100%">
@@ -236,7 +317,9 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存资源</el-button>
+        <el-button type="primary" :loading="saving" @click="save">
+          {{ uploadingImage ? '图片上传中…' : '保存资源' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -267,10 +350,10 @@ onMounted(() => {
 }
 
 .resource-tab b {
-  padding: 0 6px;
-  border-radius: 99px;
+  padding: 0 5px;
+  border-radius: 3px;
   background: var(--paper);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 700;
 }
 
@@ -299,7 +382,7 @@ onMounted(() => {
 .resource-card {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   background: #fff;
 }
 
@@ -376,5 +459,44 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.image-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.image-upload__box {
+  display: grid;
+  place-items: center;
+  width: 240px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--brand-500);
+  font-size: 10px;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.image-upload__box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-upload__box .el-icon {
+  font-size: 24px;
+}
+
+.image-upload__hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 9.5px;
+  color: var(--ink-300);
 }
 </style>

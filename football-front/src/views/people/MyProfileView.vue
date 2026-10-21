@@ -93,7 +93,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="个人资料"
-      eyebrow="MY PROFILE"
       description="维护真实姓名、学校与学历等基础信息。身份证号与手机号需通过管理员复核后变更。"
     >
       <template #actions>
@@ -255,8 +254,8 @@ onMounted(load)
   flex-shrink: 0;
   overflow: hidden;
   border-radius: 50%;
-  background: linear-gradient(145deg, var(--brand-700), var(--brand-900));
-  color: var(--lime);
+  background: var(--brand-700);
+  color: #fff;
   font-size: 27px;
   font-weight: 700;
 }

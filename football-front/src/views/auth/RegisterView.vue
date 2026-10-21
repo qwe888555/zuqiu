@@ -61,7 +61,7 @@ async function submit() {
     <div class="register-card">
       <router-link to="/" class="brand-line">← 返回门户</router-link>
       <header>
-        <span class="kicker">INVITATION ONLY</span>
+        <span class="kicker">仅限邀请注册</span>
         <h1>账号注册</h1>
         <p>本平台账号由组委会统一邀请开通，请使用邀请链接中附带的注册凭证完成注册。</p>
       </header>
@@ -102,17 +102,16 @@ async function submit() {
   display: grid;
   place-items: center;
   padding: 40px 20px;
-  background:
-    radial-gradient(circle at 12% 10%, rgba(200, 241, 105, 0.24), transparent 30%),
-    linear-gradient(160deg, var(--brand-900), #0a4d36 60%, #0b5c40);
+  background: var(--brand-900);
 }
 
 .register-card {
   width: min(600px, 100%);
-  padding: 38px 40px;
-  border-radius: 22px;
+  padding: 34px 36px;
+  border-radius: var(--radius-lg);
   background: #fff;
-  box-shadow: 0 30px 70px rgba(3, 32, 22, 0.36);
+  border-top: 3px solid var(--brand-700);
+  box-shadow: 0 10px 30px rgba(3, 32, 22, 0.22);
 }
 
 .brand-line {
@@ -125,10 +124,9 @@ header {
 }
 
 .kicker {
-  font-size: 9px;
-  letter-spacing: 0.22em;
-  font-weight: 700;
-  color: var(--brand-600);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand-700);
 }
 
 header h1 {
@@ -151,9 +149,9 @@ header p {
 
 .submit {
   width: 100%;
-  height: 46px;
+  height: 44px;
   margin-top: 8px;
-  border-radius: 11px;
+  border-radius: var(--radius-sm);
 }
 
 .foot {

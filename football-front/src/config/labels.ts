@@ -1,4 +1,4 @@
-import type { GroupCategory, RoleCode, SubjectType } from '../api/types'
+import type { CoachCategory, GroupCategory, RoleCode, SubjectType } from '../api/types'
 
 /** 各端完整名称：用于登录页、账号管理等需要说明角色归属的场景 */
 export const ROLE_LABELS: Record<RoleCode, string> = {
@@ -34,6 +34,18 @@ export const CATEGORY_GROUP_LABELS: Record<GroupCategory, string> = {
   PRIMARY: '小学组',
   MIDDLE: '初中组',
   UNIVERSITY: '大学组',
+}
+
+export const COACH_CATEGORY_LABELS: Record<CoachCategory, string> = {
+  HEAD_COACH: '主教练',
+  ASSISTANT_COACH: '助理教练',
+  MANAGER: '领队',
+  OTHER: '其他',
+}
+
+export function coachCategoryLabel(category?: CoachCategory | string): string {
+  if (!category) return '教练员'
+  return COACH_CATEGORY_LABELS[category as CoachCategory] || category
 }
 
 export const SUBJECT_TYPE_LABELS: Record<SubjectType, string> = {

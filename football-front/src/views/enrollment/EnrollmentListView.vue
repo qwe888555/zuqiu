@@ -5,7 +5,7 @@ import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { enrollmentApi, eventApi } from '../../api'
-import type { Enrollment, Event, PrecheckIssue } from '../../api/types'
+import type { Enrollment, Event, EventGroup, PrecheckIssue } from '../../api/types'
 import { subjectTypeLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -18,6 +18,7 @@ const submitting = ref('')
 const rows = ref<Enrollment[]>([])
 const total = ref(0)
 const events = ref<Event[]>([])
+const groups = ref<EventGroup[]>([])
 const page = ref(1)
 const pageSize = ref(10)
 const precheckVisible = ref(false)
@@ -25,6 +26,7 @@ const precheckIssues = ref<PrecheckIssue[]>([])
 
 const filters = reactive({
   eventId: '',
+  groupId: '',
   status: '',
   keyword: '',
 })
@@ -45,6 +47,7 @@ async function load() {
       page: page.value,
       pageSize: pageSize.value,
       eventId: filters.eventId || undefined,
+      groupId: filters.groupId || undefined,
       status: filters.status || undefined,
       teamName: filters.keyword || undefined,
     })
@@ -59,11 +62,29 @@ async function load() {
 
 async function loadEvents() {
   try {
-    const res = await eventApi.list({ page: 1, pageSize: 50 })
+    const res = await eventApi.available({ page: 1, pageSize: 100 })
     events.value = res.items
   } catch {
     events.value = []
   }
+}
+
+async function loadGroups(eventId: string) {
+  if (!eventId) {
+    groups.value = []
+    return
+  }
+  try {
+    groups.value = await eventApi.availableGroups(eventId)
+  } catch {
+    groups.value = []
+  }
+}
+
+async function changeEvent(eventId: string) {
+  filters.groupId = ''
+  await loadGroups(eventId)
+  search()
 }
 
 function search() {
@@ -73,8 +94,10 @@ function search() {
 
 function reset() {
   filters.eventId = ''
+  filters.groupId = ''
   filters.status = ''
   filters.keyword = ''
+  groups.value = []
   page.value = 1
   load()
 }
@@ -141,7 +164,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="报名管理"
-      eyebrow="ENROLLMENT"
       description="管理参赛报名单、球员名单与审核材料。提交前系统会自动预检，通过后进入审核流程。"
     >
       <template #actions>
@@ -152,8 +174,17 @@ onMounted(() => {
 
     <section class="page-card">
       <FilterBar :summary="'共 ' + total + ' 条报名记录'">
-        <el-select v-model="filters.eventId" placeholder="全部赛事" clearable @change="search">
+        <el-select v-model="filters.eventId" placeholder="全部赛事" clearable @change="changeEvent">
           <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
+        </el-select>
+        <el-select
+          v-model="filters.groupId"
+          :placeholder="filters.eventId ? '全部组别' : '请先选择赛事'"
+          :disabled="!filters.eventId"
+          clearable
+          @change="search"
+        >
+          <el-option v-for="group in groups" :key="group.id" :label="group.name" :value="group.id" />
         </el-select>
         <el-select v-model="filters.status" placeholder="全部状态" clearable @change="search">
           <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />

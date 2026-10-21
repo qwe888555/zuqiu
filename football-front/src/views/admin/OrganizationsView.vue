@@ -187,7 +187,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="组织结构"
-      eyebrow="ORGANIZATION TREE"
       description="维护省—市州—学校/高校的四级组织结构。组织结构决定账号归属、数据权限与市州审核范围。"
     >
       <template #actions>

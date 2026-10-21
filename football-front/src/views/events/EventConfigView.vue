@@ -225,7 +225,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="赛事配置"
-      eyebrow="EVENT CONFIGURATION"
       description="维护赛事赛季、报名开放期与年龄组别。组别的年龄区间、人数上限与必备材料将直接影响报名预检。"
     >
       <template #actions>
@@ -297,7 +296,7 @@ onMounted(load)
     <el-drawer v-model="drawerVisible" size="760px" :with-header="false">
       <div class="drawer-head">
         <div>
-          <span class="drawer-head__eyebrow">GROUP CONFIGURATION</span>
+          <span class="drawer-head__eyebrow">组别配置</span>
           <h2>{{ currentEvent?.name }}</h2>
           <p>{{ currentEvent?.season }} · 共 {{ groups.length }} 个组别</p>
         </div>
@@ -482,9 +481,8 @@ onMounted(load)
 }
 
 .drawer-head__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 
@@ -509,7 +507,7 @@ onMounted(load)
 .group-card {
   padding: 16px 18px;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: var(--radius-md);
 }
 
 .group-card__head {

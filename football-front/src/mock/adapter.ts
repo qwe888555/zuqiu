@@ -240,10 +240,19 @@ on('GET', '/me/messages', ({ config, query }) => {
   const account = requireAccount(config)
   let items = messages
   if (account.roles.includes('TEAM') || account.roles.includes('UNIVERSITY')) {
-    items = messages.filter((m) => !m.businessType || ['ENROLLMENT', 'MATERIAL', 'MATCH', 'PUBLICATION'].includes(m.businessType))
+    items = messages.filter(
+      (m) =>
+        !m.businessType ||
+        ['ENROLLMENT', 'REVIEW', 'MATERIAL', 'MATCH', 'PUBLICATION'].includes(m.businessType),
+    )
   }
-  const unreadOnly = str(query.unreadOnly) === 'true'
-  if (unreadOnly) items = items.filter((m) => !m.read)
+  // 后端使用 read 布尔参数；保留 unreadOnly 兼容旧调用。
+  if (query.read !== undefined) {
+    const read = str(query.read) === 'true'
+    items = items.filter((m) => m.read === read)
+  } else if (str(query.unreadOnly) === 'true') {
+    items = items.filter((m) => !m.read)
+  }
   return pageOf(items, query)
 })
 
@@ -618,6 +627,9 @@ on('PUT', '/people/:id', ({ params, body }) => {
   const person = persons.find((p) => p.id === params.id)
   if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
   Object.assign(person, body, { version: person.version + 1 })
+  if (body.avatarFileId) {
+    person.avatarUrl = `https://picsum.photos/seed/${encodeURIComponent(str(body.avatarFileId))}/300/300`
+  }
   return person
 })
 
@@ -646,7 +658,7 @@ on('POST', '/materials', ({ config, body }) => {
     STUDENT_STATUS: '学籍证明',
     ATHLETE_CERTIFICATE: '运动员证书',
     AWARD: '获奖证书',
-    COMPETITION: '参赛经历',
+    COMPETITION: '参赛记录',
     EDUCATION: '学历证明',
     OTHER: '其他材料',
     COACHING_RECORD: '执教记录',
@@ -716,15 +728,16 @@ on('GET', '/teams', ({ config, query }) => {
 })
 
 on('POST', '/teams', ({ body }) => {
+  const schoolOrgId = body.schoolOrgId || body.orgId
   const team: Team = {
     id: nextId('team'),
     name: str(body.name),
     shortName: str(body.shortName),
-    orgId: body.orgId,
+    orgId: schoolOrgId,
     cityOrgId: body.cityOrgId,
     cityName: organizations.find((o) => o.id === body.cityOrgId)?.name,
-    category: body.category,
-    schoolName: organizations.find((o) => o.id === body.orgId)?.name,
+    category: body.groupCategory || body.category,
+    schoolName: organizations.find((o) => o.id === schoolOrgId)?.name,
     coachName: body.coachName,
     intro: body.intro,
     memberCount: 0,
@@ -757,7 +770,16 @@ on('DELETE', '/teams/:id', ({ params }) => {
 })
 
 on('GET', '/teams/:id/members', ({ params, query }) => {
-  let items = teamMembers.filter((m) => m.teamId === params.id)
+  let items = teamMembers.filter((m) => m.teamId === params.id).map((m) => {
+    const person = persons.find((p) => p.id === m.athleteId)
+    return {
+      ...m,
+      athleteName: person?.realName || m.athleteName,
+      maskedIdNumber: person?.maskedIdNumber || m.maskedIdNumber,
+      avatarFileId: person?.avatarFileId || m.avatarFileId,
+      photoUrl: person?.avatarUrl || m.photoUrl || '',
+    }
+  })
   if (query.keyword) items = items.filter((m) => contains(m.athleteName, str(query.keyword)) || contains(m.maskedIdNumber, str(query.keyword)))
   if (query.status) items = items.filter((m) => m.status === query.status)
   return pageOf(items, query)
@@ -773,7 +795,10 @@ on('POST', '/teams/:id/members', ({ params, body }) => {
     maskedIdNumber: person?.maskedIdNumber,
     jerseyNumber: Number(body.jerseyNumber) || undefined,
     position: body.position,
-    photoUrl: '',
+    avatarFileId: person?.avatarFileId,
+    photoUrl: person?.avatarUrl || '',
+    effectiveFrom: body.effectiveFrom || now().slice(0, 10),
+    active: true,
     status: 'PENDING' as const,
     version: 1,
   }
@@ -808,20 +833,23 @@ on('DELETE', '/teams/:id/members/:memberId', ({ params }) => {
 
 on('GET', '/teams/:id/coaches', ({ params, query }) => {
   let items = teamCoaches.filter((c) => c.teamId === params.id)
-  if (query.status) items = items.filter((c) => c.status === query.status)
-  if (query.coachCategory) items = items.filter((c) => c.coachCategory === query.coachCategory)
+  if (query.reviewStatus) items = items.filter((c) => c.reviewStatus === query.reviewStatus)
+  if (query.category) items = items.filter((c) => c.category === query.category)
   return pageOf(items, query)
 })
 
 on('POST', '/teams/:id/coaches', ({ params, body }) => {
+  const person = persons.find((p) => p.id === body.coachId)
   const coach = {
     id: nextId('tc'),
     teamId: params.id,
     coachId: str(body.coachId),
-    coachName: persons.find((p) => p.id === body.coachId)?.realName || str(body.coachName),
-    coachCategory: body.coachCategory,
-    maskedPhone: persons.find((p) => p.id === body.coachId)?.maskedPhone,
-    status: 'PENDING' as const,
+    coachName: person?.realName || str(body.coachName),
+    category: body.category || 'HEAD_COACH',
+    effectiveFrom: body.effectiveFrom || now().slice(0, 10),
+    effectiveTo: body.effectiveTo,
+    maskedPhone: person?.maskedPhone,
+    reviewStatus: 'PENDING' as const,
     version: 1,
   }
   teamCoaches.push(coach)
@@ -896,7 +924,7 @@ on('GET', '/events', ({ query }) => {
 })
 
 on('GET', '/available-events', ({ query }) => {
-  const items = events.filter((e) => e.status === 'REGISTRATION_OPEN')
+  const items = events.filter((e) => e.status !== 'DRAFT')
   return pageOf(items, query)
 })
 
@@ -1605,6 +1633,11 @@ on('GET', '/contents', ({ query }) => {
   if (query.contentType) items = items.filter((c) => c.contentType === query.contentType)
   if (query.status) items = items.filter((c) => c.status === query.status)
   if (query.eventId) items = items.filter((c) => c.eventId === query.eventId)
+  if (query.groupId) items = items.filter((c) => c.groupId === query.groupId)
+  if (query.eventCategory) {
+    const eventIds = events.filter((e) => e.eventCategory === query.eventCategory).map((e) => e.id)
+    items = items.filter((c) => c.eventId && eventIds.includes(c.eventId))
+  }
   if (query.keyword) items = items.filter((c) => contains(c.title, str(query.keyword)))
   return pageOf(items, query)
 })
@@ -1616,7 +1649,10 @@ on('POST', '/contents', ({ body }) => {
     title: str(body.title),
     summary: body.summary,
     bodyHtml: str(body.bodyHtml),
-    coverUrl: body.coverUrl,
+    coverUrl: body.coverFileId
+      ? `https://picsum.photos/seed/${encodeURIComponent(str(body.coverFileId))}/1200/640`
+      : body.coverUrl,
+    coverFileId: body.coverFileId,
     eventId: body.eventId,
     groupId: body.groupId,
     policyDocumentNo: body.policyDocumentNo,
@@ -1643,7 +1679,10 @@ on('GET', '/contents/:id', ({ params }) => {
 on('PUT', '/contents/:id', ({ params, body }) => {
   const content = contents.find((c) => c.id === params.id)
   if (!content) throw new MockHttpError(404, 'NOT_FOUND', '内容不存在')
-  Object.assign(content, body, { version: content.version + 1, revision: content.revision + 1 })
+  const coverUrl = body.coverFileId
+    ? `https://picsum.photos/seed/${encodeURIComponent(str(body.coverFileId))}/1200/640`
+    : content.coverUrl
+  Object.assign(content, body, { coverUrl, version: content.version + 1, revision: content.revision + 1 })
   return content
 })
 
@@ -1682,7 +1721,10 @@ on('POST', '/portal-resources', ({ body }) => {
     id: nextId('res'),
     resourceType: body.resourceType || 'CAROUSEL',
     title: str(body.title),
-    imageUrl: body.imageUrl || `https://picsum.photos/seed/${Date.now()}/1200/600`,
+    imageUrl: body.imageFileId
+      ? `https://picsum.photos/seed/${encodeURIComponent(str(body.imageFileId))}/1200/600`
+      : body.imageUrl || `https://picsum.photos/seed/${Date.now()}/1200/600`,
+    imageFileId: body.imageFileId,
     targetContentId: body.targetContentId,
     targetUrl: body.targetUrl,
     sortOrder: Number(body.sortOrder) || 0,
@@ -1696,7 +1738,10 @@ on('POST', '/portal-resources', ({ body }) => {
 on('PUT', '/portal-resources/:id', ({ params, body }) => {
   const resource = portalResources.find((r) => r.id === params.id)
   if (!resource) throw new MockHttpError(404, 'NOT_FOUND', '资源不存在')
-  Object.assign(resource, body, { version: resource.version + 1 })
+  const imageUrl = body.imageFileId
+    ? `https://picsum.photos/seed/${encodeURIComponent(str(body.imageFileId))}/1200/600`
+    : resource.imageUrl
+  Object.assign(resource, body, { imageUrl, version: resource.version + 1 })
   return resource
 })
 
@@ -1711,26 +1756,49 @@ on('GET', '/publications', ({ query }) => {
   let items = publications
   if (query.targetType) items = items.filter((p) => p.targetType === query.targetType)
   if (query.active !== undefined) items = items.filter((p) => p.active === (str(query.active) === 'true'))
-  if (query.groupName) items = items.filter((p) => contains(p.groupName, str(query.groupName)))
-  if (query.cityName) items = items.filter((p) => contains(p.cityName, str(query.cityName)))
   if (query.eventId) items = items.filter((p) => p.eventId === query.eventId)
+  if (query.groupId) items = items.filter((p) => p.groupId === query.groupId)
+  if (query.cityOrgId) {
+    const cityName = organizations.find((o) => o.id === query.cityOrgId)?.name
+    items = items.filter((p) => p.cityName === cityName)
+  }
+  items = items.map((p) => {
+    const enrollment = p.targetType === 'ENROLLMENT' ? enrollments.find((e) => e.id === p.targetId) : undefined
+    const person = p.targetType !== 'ENROLLMENT' ? persons.find((x) => x.id === p.targetId) : undefined
+    return {
+      ...p,
+      targetName: p.targetName || enrollment?.teamName || person?.realName,
+      teamName: p.teamName || enrollment?.teamName || person?.teamName,
+      eventId: p.eventId || enrollment?.eventId,
+      groupId: p.groupId || enrollment?.groupId,
+      groupName: p.groupName || eventGroups.find((g) => g.id === (p.groupId || enrollment?.groupId))?.name,
+      cityOrgId: p.cityOrgId || enrollment?.cityOrgId,
+      cityName: p.cityName || enrollment?.cityName,
+    }
+  })
   return pageOf(items, query)
 })
 
 on('POST', '/publications', ({ body }) => {
-  const target = body.targetType === 'ENROLLMENT'
+  const enrollment = body.targetType === 'ENROLLMENT'
     ? enrollments.find((e) => e.id === body.targetId)
-    : persons.find((p) => p.id === body.targetId)
+    : undefined
+  const person = body.targetType !== 'ENROLLMENT'
+    ? persons.find((p) => p.id === body.targetId)
+    : undefined
+  const eventId = body.eventId || enrollment?.eventId
+  const groupId = body.groupId || enrollment?.groupId
   const item = {
     id: nextId('pub'),
     targetType: body.targetType,
     targetId: str(body.targetId),
-    targetName: target && 'teamName' in target ? target.teamName : (target as Person | undefined)?.realName,
-    teamName: target && 'teamName' in target ? target.teamName : undefined,
-    eventId: body.eventId,
-    groupId: body.groupId,
-    groupName: eventGroups.find((g) => g.id === body.groupId)?.name,
-    cityName: '成都市',
+    targetName: enrollment?.teamName || person?.realName,
+    teamName: enrollment?.teamName || person?.teamName,
+    eventId,
+    groupId,
+    groupName: eventGroups.find((g) => g.id === groupId)?.name,
+    cityOrgId: enrollment?.cityOrgId,
+    cityName: enrollment?.cityName,
     active: true,
     publishedAt: now(),
     version: 1,

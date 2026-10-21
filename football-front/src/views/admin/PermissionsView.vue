@@ -66,7 +66,6 @@ const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0,
   <div class="page">
     <PageHeader
       title="权限矩阵"
-      eyebrow="ROLE & PERMISSION"
       description="按角色查看菜单可见范围、按钮级权限点与数据范围。角色变更在「参赛账号」中完成，本页为只读视图。"
     >
       <template #actions>
@@ -113,7 +112,7 @@ const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0,
         <div class="role-hero">
           <span class="role-hero__mark">{{ roleInitial }}</span>
           <div>
-            <span class="role-hero__eyebrow">SELECTED ROLE</span>
+            <span class="role-hero__eyebrow">当前角色</span>
             <h2>{{ ROLE_MENU_LABELS[selectedRole] }}</h2>
             <p>{{ ROLE_DESCRIPTIONS[selectedRole] }}</p>
           </div>
@@ -195,17 +194,16 @@ const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0,
   gap: 10px;
   padding: 13px 14px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: #fff;
   text-align: left;
   cursor: pointer;
-  transition: 0.16s ease;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
 }
 
 .role-card:hover {
   border-color: var(--brand-500);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-card);
+  background: var(--brand-50);
 }
 
 .role-card.is-active {
@@ -289,17 +287,16 @@ const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0,
   width: 48px;
   height: 48px;
   flex-shrink: 0;
-  border-radius: 14px;
-  background: linear-gradient(135deg, var(--brand-800), var(--brand-500));
-  color: var(--lime);
+  border-radius: var(--radius-sm);
+  background: var(--brand-700);
+  color: #fff;
   font-size: 18px;
   font-weight: 700;
 }
 
 .role-hero__eyebrow {
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 
@@ -395,8 +392,8 @@ const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0,
 
 .group-count {
   flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 999px;
+  padding: 2px 7px;
+  border-radius: 3px;
   background: var(--paper);
   font-family: var(--font-display);
   font-size: 10px;

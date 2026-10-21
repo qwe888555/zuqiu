@@ -47,7 +47,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="我的公示"
-      eyebrow="MY PUBLICATIONS"
       description="查看本人被纳入赛事公示的信息。公示内容仅供赛事展示，不包含身份证号、手机号等敏感信息。"
     >
       <template #actions>
@@ -58,7 +57,7 @@ onMounted(load)
     <section class="publication-hero">
       <div class="publication-hero__icon"><el-icon :size="26"><Medal /></el-icon></div>
       <div>
-        <span>PUBLIC PROFILE</span>
+        <span>公示档案</span>
         <h2>{{ person?.realName || '—' }}</h2>
         <p>{{ person?.schoolName || '学校未登记' }} · 公示中的运动员 / 教练员信息</p>
       </div>
@@ -116,22 +115,22 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 24px 28px;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 90% 0%, rgba(200, 241, 105, 0.2), transparent 50%),
-    linear-gradient(135deg, #075c40, #053c2b);
-  color: #fff;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand-700);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  color: var(--ink-900);
 }
 
 .publication-hero__icon {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 15px;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--lime);
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  background: var(--brand-50);
+  color: var(--brand-700);
 }
 
 .publication-hero > div:nth-child(2) {
@@ -139,21 +138,19 @@ onMounted(load)
 }
 
 .publication-hero span {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: rgba(255, 255, 255, 0.45);
+  font-size: 11px;
+  color: var(--ink-500);
 }
 
 .publication-hero h2 {
-  margin-top: 5px;
-  font-size: 22px;
+  margin-top: 3px;
+  font-size: 21px;
 }
 
 .publication-hero p {
-  margin-top: 4px;
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.55);
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--ink-500);
 }
 
 .publication-hero__count {
@@ -162,15 +159,15 @@ onMounted(load)
 
 .publication-hero__count strong {
   display: block;
-  font-size: 32px;
-  color: var(--lime);
+  font-size: 30px;
+  color: var(--brand-700);
 }
 
 .publication-hero__count span {
   display: block;
   margin-top: 2px;
-  font-size: 9px;
-  letter-spacing: 0.05em;
+  font-size: 10px;
+  color: var(--ink-500);
 }
 
 .publication-list {
@@ -182,7 +179,7 @@ onMounted(load)
 .publication-card {
   padding: 18px;
   border: 1px solid var(--line);
-  border-radius: 13px;
+  border-radius: 8px;
 }
 
 .publication-card__head {

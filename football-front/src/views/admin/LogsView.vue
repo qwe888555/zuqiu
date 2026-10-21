@@ -77,7 +77,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="操作日志"
-      eyebrow="AUDIT TRAIL"
       description="记录账号登录、业务操作与报名关键动作，供审计追溯。日志只读，不可编辑或删除。"
     >
       <template #actions>
@@ -164,7 +163,7 @@ onMounted(load)
     <el-drawer v-model="drawerVisible" size="480px" :with-header="false">
       <div v-if="detail" class="log-detail">
         <header class="detail-head">
-          <span class="detail-head__eyebrow">AUDIT LOG</span>
+          <span class="detail-head__eyebrow">操作日志</span>
           <h2>{{ detail.summary || detail.action || '日志详情' }}</h2>
           <p>{{ dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm:ss') }}</p>
           <el-tag :type="detail.outcome === 'FAILURE' ? 'danger' : 'success'" size="small" effect="plain">
@@ -215,9 +214,8 @@ onMounted(load)
 }
 
 .detail-head__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 

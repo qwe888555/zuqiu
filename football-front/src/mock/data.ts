@@ -44,6 +44,10 @@ const IMG = {
     'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?auto=format&fit=crop&w=1200&q=70',
   crowd:
     'https://images.unsplash.com/photo-1489944440615-453fc2b6a9a9?auto=format&fit=crop&w=1200&q=70',
+  team:
+    'https://images.unsplash.com/photo-1517927033932-b3d18e61fb3a?auto=format&fit=crop&w=1200&q=70',
+  coach:
+    'https://images.unsplash.com/photo-1526232761682-d26e03ac148e?auto=format&fit=crop&w=1200&q=70',
 }
 
 export interface DemoAccount {
@@ -465,7 +469,10 @@ teamSeeds.forEach((t, ti) => {
       maskedIdNumber: person.maskedIdNumber,
       jerseyNumber: i + 1,
       position: positions[i % positions.length],
-      photoUrl: '',
+      avatarFileId: person.avatarFileId,
+      photoUrl: person.avatarUrl || '',
+      effectiveFrom: '2025-09-01',
+      active: true,
       status: i === 0 ? 'PENDING' : 'APPROVED',
       version: 1,
     })
@@ -482,9 +489,10 @@ teamSeeds.forEach((t, ti) => {
     teamId: t.id,
     coachId,
     coachName,
-    coachCategory: ti % 3 === 0 ? 'HEAD' : 'ASSISTANT',
+    category: ti % 3 === 0 ? 'HEAD_COACH' : 'ASSISTANT_COACH',
+    effectiveFrom: '2025-09-01',
     maskedPhone: '139****6688',
-    status: 'APPROVED',
+    reviewStatus: 'APPROVED',
     version: 1,
   })
 })
@@ -851,11 +859,11 @@ export const contents: Content[] = [
     viewCount: 3280, version: 3, createdAt: '2026-10-18T10:00:00+08:00',
   },
   {
-    id: 'content_news_002', contentType: 'NEWS', title: '揭幕战精彩瞬间：小球员上演远射世界波',
+    id: 'content_news_002', contentType: 'NEWS', title: '揭幕战远射世界波：小球员的赛场高光',
     summary: '成都市实验小学 8 号球员周俊杰在禁区外一脚远射直挂死角，成为本届赛事首粒进球。',
     bodyHtml:
       '<p>揭幕战第 8 分钟，成都市实验小学 8 号周俊杰在禁区弧顶得球后稍作调整，一脚势大力沉的远射直挂球门右上角，引爆全场。</p><p>“平时训练就经常练远射，今天能打进很开心。”周俊杰赛后说。教练李建国表示，球队会继续保持传控打法，争取走得更远。</p>',
-    coverUrl: IMG.match, status: 'PUBLISHED',
+    coverUrl: IMG.training, status: 'PUBLISHED',
     publishedAt: '2026-10-19T11:00:00+08:00', revision: 1, author: '赛事宣传组',
     viewCount: 1260, version: 2, createdAt: '2026-10-19T10:50:00+08:00',
   },
@@ -922,7 +930,7 @@ export const contents: Content[] = [
     summary: '远射、头球、单刀，揭幕战三粒进球各有精彩。',
     bodyHtml:
       '<p>第 8 分钟，周俊杰禁区外远射破门；第 21 分钟，宜宾人民路小学角球头球扳平；第 42 分钟，张子轩单刀推射锁定上半场比分。</p><p>一起来回顾揭幕战的精彩瞬间。</p>',
-    coverUrl: IMG.match, status: 'PUBLISHED',
+    coverUrl: IMG.youth, status: 'PUBLISHED',
     publishedAt: '2026-10-19T12:30:00+08:00', revision: 1, author: '赛事宣传组',
     viewCount: 2210, version: 1, createdAt: '2026-10-19T12:00:00+08:00',
   },
@@ -931,7 +939,7 @@ export const contents: Content[] = [
     summary: '双方四粒进球，比赛最后时刻绝平，现场气氛火爆。',
     bodyHtml:
       '<p>四川大学与电子科技大学的比赛跌宕起伏。电子科大两度领先，川大在补时阶段由 10 号球员头球绝平，最终 2:2 握手言和。</p>',
-    coverUrl: IMG.stadium, status: 'PUBLISHED',
+    coverUrl: IMG.match, status: 'PUBLISHED',
     publishedAt: '2026-10-18T09:00:00+08:00', revision: 1, author: '赛事宣传组',
     viewCount: 1740, version: 1, createdAt: '2026-10-18T08:00:00+08:00',
   },
@@ -940,7 +948,7 @@ export const contents: Content[] = [
     summary: '门将、后卫、中场、前锋各位置表现最突出的球员。',
     bodyHtml:
       '<p>门将：李明宇（成都市实验小学）；后卫：王浩然、陈嘉豪、刘一鸣；中场：赵天佑、孙泽宇；前锋：周俊杰、张子轩。</p>',
-    coverUrl: IMG.ball, status: 'PUBLISHED',
+    coverUrl: IMG.team, status: 'PUBLISHED',
     publishedAt: '2026-10-19T20:00:00+08:00', revision: 1, author: '技术分析组',
     viewCount: 980, version: 1, createdAt: '2026-10-19T19:30:00+08:00',
   },
@@ -949,7 +957,7 @@ export const contents: Content[] = [
     summary: '川大、电子科大、西南交大球员领衔本轮最佳阵容。',
     bodyHtml:
       '<p>门将：许文昊（四川大学）；后卫：邓凯、冯子豪、曾俊熙；中场：彭宇轩、肖景行；前锋：唐子杰、罗嘉瑞。</p>',
-    coverUrl: IMG.trophy, status: 'PUBLISHED',
+    coverUrl: IMG.coach, status: 'PUBLISHED',
     publishedAt: '2026-10-18T20:00:00+08:00', revision: 1, author: '技术分析组',
     viewCount: 760, version: 1, createdAt: '2026-10-18T19:30:00+08:00',
   },
@@ -1135,6 +1143,41 @@ export const messages: Message[] = [
     id: 'msg_004', title: '公示已发布', body: '「张子轩」的运动员报名信息已在门户公示，公示期间如有异议请联系组委会。',
     businessType: 'PUBLICATION', businessId: 'pub_003', read: true, readAt: '2026-10-13T09:00:00+08:00',
     version: 1, createdAt: '2026-10-12T09:00:00+08:00',
+  },
+  {
+    id: 'msg_005', title: '报名被退回，请补充材料', body: '「绵阳南山中学·高中男子组」报名单缺少近三个月体检证明，请在被退回后 3 日内补交并重新提交。',
+    businessType: 'REVIEW', businessId: 'enr_004', read: false, version: 1,
+    createdAt: '2026-10-18T16:40:00+08:00',
+  },
+  {
+    id: 'msg_006', title: '报名审核通过', body: '您负责的「成都市第七中学·高中男子组」报名已通过市级初审，等待省级终审。',
+    businessType: 'ENROLLMENT', businessId: 'enr_002', read: true, readAt: '2026-10-17T11:10:00+08:00',
+    version: 1, createdAt: '2026-10-16T18:20:00+08:00',
+  },
+  {
+    id: 'msg_007', title: '比赛场地变更', body: '原定于成都体育学院进行的「成都市实验小学 vs 绵阳市实验小学」调整至高新区足球公园 2 号场，开球时间不变。',
+    businessType: 'MATCH', businessId: 'match_001', read: false, version: 1,
+    createdAt: '2026-10-18T08:15:00+08:00',
+  },
+  {
+    id: 'msg_008', title: '公示期即将结束', body: '「2026 年省级最佳阵容遴选名单」公示将于 10 月 22 日 18:00 结束，如无异议将进入正式发布。',
+    businessType: 'PUBLICATION', businessId: 'pub_003', read: false, version: 1,
+    createdAt: '2026-10-19T09:05:00+08:00',
+  },
+  {
+    id: 'msg_009', title: '系统维护通知', body: '平台将于 10 月 21 日 00:00-02:00 进行数据库维护，期间报名提交与审核功能暂停使用。',
+    businessType: 'SYSTEM', read: true, readAt: '2026-10-15T10:00:00+08:00',
+    version: 1, createdAt: '2026-10-14T17:00:00+08:00',
+  },
+  {
+    id: 'msg_010', title: '待完成身份核验', body: '「成都市实验小学 vs 绵阳市实验小学」有 2 名球员尚未完成人脸比对，请在开赛前 30 分钟处理。',
+    businessType: 'IDENTITY', businessId: 'match_001', read: false, version: 1,
+    createdAt: '2026-10-19T08:30:00+08:00',
+  },
+  {
+    id: 'msg_011', title: '遴选评分汇总完成', body: '2026 年省级最佳阵容遴选评分已汇总，可前往排名汇总查看各位置候选人与专家评分明细。',
+    businessType: 'SELECTION', businessId: 'sel_001', read: true, readAt: '2026-10-11T15:20:00+08:00',
+    version: 1, createdAt: '2026-10-10T16:00:00+08:00',
   },
 ]
 

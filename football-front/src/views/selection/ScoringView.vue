@@ -178,7 +178,6 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="评分录入"
-      eyebrow="SCORE ENTRY"
       description="按已确认的评分规则录入运动员各维度得分。系统按权重自动折算百分制总分，支持后续修正与留痕。"
     >
       <template #actions>

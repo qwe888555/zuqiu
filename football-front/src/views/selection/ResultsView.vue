@@ -97,7 +97,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="正式结果"
-      eyebrow="OFFICIAL RESULTS"
       description="从已确认的评分规则生成正式入围名单。结果冻结评分版本，用于公示与上报；评分变更后需重新生成。"
     >
       <template #actions>
@@ -175,7 +174,7 @@ onMounted(() => {
         <template v-if="detail">
           <header class="detail-head">
             <div>
-              <span class="detail-head__eyebrow">OFFICIAL SELECTION</span>
+              <span class="detail-head__eyebrow">正式遴选结果</span>
               <h2>{{ detail.eventName }}</h2>
               <p>{{ detail.groupName }} · {{ roundLabel[detail.round] }} · 第 {{ detail.sourceScoreRevision }} 版评分</p>
             </div>
@@ -267,9 +266,8 @@ onMounted(() => {
 }
 
 .detail-head__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 

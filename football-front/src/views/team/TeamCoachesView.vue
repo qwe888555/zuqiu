@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { personApi, teamApi } from '../../api'
-import type { Person, TeamCoach } from '../../api/types'
+import type { CoachCategory, Person, TeamCoach } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
+import { COACH_CATEGORY_LABELS, coachCategoryLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import FilterBar from '../../components/common/FilterBar.vue'
 
 const { teams, teamId, loadTeams } = useTeamScope()
 const loading = ref(false)
@@ -18,18 +20,28 @@ const searchKeyword = ref('')
 const candidates = ref<Person[]>([])
 const searching = ref(false)
 const selected = ref<Person | null>(null)
-const coachCategory = ref('主教练')
+const coachCategory = ref<CoachCategory>('HEAD_COACH')
+const effectiveFrom = ref(new Date().toISOString().slice(0, 10))
+const filters = reactive({ category: '' as '' | CoachCategory, reviewStatus: '' })
 
-const categories = ['主教练', '助理教练', '守门员教练', '体能教练', '队医']
+const categories = (Object.keys(COACH_CATEGORY_LABELS) as CoachCategory[]).map((value) => ({
+  value,
+  label: COACH_CATEGORY_LABELS[value],
+}))
 
-const approvedCount = computed(() => rows.value.filter((c) => c.status === 'APPROVED').length)
-const pendingCount = computed(() => rows.value.filter((c) => c.status === 'PENDING').length)
+const approvedCount = computed(() => rows.value.filter((c) => c.reviewStatus === 'APPROVED').length)
+const pendingCount = computed(() => rows.value.filter((c) => c.reviewStatus === 'PENDING').length)
 
 async function load() {
   if (!teamId.value) return
   loading.value = true
   try {
-    const res = await teamApi.coaches(teamId.value, { page: 1, pageSize: 50 })
+    const res = await teamApi.coaches(teamId.value, {
+      page: 1,
+      pageSize: 50,
+      category: filters.category || undefined,
+      reviewStatus: filters.reviewStatus || undefined,
+    })
     rows.value = res.items
     total.value = res.total
   } catch {
@@ -43,12 +55,19 @@ async function changeTeam() {
   await load()
 }
 
+function resetFilters() {
+  filters.category = ''
+  filters.reviewStatus = ''
+  load()
+}
+
 function openAdd() {
   dialogVisible.value = true
   searchKeyword.value = ''
   candidates.value = []
   selected.value = null
-  coachCategory.value = '主教练'
+  coachCategory.value = 'HEAD_COACH'
+  effectiveFrom.value = new Date().toISOString().slice(0, 10)
 }
 
 async function searchPeople() {
@@ -71,7 +90,8 @@ async function addCoach() {
   try {
     await teamApi.addCoach(teamId.value, {
       coachId: selected.value.id,
-      coachCategory: coachCategory.value,
+      category: coachCategory.value,
+      effectiveFrom: effectiveFrom.value,
     })
     ElMessage.success('教练已加入球队')
     dialogVisible.value = false
@@ -107,7 +127,6 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="教练团队"
-      eyebrow="COACHING STAFF"
       description="维护主教练、助理教练与保障人员。教练资质需通过人员档案材料审核后方可关联球队。"
     >
       <template #actions>
@@ -131,6 +150,29 @@ onMounted(async () => {
     </div>
 
     <section class="page-card">
+      <FilterBar>
+        <el-select
+          v-model="filters.category"
+          placeholder="全部职务"
+          clearable
+          style="width: 150px"
+          @change="load"
+        >
+          <el-option v-for="item in categories" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
+        <el-select
+          v-model="filters.reviewStatus"
+          placeholder="全部审核状态"
+          clearable
+          style="width: 160px"
+          @change="load"
+        >
+          <el-option label="待审核" value="PENDING" />
+          <el-option label="已通过" value="APPROVED" />
+          <el-option label="已驳回" value="REJECTED" />
+        </el-select>
+        <el-button text @click="resetFilters">重置</el-button>
+      </FilterBar>
       <div class="section-title">教练与保障人员</div>
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="姓名" min-width="180">
@@ -144,9 +186,11 @@ onMounted(async () => {
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="coachCategory" label="职务" width="130" />
+        <el-table-column label="职务" width="130">
+          <template #default="{ row }">{{ coachCategoryLabel(row.category) }}</template>
+        </el-table-column>
         <el-table-column label="资质状态" width="120">
-          <template #default="{ row }"><StatusTag :status="row.status" kind="review" /></template>
+          <template #default="{ row }"><StatusTag :status="row.reviewStatus" kind="review" /></template>
         </el-table-column>
         <el-table-column label="操作" width="110" align="right">
           <template #default="{ row }">
@@ -188,11 +232,21 @@ onMounted(async () => {
           </button>
         </div>
         <el-empty v-else-if="searchKeyword && !searching" description="未找到匹配教练档案" :image-size="60" />
-        <el-form-item label="球队职务">
-          <el-select v-model="coachCategory" style="width: 100%">
-            <el-option v-for="item in categories" :key="item" :label="item" :value="item" />
-          </el-select>
-        </el-form-item>
+        <div class="form-grid">
+          <el-form-item label="球队职务" required>
+            <el-select v-model="coachCategory" style="width: 100%">
+              <el-option v-for="item in categories" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="任职起始日期" required>
+            <el-date-picker
+              v-model="effectiveFrom"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -302,5 +356,17 @@ onMounted(async () => {
   font-size: 9.5px;
   font-weight: 700;
   color: var(--brand-700);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

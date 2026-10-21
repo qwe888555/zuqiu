@@ -225,7 +225,6 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="身份核验"
-      eyebrow="IDENTITY VERIFICATION"
       description="查看赛前人脸比对与人工核验记录。比对不一致或服务不可用时，需由记录员现场核验证件后人工确认。"
     >
       <template #actions>
@@ -315,7 +314,7 @@ onMounted(load)
     <el-drawer v-model="drawerVisible" size="540px" :with-header="false">
       <div v-if="detail" class="identity-detail">
         <header class="detail-head">
-          <span class="detail-head__eyebrow">IDENTITY CHECK</span>
+          <span class="detail-head__eyebrow">身份核验</span>
           <h2>{{ detail.athleteName }}</h2>
           <p>{{ detail.matchLabel || '比赛未登记' }} · {{ detail.teamName || '球队未登记' }}</p>
           <StatusTag :status="detail.manualStatus" kind="identity" size="default" />
@@ -491,9 +490,8 @@ onMounted(load)
 }
 
 .detail-head__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 
@@ -511,7 +509,7 @@ onMounted(load)
 .capture {
   position: relative;
   margin-top: 16px;
-  border-radius: 13px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--paper);
 }

@@ -296,7 +296,8 @@ export const resourceApi = {
 export const publicationApi = {
   list: (params: Query) => http.get<PageResult<Publication>>('/publications', params),
   create: (data: Query) => http.post<Publication>('/publications', data),
-  cancel: (id: string) => http.post<{ success: boolean }>(`/publications/${id}/cancel`),
+  cancel: (id: string, data: { version: number; reason: string }) =>
+    http.post<{ success: boolean }>(`/publications/${id}/cancel`, data),
 }
 
 export const selectionApi = {

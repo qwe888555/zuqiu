@@ -168,7 +168,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="评分规则"
-      eyebrow="SELECTION RULES"
       description="按赛事与组别配置遴选维度、权重与入围名额。规则确认后方可录入评分，权重合计须为 100%。"
     >
       <template #actions>

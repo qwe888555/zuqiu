@@ -241,7 +241,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="人员管理"
-      eyebrow="PEOPLE DIRECTORY"
       description="统一管理运动员与教练员档案。敏感证件号与手机号按脱敏规则存储，新建档案默认进入待审核状态。"
     >
       <template #actions>
@@ -410,7 +409,7 @@ onMounted(() => {
 
     <el-drawer v-model="materialsVisible" size="620px" :with-header="false">
       <div class="material-head">
-        <span class="material-head__eyebrow">PERSON MATERIALS</span>
+        <span class="material-head__eyebrow">个人材料</span>
         <h2>{{ materialOwner?.realName || '人员' }} · 履历材料</h2>
         <p>{{ materialOwner?.schoolName || '学校未登记' }} · 待审核材料需逐份给出结论。</p>
       </div>
@@ -551,9 +550,8 @@ onMounted(() => {
 }
 
 .material-head__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 

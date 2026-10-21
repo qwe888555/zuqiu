@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ChatDotRound, Close, Promotion, Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { PolicyAnswer } from '../../api/types'
+import {
+  registerPolicyAssistant,
+  type PolicyAssistantContext,
+  type PolicyAssistantRequest,
+} from '../../composables/usePolicyAssistant'
 
 interface Exchange {
   question: string
@@ -12,7 +17,9 @@ interface Exchange {
 
 const open = ref(false)
 const question = ref('')
+const context = ref<PolicyAssistantContext | null>(null)
 const exchanges = ref<Exchange[]>([])
+let unregister: (() => void) | undefined
 
 const quickQuestions = [
   '报名需要提交哪些材料？',
@@ -24,7 +31,8 @@ const quickQuestions = [
 async function ask(text?: string) {
   const content = (text ?? question.value).trim()
   if (!content) return
-  const item: Exchange = { question: content, loading: true }
+  // 必须使用响应式对象，否则 await 后修改 loading/answer 不会触发界面更新。
+  const item = reactive<Exchange>({ question: content, loading: true })
   exchanges.value.push(item)
   question.value = ''
   try {
@@ -42,6 +50,20 @@ async function ask(text?: string) {
     item.loading = false
   }
 }
+
+function handleRequest(request: PolicyAssistantRequest) {
+  open.value = true
+  context.value = request.context || null
+  if (request.question) ask(request.question)
+}
+
+onMounted(() => {
+  unregister = registerPolicyAssistant(handleRequest)
+})
+
+onBeforeUnmount(() => {
+  unregister?.()
+})
 </script>
 
 <template>
@@ -54,7 +76,6 @@ async function ask(text?: string) {
     <div class="assistant">
       <header class="assistant__head">
         <div>
-          <span class="assistant__eyebrow">POLICY ASSISTANT</span>
           <h3>政策问答助手</h3>
         </div>
         <button class="assistant__close" type="button" @click="open = false">
@@ -63,6 +84,11 @@ async function ask(text?: string) {
       </header>
 
       <div class="assistant__body">
+        <div v-if="context" class="assistant__context">
+          <span class="assistant__context-label">正在询问</span>
+          <strong>{{ context.title }}</strong>
+        </div>
+
         <div v-if="!exchanges.length" class="assistant__intro">
           <div class="assistant__badge"><el-icon :size="22"><Search /></el-icon></div>
           <h4>从已发布政策中找依据</h4>
@@ -70,6 +96,14 @@ async function ask(text?: string) {
             基于赛事规程、报名办法等正式文件回答，并附上政策出处。涉及个人隐私的问题不会被处理。
           </p>
           <div class="quick-list">
+            <button
+              v-if="context"
+              type="button"
+              class="quick-chip quick-chip--strong"
+              @click="ask(`《${context.title}》的主要规定和办理要求是什么？`)"
+            >
+              这份文件的要点
+            </button>
             <button
               v-for="q in quickQuestions"
               :key="q"
@@ -150,35 +184,33 @@ async function ask(text?: string) {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 11px 17px 11px 12px;
+  padding: 10px 16px 10px 10px;
   border: none;
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--brand-700);
   color: #fff;
-  box-shadow: 0 14px 32px rgba(7, 92, 64, 0.32);
+  box-shadow: 0 4px 14px rgba(16, 33, 26, 0.18);
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transition: background-color 0.18s ease;
 }
 
 .policy-fab:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 38px rgba(7, 92, 64, 0.38);
+  background: var(--brand-800);
 }
 
 .policy-fab__icon {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--lime);
-  color: var(--brand-900);
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 
 .policy-fab__label {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 13.5px;
+  font-weight: 500;
 }
 
 .assistant {
@@ -192,21 +224,14 @@ async function ask(text?: string) {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 22px 24px 18px;
-  background: linear-gradient(150deg, var(--brand-800), var(--brand-700));
+  padding: 18px 20px 16px;
+  background: var(--brand-900);
   color: #fff;
 }
 
-.assistant__eyebrow {
-  font-size: 9px;
-  letter-spacing: 0.22em;
-  color: rgba(255, 255, 255, 0.5);
-}
-
 .assistant__head h3 {
-  margin-top: 5px;
-  font-size: 19px;
-  letter-spacing: 0.02em;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .assistant__close {
@@ -215,8 +240,8 @@ async function ask(text?: string) {
   width: 30px;
   height: 30px;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  background: transparent;
   color: #fff;
   cursor: pointer;
 }
@@ -228,31 +253,53 @@ async function ask(text?: string) {
   background: var(--paper);
 }
 
+.assistant__context {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--brand-700);
+  border-radius: 0 6px 6px 0;
+  background: var(--brand-50);
+}
+
+.assistant__context-label {
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.assistant__context strong {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--brand-800);
+}
+
 .assistant__intro {
   padding: 22px;
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 8px;
 }
 
 .assistant__badge {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
   background: var(--brand-50);
   color: var(--brand-700);
 }
 
 .assistant__intro h4 {
   margin-top: 14px;
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .assistant__intro p {
   margin-top: 8px;
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.75;
   color: var(--ink-500);
 }
@@ -265,15 +312,21 @@ async function ask(text?: string) {
 }
 
 .quick-chip {
-  padding: 7px 11px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--brand-50);
   color: var(--brand-800);
-  font-size: 12px;
+  font-size: 13.5px;
   text-align: left;
   cursor: pointer;
   transition: 0.15s;
+}
+
+.quick-chip--strong {
+  border-color: var(--brand-500);
+  background: #fff;
+  font-weight: 600;
 }
 
 .quick-chip:hover {
@@ -288,23 +341,23 @@ async function ask(text?: string) {
 .bubble {
   max-width: 88%;
   padding: 12px 15px;
-  border-radius: 14px;
-  font-size: 13px;
-  line-height: 1.7;
+  border-radius: 8px;
+  font-size: 14.5px;
+  line-height: 1.75;
 }
 
 .bubble--user {
   margin-left: auto;
   background: var(--brand-700);
   color: #fff;
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: 2px;
 }
 
 .bubble--bot {
   margin-top: 10px;
   background: #fff;
   border: 1px solid var(--line);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: 2px;
 }
 
 .answer-text {
@@ -314,7 +367,7 @@ async function ask(text?: string) {
 
 .typing {
   color: var(--ink-500);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .citations {
@@ -327,9 +380,9 @@ async function ask(text?: string) {
 }
 
 .citations__label {
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: var(--ink-300);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-500);
 }
 
 .citation {
@@ -337,7 +390,7 @@ async function ask(text?: string) {
   flex-direction: column;
   gap: 3px;
   padding: 9px 11px;
-  border-radius: 9px;
+  border-radius: 4px;
   background: var(--brand-50);
   border: 1px solid transparent;
   transition: 0.15s;
@@ -348,7 +401,7 @@ async function ask(text?: string) {
 }
 
 .citation strong {
-  font-size: 12px;
+  font-size: 13.5px;
   color: var(--brand-800);
 }
 
@@ -357,7 +410,7 @@ async function ask(text?: string) {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--ink-500);
 }
@@ -365,7 +418,7 @@ async function ask(text?: string) {
 .ai-note {
   display: block;
   margin-top: 10px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ink-300);
 }
 
@@ -377,7 +430,7 @@ async function ask(text?: string) {
 
 .assistant__foot p {
   margin-top: 8px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ink-300);
   text-align: center;
 }

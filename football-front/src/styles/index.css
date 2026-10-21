@@ -1,36 +1,45 @@
 :root {
-  --brand-900: #064a35;
-  --brand-800: #075c40;
-  --brand-700: #0b7a53;
-  --brand-600: #119465;
-  --brand-500: #1aab77;
-  --brand-100: #dff5ea;
-  --brand-50: #f0faf5;
-  --lime: #c8f169;
-  --lime-soft: #eefbd2;
-  --ink-900: #10211a;
-  --ink-700: #33463d;
-  --ink-500: #66786f;
-  --ink-300: #a9b7b0;
-  --line: #e5ece8;
-  --paper: #f5f8f6;
+  --brand-900: #073b2c;
+  --brand-800: #07553e;
+  --brand-700: #087f5b;
+  --brand-600: #0e9369;
+  --brand-500: #1aa77a;
+  --brand-100: #d8f0e5;
+  --brand-50: #edf5ef;
+  --lime: #c8f36a;
+  --lime-soft: #f1fad9;
+  --live: #b54708;
+  --live-soft: #fef0e6;
+  --whistle: #245ea8;
+  --whistle-soft: #eaf1fa;
+  --pitch-line: rgba(8, 127, 91, 0.14);
+  --scoreboard: #073b2c;
+  --scoreboard-soft: #0a4a37;
+  --scoreboard-line: rgba(255, 255, 255, 0.12);
+  --ink-900: #18352b;
+  --ink-700: #2e4a3f;
+  --ink-500: #52675d;
+  --ink-300: #7a8c82;
+  --line: #dfe7e1;
+  --line-strong: #c9d6ce;
+  --paper: #f6f8f4;
   --white: #ffffff;
-  --radius-lg: 20px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-soft: 0 10px 30px rgba(10, 55, 38, 0.08);
-  --shadow-card: 0 6px 20px rgba(10, 55, 38, 0.06);
+  --radius-lg: 10px;
+  --radius-md: 8px;
+  --radius-sm: 6px;
+  --shadow-soft: 0 2px 8px rgba(24, 53, 43, 0.05);
+  --shadow-card: 0 1px 2px rgba(24, 53, 43, 0.04);
   --font-sans: 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
   --font-display: 'DIN Alternate', 'Bahnschrift', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
-  --el-color-primary: #0b7a53;
-  --el-color-primary-light-3: #4c9f7f;
-  --el-color-primary-light-5: #85bfa6;
-  --el-color-primary-light-7: #bedfce;
-  --el-color-primary-light-8: #d7ecdf;
-  --el-color-primary-light-9: #eef8f2;
-  --el-color-primary-dark-2: #085d3f;
-  --el-border-radius-base: 10px;
+  --el-color-primary: #087f5b;
+  --el-color-primary-light-3: #4c9f83;
+  --el-color-primary-light-5: #83bfa9;
+  --el-color-primary-light-7: #b9dfd0;
+  --el-color-primary-light-8: #d3ebdf;
+  --el-color-primary-light-9: #edf5ef;
+  --el-color-primary-dark-2: #066848;
+  --el-border-radius-base: 6px;
   --el-font-family: var(--font-sans);
 }
 
@@ -87,7 +96,7 @@ button {
   background: var(--white);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 22px;
+  padding: 20px 22px;
   box-shadow: var(--shadow-card);
 }
 
@@ -149,6 +158,62 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 0 3px rgba(181, 71, 8, 0.16);
+  animation: live-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(181, 71, 8, 0.14);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(181, 71, 8, 0.02);
+  }
+}
+
+/* 紧凑模式：由控制台顶栏切换，只影响控制台内页 */
+.console.density-compact .page {
+  gap: 12px;
+}
+
+.console.density-compact .page-card {
+  padding: 15px 17px;
+}
+
+.console.density-compact .stat-grid {
+  gap: 10px;
+}
+
+.console.density-compact .el-table {
+  font-size: 12px;
+}
+
+.console.density-compact .el-table .el-table__cell {
+  padding: 4px 0;
+}
+
+.console.density-compact .el-table__header .el-table__cell {
+  padding: 5px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -188,7 +253,7 @@ button {
 
   .page-card {
     padding: 16px;
-    border-radius: 16px;
+    border-radius: 8px;
   }
 
   .stat-grid {
@@ -229,32 +294,23 @@ button {
 }
 
 .el-button {
-  font-weight: 600;
-  transition: transform 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
-}
-
-.el-button:hover {
-  transform: translateY(-1px);
-}
-
-.el-button.is-link:hover,
-.el-button.is-text:hover {
-  transform: none;
+  font-weight: 500;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
 
 .el-button--large {
-  padding: 14px 22px;
+  padding: 12px 20px;
 }
 
 .el-input__wrapper,
 .el-select__wrapper,
 .el-textarea__inner {
-  border-radius: 9px;
+  border-radius: 6px;
 }
 
 .el-input__wrapper.is-focus,
 .el-select__wrapper.is-focused {
-  box-shadow: 0 0 0 1px var(--brand-500) inset, 0 0 0 3px rgba(11, 122, 83, 0.08);
+  box-shadow: 0 0 0 1px var(--brand-500) inset;
 }
 
 .el-drawer__header {
@@ -279,7 +335,7 @@ button {
 }
 
 .el-message-box {
-  border-radius: 16px;
+  border-radius: 10px;
 }
 
 .el-card {
@@ -298,7 +354,7 @@ button {
 }
 
 .el-pagination.is-background .el-pager li {
-  border-radius: 7px;
+  border-radius: 4px;
 }
 
 :where(button, a, .el-button, .el-menu-item):focus-visible {
@@ -336,7 +392,7 @@ button {
 .rich-text {
   line-height: 1.9;
   color: var(--ink-700);
-  font-size: 15px;
+  font-size: 16.5px;
 }
 
 .rich-text p {

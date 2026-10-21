@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { ArrowRight, Bell, Expand, Fold, HomeFilled, SwitchButton } from '@element-plus/icons-vue'
+import { ArrowRight, Bell, Expand, Fold, HomeFilled, Operation, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import { useAppStore } from '../stores/app'
 import { ROLE_MENU_LABELS } from '../config/menus'
@@ -15,6 +15,11 @@ const router = useRouter()
 const auth = useAuthStore()
 const app = useAppStore()
 const isMobile = ref(window.innerWidth < 992)
+const compact = ref(localStorage.getItem('console-density') === 'compact')
+
+watch(compact, (value) => {
+  localStorage.setItem('console-density', value ? 'compact' : 'comfortable')
+})
 
 const activeMenu = computed(() => {
   const path = route.path
@@ -107,7 +112,7 @@ function onResize() {
 onMounted(async () => {
   window.addEventListener('resize', onResize)
   try {
-    const res = await meApi.messages({ page: 1, pageSize: 1, unreadOnly: true })
+    const res = await meApi.messages({ page: 1, pageSize: 1, read: false })
     app.unreadCount = res.total
   } catch {
     // 未读消息加载失败不阻塞页面
@@ -167,7 +172,10 @@ async function handleCommand(command: string) {
 </script>
 
 <template>
-  <div class="console" :class="{ 'is-collapsed': app.sidebarCollapsed && !isMobile }">
+  <div
+    class="console"
+    :class="{ 'is-collapsed': app.sidebarCollapsed && !isMobile, 'density-compact': compact }"
+  >
     <aside
       class="sidebar"
       :class="{
@@ -178,7 +186,7 @@ async function handleCommand(command: string) {
       <div class="brand">
         <div class="brand__mark">
           <svg viewBox="0 0 40 40" aria-hidden="true">
-            <circle cx="20" cy="20" r="18" fill="#c8f169" />
+            <circle cx="20" cy="20" r="18" fill="var(--lime)" />
             <path
               d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z"
               fill="#075c40"
@@ -243,6 +251,17 @@ async function handleCommand(command: string) {
         </div>
 
         <div class="top-actions">
+          <el-tooltip :content="compact ? '切换为舒适密度' : '切换为紧凑密度'" placement="bottom">
+            <button
+              class="icon-btn"
+              :class="{ 'is-on': compact }"
+              type="button"
+              :aria-pressed="compact"
+              @click="compact = !compact"
+            >
+              <el-icon :size="18"><Operation /></el-icon>
+            </button>
+          </el-tooltip>
           <el-tooltip content="返回门户" placement="bottom">
             <button class="icon-btn" type="button" @click="router.push('/')">
               <el-icon :size="18"><HomeFilled /></el-icon>
@@ -353,9 +372,8 @@ async function handleCommand(command: string) {
   flex-direction: column;
   padding: 20px 0 14px;
   color: rgba(255, 255, 255, 0.72);
-  background:
-    radial-gradient(circle at 18% 8%, rgba(200, 241, 105, 0.16), transparent 34%),
-    linear-gradient(175deg, #075c40 0%, #064a35 52%, #053c2b 100%);
+  background: var(--brand-900);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
   transition: width 0.2s ease;
 }
 
@@ -372,19 +390,18 @@ async function handleCommand(command: string) {
 }
 
 .brand__mark {
-  flex: 0 0 42px;
-  width: 42px;
-  height: 42px;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 13px;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .brand__mark svg {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
 }
 
 .brand__text {
@@ -395,30 +412,26 @@ async function handleCommand(command: string) {
 
 .brand__text strong {
   color: #fff;
-  font-size: 17px;
-  letter-spacing: 0.08em;
+  font-size: 16px;
+  letter-spacing: 0.04em;
 }
 
 .brand__text span {
   margin-top: 2px;
   font-size: 10px;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(255, 255, 255, 0.42);
 }
 
 .role-pill {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  margin: 0 22px 14px;
-  padding: 6px 11px;
+  gap: 6px;
+  margin: 0 22px 12px;
+  padding: 4px 0;
   width: fit-content;
-  border-radius: 999px;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--lime);
-  background: rgba(200, 241, 105, 0.1);
-  border: 1px solid rgba(200, 241, 105, 0.22);
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .role-pill__dot {
@@ -426,7 +439,6 @@ async function handleCommand(command: string) {
   height: 5px;
   border-radius: 50%;
   background: var(--lime);
-  box-shadow: 0 0 8px var(--lime);
 }
 
 .menu-scroll {
@@ -445,11 +457,10 @@ async function handleCommand(command: string) {
 }
 
 .menu-section {
-  padding: 16px 14px 7px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  color: rgba(255, 255, 255, 0.34);
+  padding: 16px 14px 6px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.32);
   white-space: nowrap;
 }
 
@@ -463,14 +474,14 @@ async function handleCommand(command: string) {
 }
 
 .side-menu :deep(.el-menu-item) {
-  height: 42px;
-  line-height: 42px;
-  margin: 2px 0;
+  position: relative;
+  height: 40px;
+  line-height: 40px;
+  margin: 1px 0;
   padding: 0 14px !important;
-  border-radius: 10px;
-  color: rgba(255, 255, 255, 0.68);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.64);
   font-size: 13px;
-  letter-spacing: 0.02em;
 }
 
 .side-menu :deep(.el-menu-item .el-icon) {
@@ -484,20 +495,30 @@ async function handleCommand(command: string) {
 }
 
 .side-menu :deep(.el-menu-item.is-active) {
-  color: #063c2b;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.09);
+  font-weight: 600;
+}
+
+.side-menu :deep(.el-menu-item.is-active)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 2px;
   background: var(--lime);
-  font-weight: 700;
-  box-shadow: 0 6px 18px rgba(200, 241, 105, 0.18);
 }
 
 .side-menu :deep(.el-menu-item.is-active .el-icon) {
-  color: #063c2b;
+  color: var(--lime);
 }
 
 .side-menu.el-menu--collapse :deep(.el-menu-item) {
   padding: 0 !important;
   justify-content: center;
-  margin: 4px 6px;
+  margin: 3px 6px;
 }
 
 .side-menu.el-menu--collapse :deep(.el-menu-item .el-icon) {
@@ -507,17 +528,17 @@ async function handleCommand(command: string) {
 
 .menu-badge {
   margin-left: auto;
-  padding: 0 6px;
-  border-radius: 999px;
+  padding: 0 5px;
+  border-radius: 3px;
   font-size: 9px;
-  line-height: 16px;
-  background: rgba(200, 241, 105, 0.16);
-  color: var(--lime);
+  line-height: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.66);
 }
 
 .side-menu :deep(.el-menu-item.is-active) .menu-badge {
-  background: rgba(6, 60, 43, 0.12);
-  color: #063c2b;
+  background: rgba(200, 241, 105, 0.14);
+  color: var(--lime);
 }
 
 .sidebar-foot {
@@ -556,10 +577,9 @@ async function handleCommand(command: string) {
   display: flex;
   align-items: center;
   gap: 14px;
-  height: 66px;
+  height: 62px;
   padding: 0 28px;
-  background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(14px);
+  background: #fff;
   border-bottom: 1px solid var(--line);
 }
 
@@ -569,7 +589,7 @@ async function handleCommand(command: string) {
   width: 36px;
   height: 36px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 6px;
   background: transparent;
   color: var(--ink-500);
   cursor: pointer;
@@ -579,6 +599,12 @@ async function handleCommand(command: string) {
 .icon-btn:hover {
   background: var(--brand-50);
   border-color: var(--line);
+  color: var(--brand-700);
+}
+
+.icon-btn.is-on {
+  background: var(--brand-50);
+  border-color: var(--brand-200, var(--line));
   color: var(--brand-700);
 }
 
@@ -613,9 +639,9 @@ async function handleCommand(command: string) {
 .user-chip {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   padding: 5px 8px 5px 5px;
-  border-radius: 12px;
+  border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -627,13 +653,13 @@ async function handleCommand(command: string) {
 .user-chip__avatar {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--brand-700), var(--brand-500));
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--brand-700);
   color: #fff;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .user-chip__meta {
@@ -718,7 +744,7 @@ async function handleCommand(command: string) {
 .password-hint {
   margin: -4px 0 16px;
   padding: 9px 12px;
-  border-radius: 9px;
+  border-radius: 6px;
   background: var(--paper);
   font-size: 10.5px;
   line-height: 1.7;
@@ -733,8 +759,7 @@ async function handleCommand(command: string) {
   position: fixed;
   inset: 0;
   z-index: 25;
-  background: rgba(6, 32, 23, 0.42);
-  backdrop-filter: blur(2px);
+  background: rgba(6, 32, 23, 0.46);
 }
 
 @media (max-width: 991px) {

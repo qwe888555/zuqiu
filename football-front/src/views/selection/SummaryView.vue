@@ -90,7 +90,6 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="排名汇总"
-      eyebrow="RANKING SUMMARY"
       description="根据当前评分实时计算排名。并列分数保留并列名次；排名仅作参考，正式结果需在「正式结果」中生成并发布。"
     >
       <template #actions>
@@ -230,21 +229,21 @@ onMounted(async () => {
   gap: 10px;
   padding: 14px 15px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: #fff;
 }
 
 .podium-item.is-1 {
-  background: linear-gradient(135deg, #fdf8e8, #fffdf7);
+  background: #fdf9ee;
   border-color: #eadfb9;
 }
 
 .podium-item.is-2 {
-  background: linear-gradient(135deg, #f4f6f8, #fcfdfd);
+  background: #f7f8fa;
 }
 
 .podium-item.is-3 {
-  background: linear-gradient(135deg, #faf3ee, #fdfbf9);
+  background: #fbf6f2;
   border-color: #ecdccf;
 }
 

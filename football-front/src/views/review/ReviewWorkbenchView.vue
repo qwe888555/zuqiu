@@ -2,10 +2,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Close, Refresh, Search, Stamp } from '@element-plus/icons-vue'
-import { enrollmentApi, fileApi } from '../../api'
+import { Check, Close, Download, Refresh, Search, Stamp } from '@element-plus/icons-vue'
+import { enrollmentApi, eventApi, fileApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
-import type { Enrollment, EnrollmentAttachment, ReviewRecord } from '../../api/types'
+import type { Enrollment, EnrollmentAttachment, Event, EventGroup, ReviewRecord } from '../../api/types'
 import { subjectTypeLabel } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -22,6 +22,9 @@ const pageSize = ref(10)
 const counts = reactive({ city: 0, province: 0, approved: 0, rejected: 0 })
 const activeStatus = ref(auth.roles.includes('CITY') ? 'PENDING_CITY_REVIEW' : 'PENDING_PROVINCE_REVIEW')
 const keyword = ref('')
+const events = ref<Event[]>([])
+const groups = ref<EventGroup[]>([])
+const filters = reactive({ eventId: '', groupId: '' })
 
 const drawerVisible = ref(false)
 const detailLoading = ref(false)
@@ -56,6 +59,8 @@ async function load() {
       page: page.value,
       pageSize: pageSize.value,
       status: activeStatus.value,
+      eventId: filters.eventId || undefined,
+      groupId: filters.groupId || undefined,
       teamName: keyword.value || undefined,
     })
     rows.value = res.items
@@ -147,6 +152,43 @@ async function downloadAttachment(attachment: EnrollmentAttachment) {
   }
 }
 
+async function downloadPlayers() {
+  if (!detail.value) return
+  try {
+    const downloaded = await enrollmentApi.downloadPlayers(detail.value.id)
+    ElMessage.success(downloaded ? '球员信息表已开始下载' : '演示环境已模拟下载，接入后端后将下载真实 Word 文件')
+  } catch {
+    // 拦截器提示
+  }
+}
+
+async function loadEvents() {
+  try {
+    const res = await eventApi.available({ page: 1, pageSize: 100 })
+    events.value = res.items
+  } catch {
+    events.value = []
+  }
+}
+
+async function loadGroups(eventId: string) {
+  if (!eventId) {
+    groups.value = []
+    return
+  }
+  try {
+    groups.value = await eventApi.availableGroups(eventId)
+  } catch {
+    groups.value = []
+  }
+}
+
+function changeEvent(eventId: string) {
+  filters.groupId = ''
+  loadGroups(eventId)
+  search()
+}
+
 function switchStatus(value: string) {
   activeStatus.value = value
   page.value = 1
@@ -159,6 +201,7 @@ function search() {
 }
 
 onMounted(() => {
+  loadEvents()
   load()
   loadCounts()
 })
@@ -168,7 +211,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="审核工作台"
-      eyebrow="REVIEW WORKBENCH"
       description="按审核阶段集中处理报名单。审核前请核对球员资格、材料完整性与盖章文件，驳回时必须填写明确原因。"
     >
       <template #actions>
@@ -198,6 +240,19 @@ onMounted(() => {
           </button>
         </div>
         <div class="search-box">
+          <el-select v-model="filters.eventId" placeholder="全部赛事" clearable style="width: 190px" @change="changeEvent">
+            <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
+          </el-select>
+          <el-select
+            v-model="filters.groupId"
+            :placeholder="filters.eventId ? '全部组别' : '请先选择赛事'"
+            :disabled="!filters.eventId"
+            clearable
+            style="width: 150px"
+            @change="search"
+          >
+            <el-option v-for="group in groups" :key="group.id" :label="group.name" :value="group.id" />
+          </el-select>
           <el-input
             v-model="keyword"
             placeholder="搜索球队名称"
@@ -271,7 +326,7 @@ onMounted(() => {
         <template v-if="detail">
           <header class="drawer-head">
             <div>
-              <span class="drawer-head__eyebrow">REVIEW · {{ currentStageLabel }}</span>
+              <span class="drawer-head__eyebrow">审核 · {{ currentStageLabel }}</span>
               <h2>{{ detail.teamName }}</h2>
               <p>{{ detail.eventName }} · {{ detail.groupName }} · {{ detail.cityName }}</p>
             </div>
@@ -291,7 +346,12 @@ onMounted(() => {
           </section>
 
           <section class="drawer-section">
-            <h3>球员名单 <small>{{ (detail.players || []).length }} 人</small></h3>
+            <div class="section-head">
+              <h3>球员名单 <small>{{ (detail.players || []).length }} 人</small></h3>
+              <el-button size="small" text type="primary" :icon="Download" @click="downloadPlayers">
+                导出球员信息表
+              </el-button>
+            </div>
             <el-table :data="detail.players || []" size="small" max-height="260">
               <el-table-column prop="athleteName" label="姓名" width="100" />
               <el-table-column prop="maskedIdNumber" label="身份证号" min-width="160" />
@@ -378,6 +438,8 @@ onMounted(() => {
 
 .search-box {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
 }
 
@@ -433,9 +495,8 @@ onMounted(() => {
 }
 
 .drawer-head__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 
@@ -458,6 +519,18 @@ onMounted(() => {
 .drawer-section h3 {
   margin-bottom: 12px;
   font-size: 13.5px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.section-head h3 {
+  margin-bottom: 0;
 }
 
 .drawer-section h3 small {

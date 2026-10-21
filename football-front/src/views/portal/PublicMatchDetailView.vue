@@ -2,10 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import dayjs from 'dayjs'
-import { Calendar, Location, VideoCamera } from '@element-plus/icons-vue'
+import { Calendar, Football, Location, Switch, VideoCamera, Warning } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { LiveLink, MatchEvent, PublicLivePost, PublicMatch } from '../../api/types'
 import StatusTag from '../../components/common/StatusTag.vue'
+import { matchDisplayStatus } from '../../utils/portal'
 
 interface MatchDetail extends PublicMatch {
   events: MatchEvent[]
@@ -20,7 +21,8 @@ const liveLinks = ref<LiveLink[]>([])
 const activeTab = ref('events')
 let timer: number | undefined
 
-const isLive = computed(() => match.value?.status === 'LIVE')
+const displayStatus = computed(() => (match.value ? matchDisplayStatus(match.value) : ''))
+const isLive = computed(() => displayStatus.value === 'LIVE')
 
 const sortedEvents = computed(() =>
   [...(match.value?.events || [])].sort((a, b) => {
@@ -30,10 +32,42 @@ const sortedEvents = computed(() =>
   }),
 )
 
+const briefText = computed(() => {
+  const current = match.value
+  if (!current) return ''
+  const status = displayStatus.value
+  if (status === 'SCHEDULED') {
+    return `本场将于 ${dayjs(current.kickoffAt).format('MM月DD日 HH:mm')} 在 ${current.venue || '待定场地'} 进行。`
+  }
+  if (status === 'CANCELLED') {
+    return '本场比赛已取消，后续安排以组委会通知为准。'
+  }
+  if (status === 'STALE' && current.status === 'SCHEDULED') {
+    return `本场原定于 ${dayjs(current.kickoffAt).format('MM月DD日 HH:mm')} 在 ${current.venue || '待定场地'} 开球，目前尚未收到赛况更新，请以组委会通知为准。`
+  }
+
+  const score = `${current.homeTeamName} ${current.homeScore} : ${current.awayScore} ${current.awayTeamName}`
+  const goals = sortedEvents.value
+    .filter((event) => event.eventType === 'GOAL')
+    .slice()
+    .reverse()
+    .slice(0, 5)
+    .map((event) => `${event.minute}' ${event.scorerName || '球员'}${event.teamName ? `（${event.teamName}）` : ''}`)
+    .join('；')
+
+  if (status === 'STALE') {
+    return `该场次开球已超过 4 小时，赛况尚未确认更新，当前保留最后一次记录的比分：${score}。`
+  }
+  if (status === 'LIVE') {
+    return `比赛进行中，当前比分 ${score}。${goals ? `已记录进球：${goals}。` : ''}`
+  }
+  return `全场结束，${score}。${goals ? `进球记录：${goals}。` : ''}`
+})
+
 const eventIcon = (type: string) => {
-  if (type === 'GOAL') return '⚽'
-  if (type === 'PENALTY') return '🟨'
-  return '🔄'
+  if (type === 'GOAL') return Football
+  if (type === 'PENALTY') return Warning
+  return Switch
 }
 
 const eventLabel = (event: MatchEvent) => {
@@ -100,7 +134,7 @@ watch(() => route.params.id, load)
         <div class="container">
           <div class="scoreboard__meta">
             <span class="group-pill">{{ match.groupName }}</span>
-            <StatusTag :status="match.status" kind="match" size="default" />
+            <StatusTag :status="displayStatus" kind="match" size="default" />
             <span class="scoreboard__event">{{ match.eventName }}</span>
           </div>
 
@@ -113,12 +147,22 @@ watch(() => route.params.id, load)
 
             <div class="score">
               <div class="score__nums">
-                <span class="num">{{ match.status === 'SCHEDULED' ? '-' : match.homeScore }}</span>
+                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' || (displayStatus === 'STALE' && match.status === 'SCHEDULED') ? '-' : match.homeScore }}</span>
                 <i>:</i>
-                <span class="num">{{ match.status === 'SCHEDULED' ? '-' : match.awayScore }}</span>
+                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' || (displayStatus === 'STALE' && match.status === 'SCHEDULED') ? '-' : match.awayScore }}</span>
               </div>
               <span class="score__state">
-                {{ match.status === 'SCHEDULED' ? dayjs(match.kickoffAt).format('MM月DD日 HH:mm') : match.status === 'LIVE' ? '比赛进行中' : '全场结束' }}
+                {{
+                  displayStatus === 'SCHEDULED'
+                    ? dayjs(match.kickoffAt).format('MM月DD日 HH:mm')
+                    : displayStatus === 'LIVE'
+                      ? '比赛进行中'
+                      : displayStatus === 'STALE'
+                        ? '赛况待更新'
+                        : displayStatus === 'CANCELLED'
+                          ? '比赛已取消'
+                          : '全场结束'
+                }}
               </span>
               <span v-if="match.scoreRevision" class="score__revision">数据版本 {{ match.scoreRevision }}</span>
             </div>
@@ -134,6 +178,7 @@ watch(() => route.params.id, load)
             <span><el-icon><Calendar /></el-icon>{{ dayjs(match.kickoffAt).format('YYYY年MM月DD日 HH:mm') }}</span>
             <span><el-icon><Location /></el-icon>{{ match.venue }}</span>
             <span v-if="isLive" class="live-refresh">每 20 秒自动刷新</span>
+            <span v-else-if="displayStatus === 'STALE'" class="live-refresh">赛况以组委会确认结果为准</span>
           </div>
         </div>
       </section>
@@ -154,6 +199,14 @@ watch(() => route.params.id, load)
           </div>
 
           <div v-show="activeTab === 'events'" class="panel">
+            <div v-if="briefText" class="match-brief">
+              <div class="match-brief__head">
+                <span>赛况速览</span>
+                <small>根据已记录的比赛事件自动整理</small>
+              </div>
+              <p>{{ briefText }}</p>
+            </div>
+
             <div v-if="sortedEvents.length" class="timeline">
               <div v-for="event in sortedEvents" :key="event.id" class="event-row">
                 <span class="event-row__minute num">
@@ -161,7 +214,7 @@ watch(() => route.params.id, load)
                   <small v-if="event.stoppageMinute">+{{ event.stoppageMinute }}</small>
                 </span>
                 <span class="event-row__icon" :class="`type-${event.eventType.toLowerCase()}`">
-                  {{ eventIcon(event.eventType) }}
+                  <el-icon :size="14"><component :is="eventIcon(event.eventType)" /></el-icon>
                 </span>
                 <div class="event-row__body">
                   <div class="event-row__line">
@@ -254,7 +307,7 @@ watch(() => route.params.id, load)
             <p>比分与事件数据由现场记录员实时提交，并以赛后正式公告为准。</p>
             <p>观众可通过图文直播关注比赛进程，文明观赛，为少年球员加油。</p>
           </div>
-          <router-link to="/matches" class="back-link">← 返回赛事中心</router-link>
+          <router-link to="/matches" class="back-link">← 返回赛程与比分</router-link>
         </aside>
       </div>
     </template>
@@ -264,11 +317,11 @@ watch(() => route.params.id, load)
       class="not-found"
       icon="warning"
       title="比赛不存在或未发布"
-      sub-title="请返回赛事中心查看其他比赛。"
+      sub-title="请返回赛程与比分查看其他比赛。"
     >
       <template #extra>
         <router-link to="/matches">
-          <el-button type="primary">返回赛事中心</el-button>
+          <el-button type="primary">返回赛程与比分</el-button>
         </router-link>
       </template>
     </el-result>
@@ -283,10 +336,9 @@ watch(() => route.params.id, load)
 }
 
 .scoreboard {
-  padding: 34px 0 30px;
-  background:
-    radial-gradient(circle at 78% 8%, rgba(200, 241, 105, 0.16), transparent 36%),
-    linear-gradient(150deg, #075c40, #043c2b);
+  padding: 30px 0 26px;
+  background: var(--scoreboard);
+  border-bottom: 1px solid var(--scoreboard-line);
   color: #fff;
 }
 
@@ -299,17 +351,17 @@ watch(() => route.params.id, load)
 }
 
 .group-pill {
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: rgba(200, 241, 105, 0.14);
-  color: var(--lime);
-  font-size: 10px;
-  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .scoreboard__event {
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.42);
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .scoreboard__main {
@@ -332,13 +384,13 @@ watch(() => route.params.id, load)
 .side__badge {
   display: grid;
   place-items: center;
-  width: 70px;
-  height: 70px;
-  border-radius: 20px;
+  width: 62px;
+  height: 62px;
+  border-radius: 8px;
   background: var(--lime);
   color: var(--brand-900);
-  font-size: 27px;
-  font-weight: 800;
+  font-size: 24px;
+  font-weight: 700;
 }
 
 .side__badge--away {
@@ -347,14 +399,13 @@ watch(() => route.params.id, load)
 }
 
 .side strong {
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.4;
 }
 
 .side small {
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: rgba(255, 255, 255, 0.34);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
 }
 
 .score {
@@ -379,14 +430,13 @@ watch(() => route.params.id, load)
 }
 
 .score__state {
-  font-size: 10.5px;
-  color: var(--lime);
-  letter-spacing: 0.06em;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .score__revision {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.3);
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .scoreboard__info {
@@ -397,8 +447,8 @@ watch(() => route.params.id, load)
   flex-wrap: wrap;
   padding-top: 18px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .scoreboard__info span {
@@ -422,7 +472,7 @@ watch(() => route.params.id, load)
 .detail-main {
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -462,14 +512,47 @@ watch(() => route.params.id, load)
 }
 
 .tab-live-dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #ff5f5f;
+  background: var(--live);
 }
 
 .panel {
   padding: 20px 22px 26px;
+}
+
+.match-brief {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--lime);
+  border-radius: 0 8px 8px 0;
+  background: var(--brand-50);
+}
+
+.match-brief__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.match-brief__head span {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--brand-800);
+}
+
+.match-brief__head small {
+  font-size: 12.5px;
+  color: var(--ink-500);
+}
+
+.match-brief p {
+  margin-top: 6px;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--ink-700);
 }
 
 .timeline {
@@ -506,12 +589,22 @@ watch(() => route.params.id, load)
 .event-row__icon {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
-  border-radius: 50%;
+  border-radius: 6px;
   background: var(--brand-50);
-  font-size: 15px;
+  color: var(--brand-700);
+}
+
+.event-row__icon.type-penalty {
+  background: var(--whistle-soft);
+  color: #9a6a12;
+}
+
+.event-row__icon.type-substitution {
+  background: var(--paper);
+  color: var(--ink-500);
 }
 
 .event-row__body {
@@ -526,34 +619,34 @@ watch(() => route.params.id, load)
 }
 
 .event-row__line strong {
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .event-row__type {
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 4px;
   background: var(--brand-50);
   color: var(--brand-700);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .event-row__team {
   display: block;
   margin-top: 3px;
-  font-size: 10.5px;
+  font-size: 13px;
   color: var(--ink-500);
 }
 
 .event-row__note {
   margin-top: 4px;
-  font-size: 10.5px;
-  color: var(--ink-300);
+  font-size: 13px;
+  color: var(--ink-500);
 }
 
 .event-row__side {
   flex-shrink: 0;
-  font-size: 9.5px;
-  color: var(--ink-300);
+  font-size: 12px;
+  color: var(--ink-500);
   padding-top: 8px;
 }
 
@@ -710,7 +803,7 @@ watch(() => route.params.id, load)
 
 .side-card {
   padding: 20px;
-  border-radius: 15px;
+  border-radius: var(--radius-lg);
   background: #fff;
   border: 1px solid var(--line);
 }
@@ -753,7 +846,7 @@ watch(() => route.params.id, load)
   .side__badge {
     width: 54px;
     height: 54px;
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
     font-size: 21px;
   }
 

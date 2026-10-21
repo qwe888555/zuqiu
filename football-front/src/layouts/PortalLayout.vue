@@ -12,11 +12,11 @@ const mobileOpen = ref(false)
 
 const navItems = [
   { label: '首页', path: '/' },
-  { label: '新闻资讯', path: '/news' },
+  { label: '赛事资讯', path: '/news' },
   { label: '政策公告', path: '/policies' },
-  { label: '赛事中心', path: '/matches' },
+  { label: '赛程与比分', path: '/matches' },
   { label: '射手榜', path: '/rankings' },
-  { label: '公示信息', path: '/publications' },
+  { label: '公示查询', path: '/publications' },
 ]
 
 const isActive = (path: string) => {
@@ -54,11 +54,11 @@ function navigate(path: string) {
         <router-link to="/" class="brand">
           <span class="brand__mark">
             <svg viewBox="0 0 40 40" aria-hidden="true">
-              <circle cx="20" cy="20" r="18" fill="#0b7a53" />
-              <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="#c8f169" />
+              <circle cx="20" cy="20" r="18" fill="var(--brand-700)" />
+              <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="var(--lime)" />
               <path
                 d="M20 4v6.5M36 20h-6M10 20H4M31.5 31.5l-4.2-4.2M8.5 31.5l4.2-4.2"
-                stroke="#c8f169"
+                stroke="var(--lime)"
                 stroke-width="2"
                 stroke-linecap="round"
               />
@@ -87,7 +87,7 @@ function navigate(path: string) {
             <el-icon><UserFilled /></el-icon>
             {{ auth.displayName }}
           </span>
-          <el-button type="primary" round @click="goConsole">
+          <el-button class="console-btn" @click="goConsole">
             {{ consoleLabel }}
           </el-button>
           <button class="mobile-trigger" type="button" @click="mobileOpen = true">
@@ -107,8 +107,8 @@ function navigate(path: string) {
           <div class="brand">
             <span class="brand__mark brand__mark--footer">
               <svg viewBox="0 0 40 40" aria-hidden="true">
-                <circle cx="20" cy="20" r="18" fill="#c8f169" />
-                <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="#064a35" />
+                <circle cx="20" cy="20" r="18" fill="var(--lime)" />
+                <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="var(--brand-900)" />
               </svg>
             </span>
             <span class="brand__text brand__text--footer">
@@ -123,9 +123,9 @@ function navigate(path: string) {
 
         <div class="footer-col">
           <h4>快捷入口</h4>
-          <router-link to="/matches">赛事中心</router-link>
+          <router-link to="/matches">赛程与比分</router-link>
           <router-link to="/rankings">射手榜</router-link>
-          <router-link to="/publications">公示信息</router-link>
+          <router-link to="/publications">公示查询</router-link>
           <router-link to="/login">管理登录</router-link>
         </div>
 
@@ -191,23 +191,22 @@ function navigate(path: string) {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--paper);
 }
 
 .portal-header {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(229, 236, 232, 0.9);
+  background: #fff;
+  border-bottom: 1px solid var(--line);
 }
 
 .header-inner {
   display: flex;
   align-items: center;
-  height: 74px;
-  gap: 34px;
+  height: 68px;
+  gap: 32px;
 }
 
 .brand {
@@ -220,15 +219,13 @@ function navigate(path: string) {
 .brand__mark {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--brand-50);
+  width: 38px;
+  height: 38px;
 }
 
 .brand__mark svg {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
 }
 
 .brand__text {
@@ -239,52 +236,52 @@ function navigate(path: string) {
 
 .brand__text strong {
   font-size: 17px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   color: var(--brand-900);
 }
 
 .brand__text small {
   margin-top: 1px;
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  letter-spacing: 0.04em;
   color: var(--ink-500);
 }
 
 .nav {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 26px;
+  height: 100%;
 }
 
 .nav__link {
   position: relative;
-  padding: 9px 14px;
-  border-radius: 9px;
-  font-size: 13.5px;
-  font-weight: 500;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  font-size: 14.5px;
+  font-weight: 400;
   color: var(--ink-700);
-  transition: 0.15s;
+  transition: color 0.15s;
 }
 
 .nav__link:hover {
-  background: var(--brand-50);
   color: var(--brand-700);
 }
 
 .nav__link.is-active {
   color: var(--brand-800);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .nav__link.is-active::after {
   content: '';
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 2px;
-  height: 3px;
-  border-radius: 99px;
-  background: var(--lime);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--brand-700);
 }
 
 .header-actions {
@@ -292,6 +289,19 @@ function navigate(path: string) {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.console-btn {
+  border-color: var(--brand-700);
+  color: var(--brand-700);
+  background: #fff;
+}
+
+.console-btn:hover,
+.console-btn:focus {
+  border-color: var(--brand-800);
+  color: var(--brand-800);
+  background: var(--brand-50);
 }
 
 .welcome {
@@ -315,8 +325,8 @@ function navigate(path: string) {
 }
 
 .portal-footer {
-  background: #063c2b;
-  color: rgba(255, 255, 255, 0.64);
+  background: var(--brand-900);
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .footer-grid {
@@ -327,7 +337,7 @@ function navigate(path: string) {
 }
 
 .brand__mark--footer {
-  background: rgba(200, 241, 105, 0.1);
+  background: transparent;
 }
 
 .brand__text--footer strong {
@@ -335,15 +345,15 @@ function navigate(path: string) {
 }
 
 .brand__text--footer small {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.56);
 }
 
 .footer-brand p {
   max-width: 320px;
   margin-top: 18px;
-  font-size: 12.5px;
+  font-size: 13.5px;
   line-height: 1.9;
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .footer-col {
@@ -354,9 +364,9 @@ function navigate(path: string) {
 
 .footer-col h4 {
   margin-bottom: 7px;
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  color: var(--lime);
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
 }
 
 .footer-col a,
@@ -365,8 +375,8 @@ function navigate(path: string) {
   border: none;
   background: none;
   padding: 0;
-  font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.62);
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.68);
   cursor: pointer;
   transition: color 0.15s;
 }
@@ -377,13 +387,13 @@ function navigate(path: string) {
 }
 
 .footer-contact p {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 
 .footer-note {
   margin-top: 6px;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.46);
 }
 
 .footer-bottom {
@@ -394,8 +404,8 @@ function navigate(path: string) {
   display: flex;
   justify-content: space-between;
   padding: 18px 0;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.34);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.46);
 }
 
 .mobile-panel {
@@ -421,7 +431,7 @@ function navigate(path: string) {
 .mobile-panel__close {
   border: none;
   background: var(--paper);
-  border-radius: 9px;
+  border-radius: 6px;
   width: 34px;
   height: 34px;
   display: grid;
@@ -433,7 +443,7 @@ function navigate(path: string) {
   border: none;
   background: transparent;
   padding: 14px 12px;
-  border-radius: 10px;
+  border-radius: 6px;
   font-size: 15px;
   text-align: left;
   color: var(--ink-700);

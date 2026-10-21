@@ -176,7 +176,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="参赛主体"
-      eyebrow="PARTICIPATING SUBJECTS"
       description="维护中小学校、高等院校与独立球队等参赛主体。主体信息用于球队归属、市州审核范围与门户展示。"
     >
       <template #actions>

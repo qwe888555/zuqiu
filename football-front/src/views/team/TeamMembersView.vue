@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit, Plus, Refresh, Search, User } from '@element-plus/icons-vue'
-import { teamApi } from '../../api'
+import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
+import { Camera, Delete, Edit, Plus, Refresh, Search, User } from '@element-plus/icons-vue'
+import { fileApi, personApi, teamApi } from '../../api'
 import type { Person, TeamMember } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -35,6 +35,7 @@ const editForm = reactive({
   effectiveFrom: '',
   effectiveTo: '',
 })
+const uploadingPhotoId = ref('')
 
 const positions = ['门将', '后卫', '中场', '前锋']
 
@@ -152,6 +153,26 @@ async function saveMemberEdit() {
   }
 }
 
+async function uploadPhoto(member: TeamMember, options: UploadRequestOptions) {
+  uploadingPhotoId.value = member.id
+  try {
+    const record = await fileApi.upload(options.file, 'PERSON', member.athleteId, 'AVATAR')
+    const person = await personApi.get(member.athleteId)
+    await personApi.update(person.id, {
+      kinds: person.kinds,
+      realName: person.realName,
+      avatarFileId: record.id,
+      version: person.version,
+    })
+    ElMessage.success('球员照片已更新')
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    uploadingPhotoId.value = ''
+  }
+}
+
 async function removeMember(member: TeamMember) {
   if (!teamId.value) return
   try {
@@ -178,7 +199,6 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="球员名单"
-      eyebrow="TEAM ROSTER"
       description="维护球队常备球员。报名时从球队名单中挑选球员，资格预检会核对年龄、学籍与重复报名情况。"
     >
       <template #actions>
@@ -252,8 +272,17 @@ onMounted(async () => {
         <el-table-column label="资格状态" width="120">
           <template #default="{ row }"><StatusTag :status="row.status" kind="review" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="170" align="right">
+        <el-table-column label="操作" width="250" align="right">
           <template #default="{ row }">
+            <el-upload
+              :show-file-list="false"
+              :http-request="(options: UploadRequestOptions) => uploadPhoto(row, options)"
+              accept=".jpg,.jpeg,.png"
+            >
+              <el-button link type="primary" :icon="Camera" :loading="uploadingPhotoId === row.id">
+                照片
+              </el-button>
+            </el-upload>
             <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" :icon="Delete" @click="removeMember(row)">移出</el-button>
           </template>
@@ -429,10 +458,10 @@ onMounted(async () => {
 }
 
 .position-chip {
-  padding: 5px 10px;
-  border-radius: 99px;
+  padding: 4px 8px;
+  border-radius: 3px;
   background: var(--paper);
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--ink-500);
 }
 

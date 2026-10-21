@@ -426,7 +426,6 @@ onMounted(load)
   <div class="page" v-loading="loading">
     <PageHeader
       title="报名详情"
-      eyebrow="ENROLLMENT DETAIL"
       :description="detail ? `${detail.eventName} · ${detail.groupName}` : '加载报名信息中…'"
       show-back
     >
@@ -672,7 +671,7 @@ onMounted(load)
           </section>
 
           <section class="page-card tip-card">
-            <span class="tip-card__eyebrow">REMINDER</span>
+            <span class="tip-card__eyebrow">提示</span>
             <h3>提交前检查</h3>
             <ul>
               <li>球员人数满足组别要求</li>
@@ -869,12 +868,12 @@ onMounted(load)
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
-  padding: 22px 26px;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 88% 10%, rgba(200, 241, 105, 0.16), transparent 34%),
-    linear-gradient(135deg, #075c40, #054331);
-  color: #fff;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand-700);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  color: var(--ink-900);
 }
 
 .enrollment-hero__team {
@@ -886,13 +885,13 @@ onMounted(load)
 .team-badge {
   display: grid;
   place-items: center;
-  width: 54px;
-  height: 54px;
-  border-radius: 15px;
-  background: var(--lime);
-  color: var(--brand-900);
-  font-size: 21px;
-  font-weight: 800;
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  background: var(--brand-700);
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
 }
 
 .enrollment-hero__title {
@@ -906,9 +905,9 @@ onMounted(load)
 }
 
 .enrollment-hero__team p {
-  margin-top: 5px;
+  margin-top: 4px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--ink-500);
 }
 
 .enrollment-hero__meta {
@@ -924,13 +923,13 @@ onMounted(load)
 }
 
 .enrollment-hero__meta span {
-  font-size: 9.5px;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: 10px;
+  color: var(--ink-300);
 }
 
 .enrollment-hero__meta strong {
-  font-size: 15px;
-  color: #fff;
+  font-size: 14px;
+  color: var(--ink-900);
 }
 
 .detail-column,
@@ -1244,14 +1243,13 @@ onMounted(load)
 }
 
 .tip-card {
-  background: linear-gradient(160deg, #f6fbf8, #ffffff);
+  background: var(--paper);
 }
 
 .tip-card__eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: var(--brand-600);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--brand-700);
 }
 
 .tip-card h3 {

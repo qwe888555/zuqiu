@@ -16,7 +16,7 @@ import {
 } from '@element-plus/icons-vue'
 import { fileApi, materialApi, orgApi, teamApi } from '../../api'
 import type { GroupCategory, Match, Material, Organization, Team, TeamCoach, TeamMember } from '../../api/types'
-import { CATEGORY_GROUP_LABELS } from '../../config/labels'
+import { CATEGORY_GROUP_LABELS, coachCategoryLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -43,7 +43,6 @@ const createForm = reactive({
   orgId: '',
   cityOrgId: '',
   category: 'MIDDLE' as GroupCategory,
-  coachName: '',
   intro: '',
 })
 
@@ -91,7 +90,6 @@ function openCreate() {
   createForm.orgId = ''
   createForm.cityOrgId = filters.cityOrgId || ''
   createForm.category = 'MIDDLE'
-  createForm.coachName = ''
   createForm.intro = ''
   createVisible.value = true
 }
@@ -101,7 +99,13 @@ async function createTeam() {
   if (!createForm.orgId) return ElMessage.warning('请选择所属学校')
   creating.value = true
   try {
-    await teamApi.create({ ...createForm })
+    await teamApi.create({
+      name: createForm.name,
+      schoolOrgId: createForm.orgId,
+      cityOrgId: createForm.cityOrgId || undefined,
+      groupCategory: createForm.category,
+      intro: createForm.intro || undefined,
+    })
     ElMessage.success('球队已创建')
     createVisible.value = false
     await load()
@@ -280,7 +284,6 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="参赛队伍"
-      eyebrow="TOURNAMENT TEAMS"
       description="管理员跨市州查看全省参赛队伍，按市州与组别筛选，进入球队可查看球员、教练与近期赛程。"
     >
       <template #actions>
@@ -394,7 +397,7 @@ onMounted(async () => {
         <header class="drawer-head">
           <span class="drawer-mark">{{ detail?.name?.slice(0, 1) || '球' }}</span>
           <div class="drawer-title">
-            <span class="eyebrow">TEAM PROFILE</span>
+            <span class="eyebrow">球队档案</span>
             <h2>{{ detail?.name || '球队详情' }}</h2>
             <p>
               {{ detail?.cityName || '—' }} · {{ categoryLabel(detail?.category) }} ·
@@ -440,15 +443,15 @@ onMounted(async () => {
           <el-tab-pane label="教练团队" name="coaches">
             <el-table :data="coaches" size="small" max-height="340">
               <el-table-column prop="coachName" label="姓名" min-width="110" />
-              <el-table-column prop="coachCategory" label="职务" width="110">
-                <template #default="{ row }">{{ row.coachCategory || '教练员' }}</template>
+              <el-table-column label="职务" width="110">
+                <template #default="{ row }">{{ coachCategoryLabel(row.category) }}</template>
               </el-table-column>
               <el-table-column prop="maskedPhone" label="联系电话" min-width="130">
                 <template #default="{ row }">{{ row.maskedPhone || '—' }}</template>
               </el-table-column>
               <el-table-column label="状态" width="90">
                 <template #default="{ row }">
-                  <StatusTag :status="row.status" kind="review" />
+                  <StatusTag :status="row.reviewStatus" kind="review" />
                 </template>
               </el-table-column>
               <template #empty><div class="drawer-empty">暂无教练</div></template>
@@ -570,9 +573,6 @@ onMounted(async () => {
               <el-option label="大学组" value="UNIVERSITY" />
             </el-select>
           </el-form-item>
-          <el-form-item label="主教练">
-            <el-input v-model="createForm.coachName" placeholder="主教练姓名" />
-          </el-form-item>
         </div>
         <el-form-item label="球队简介">
           <el-input v-model="createForm.intro" type="textarea" :rows="3" placeholder="选填" />
@@ -604,9 +604,9 @@ onMounted(async () => {
   width: 34px;
   height: 34px;
   flex-shrink: 0;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--brand-700), var(--brand-500));
-  color: var(--lime);
+  border-radius: var(--radius-sm);
+  background: var(--brand-700);
+  color: #fff;
   font-size: 13px;
   font-weight: 700;
 }
@@ -660,7 +660,7 @@ onMounted(async () => {
 .drawer-mark {
   width: 54px;
   height: 54px;
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   font-size: 20px;
 }
 
@@ -670,9 +670,8 @@ onMounted(async () => {
 }
 
 .eyebrow {
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-600);
 }
 

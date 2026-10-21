@@ -203,19 +203,27 @@ export interface TeamMember {
   maskedIdNumber?: string
   jerseyNumber?: number
   position?: string
+  avatarFileId?: string
   photoUrl?: string
+  effectiveFrom?: string
+  effectiveTo?: string
+  active?: boolean
   status: 'PENDING' | 'APPROVED' | 'REJECTED'
   version: number
 }
+
+export type CoachCategory = 'HEAD_COACH' | 'ASSISTANT_COACH' | 'MANAGER' | 'OTHER'
 
 export interface TeamCoach {
   id: string
   teamId: string
   coachId: string
   coachName: string
-  coachCategory?: string
+  category: CoachCategory
+  effectiveFrom?: string
+  effectiveTo?: string
   maskedPhone?: string
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  reviewStatus: 'PENDING' | 'APPROVED' | 'REJECTED'
   version: number
 }
 
@@ -439,6 +447,7 @@ export interface Content {
   summary?: string
   bodyHtml: string
   coverUrl?: string
+  coverFileId?: string
   eventId?: string
   groupId?: string
   policyDocumentNo?: string
@@ -459,6 +468,7 @@ export interface PortalResource {
   resourceType: 'CAROUSEL' | 'NEWS_LINK_IMAGE' | 'PARTNER'
   title: string
   imageUrl?: string
+  imageFileId?: string
   targetContentId?: string
   targetUrl?: string
   sortOrder?: number
@@ -475,6 +485,7 @@ export interface Publication {
   eventId?: string
   groupId?: string
   groupName?: string
+  cityOrgId?: string
   cityName?: string
   active: boolean
   publishedAt?: string

@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import {
   CircleCheck,
+  Close,
   Delete,
   Document,
   Edit,
+  FullScreen,
   Link,
   Plus,
   Refresh,
@@ -80,6 +82,48 @@ const sortedEvents = computed(() =>
 )
 
 const canFinish = computed(() => match.value?.status !== 'FINISHED')
+
+/* 赛场大屏：把记录台切换为现场比分牌，便于边线/看台同步查看 */
+const bigScreen = ref(false)
+
+const liveMinute = computed(() => Math.max(0, ...events.value.map((event) => event.minute || 0)))
+
+const latestEvents = computed(() => [...sortedEvents.value].slice(-5).reverse())
+
+function teamTally(teamId?: string) {
+  const own = events.value.filter((event) => event.teamId === teamId)
+  return {
+    goals: own.filter((event) => event.eventType === 'GOAL').length,
+    yellow: own.filter((event) => event.eventType === 'PENALTY' && event.penaltyType === 'YELLOW_CARD').length,
+    red: own.filter((event) => event.eventType === 'PENALTY' && event.penaltyType === 'RED_CARD').length,
+    subs: own.filter((event) => event.eventType === 'SUBSTITUTION').length,
+  }
+}
+
+const homeTally = computed(() => teamTally(match.value?.homeTeamId))
+const awayTally = computed(() => teamTally(match.value?.awayTeamId))
+
+function eventSummary(event: MatchEvent) {
+  if (event.eventType === 'GOAL') return `${event.scorerName || '未知球员'} 进球${event.ownGoal ? '（乌龙）' : ''}`
+  if (event.eventType === 'PENALTY') {
+    return `${event.athleteName || '—'} ${penaltyLabel[event.penaltyType || 'OTHER']}`
+  }
+  return `${event.outAthleteName || '—'} → ${event.inAthleteName || '—'}`
+}
+
+function closeBigScreen() {
+  bigScreen.value = false
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !bigScreen.value) return
+  // 事件/链接/文件弹窗打开时，Esc 交给弹窗处理，避免连大屏一起关掉。
+  if (eventVisible.value || linkVisible.value || docVisible.value) return
+  closeBigScreen()
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 async function loadAll() {
   loading.value = true
@@ -342,17 +386,108 @@ onMounted(loadAll)
   <div v-loading="loading" class="page console-page">
     <PageHeader
       title="比赛记录台"
-      eyebrow="LIVE MATCH CONSOLE"
       description="记录员操作界面。事件提交后实时更新比分，发布的图文直播将同步展示在门户赛事详情页。"
       show-back
     >
       <template #actions>
+        <el-button :icon="FullScreen" @click="bigScreen = true">赛场大屏</el-button>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
         <el-button type="primary" plain :icon="VideoCamera" @click="router.push(`/matches/${matchId}`)">
           门户预览
         </el-button>
       </template>
     </PageHeader>
+
+    <Transition name="bigscreen">
+      <div v-if="bigScreen && match" class="bigscreen">
+        <div class="bigscreen__pitch" aria-hidden="true">
+          <span class="pitch-line pitch-line--halfway" />
+          <span class="pitch-line pitch-line--circle" />
+          <span class="pitch-line pitch-line--box-left" />
+          <span class="pitch-line pitch-line--box-right" />
+        </div>
+
+        <header class="bigscreen__top">
+          <div class="bigscreen__competition">
+            <span>{{ match.eventName }}</span>
+            <small>{{ match.groupName }} · {{ match.stage || '小组赛' }} · {{ match.venue }}</small>
+          </div>
+          <div class="bigscreen__status" :class="{ 'is-live': match.status === 'LIVE' }">
+            <span v-if="match.status === 'LIVE'" class="live-dot" />
+            <template v-if="match.status === 'LIVE'">进行中 · <b class="num">{{ liveMinute }}′</b></template>
+            <template v-else-if="match.status === 'FINISHED'">全场结束</template>
+            <template v-else>尚未开赛</template>
+          </div>
+          <button type="button" class="bigscreen__close" @click="closeBigScreen">
+            <el-icon><Close /></el-icon>
+            退出大屏 <kbd>ESC</kbd>
+          </button>
+        </header>
+
+        <main class="bigscreen__stage">
+          <section class="bigscreen__team">
+            <span class="bigscreen__badge">{{ match.homeTeamName.slice(0, 1) }}</span>
+            <h2>{{ match.homeTeamName }}</h2>
+            <div class="bigscreen__tally">
+              <span><i class="tally tally--goal" />进球 <b class="num">{{ homeTally.goals }}</b></span>
+              <span><i class="tally tally--yellow" />黄牌 <b class="num">{{ homeTally.yellow }}</b></span>
+              <span><i class="tally tally--red" />红牌 <b class="num">{{ homeTally.red }}</b></span>
+            </div>
+          </section>
+
+          <section class="bigscreen__score">
+            <div class="bigscreen__nums num">
+              <span>{{ match.homeScore ?? 0 }}</span>
+              <i>:</i>
+              <span>{{ match.awayScore ?? 0 }}</span>
+            </div>
+            <small>{{ dayjs(match.kickoffAt).format('MM-DD HH:mm') }} 开球</small>
+            <span class="bigscreen__board-line" />
+          </section>
+
+          <section class="bigscreen__team bigscreen__team--away">
+            <span class="bigscreen__badge">{{ match.awayTeamName.slice(0, 1) }}</span>
+            <h2>{{ match.awayTeamName }}</h2>
+            <div class="bigscreen__tally">
+              <span><i class="tally tally--goal" />进球 <b class="num">{{ awayTally.goals }}</b></span>
+              <span><i class="tally tally--yellow" />黄牌 <b class="num">{{ awayTally.yellow }}</b></span>
+              <span><i class="tally tally--red" />红牌 <b class="num">{{ awayTally.red }}</b></span>
+            </div>
+          </section>
+        </main>
+
+        <section class="bigscreen__bottom">
+          <div class="bigscreen__events">
+            <span class="bigscreen__eyebrow">最新事件</span>
+            <div
+              v-for="event in latestEvents"
+              :key="event.id"
+              class="bigscreen__event"
+            >
+              <b class="num">{{ event.minute }}′</b>
+              <i class="bigscreen__event-dot" :class="`is-${event.eventType.toLowerCase()}`" />
+              <span>{{ eventSummary(event) }}</span>
+              <small>{{ event.teamName }}</small>
+            </div>
+            <p v-if="!latestEvents.length" class="bigscreen__empty">等待记录首个比赛事件…</p>
+          </div>
+
+          <div class="bigscreen__actions">
+            <span class="bigscreen__eyebrow">快捷记录</span>
+            <div>
+              <el-button type="primary" :icon="Plus" @click="openEvent('GOAL', match.homeTeamId)">
+                {{ match.homeTeamName }} 进球
+              </el-button>
+              <el-button :icon="Plus" @click="openEvent('GOAL', match.awayTeamId)">
+                {{ match.awayTeamName }} 进球
+              </el-button>
+              <el-button @click="openEvent('PENALTY')">判罚</el-button>
+              <el-button @click="openEvent('SUBSTITUTION')">换人</el-button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </Transition>
 
     <section v-if="match" class="scoreboard">
       <div class="scoreboard__meta">
@@ -706,11 +841,10 @@ onMounted(loadAll)
 }
 
 .scoreboard {
-  padding: 22px 28px 20px;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 85% 0%, rgba(200, 241, 105, 0.18), transparent 45%),
-    linear-gradient(135deg, #075c40, #053c2b);
+  padding: 20px 24px 18px;
+  border: 1px solid #13291f;
+  border-radius: 10px;
+  background: var(--scoreboard);
   color: #fff;
 }
 
@@ -744,13 +878,13 @@ onMounted(loadAll)
 .team__badge {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--lime);
-  font-size: 17px;
-  font-weight: 700;
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .team strong {
@@ -805,6 +939,429 @@ onMounted(loadAll)
   --el-button-hover-text-color: #1c2a10;
 }
 
+/* ===== 赛场大屏 ===== */
+.bigscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  padding: 26px 40px 30px;
+  overflow: auto;
+  color: #fff;
+  background:
+    radial-gradient(ellipse at 50% -10%, rgba(200, 241, 105, 0.16), transparent 55%),
+    linear-gradient(160deg, #04150e 0%, #06281c 48%, #04150e 100%);
+}
+
+.bigscreen__pitch {
+  position: absolute;
+  inset: 24px;
+  border: 1px solid rgba(200, 241, 105, 0.14);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.pitch-line {
+  position: absolute;
+  border: 1px solid rgba(200, 241, 105, 0.12);
+}
+
+.pitch-line--halfway {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  border-width: 0 0 0 1px;
+}
+
+.pitch-line--circle {
+  top: 50%;
+  left: 50%;
+  width: 190px;
+  height: 190px;
+  margin: -95px 0 0 -95px;
+  border-radius: 50%;
+}
+
+.pitch-line--box-left,
+.pitch-line--box-right {
+  top: 50%;
+  width: 86px;
+  height: 240px;
+  margin-top: -120px;
+}
+
+.pitch-line--box-left {
+  left: -1px;
+  border-left: none;
+}
+
+.pitch-line--box-right {
+  right: -1px;
+  border-right: none;
+}
+
+.bigscreen__top {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bigscreen__competition {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bigscreen__competition span {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bigscreen__competition small {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.bigscreen__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.bigscreen__status.is-live {
+  border-color: rgba(239, 91, 87, 0.5);
+  background: rgba(239, 91, 87, 0.12);
+  color: #ffb3b0;
+}
+
+.bigscreen__status b {
+  font-size: 13px;
+  color: inherit;
+}
+
+.bigscreen__close {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.bigscreen__close:hover {
+  border-color: rgba(200, 241, 105, 0.5);
+  color: var(--lime);
+}
+
+.bigscreen__close kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  font-family: inherit;
+  font-size: 8.5px;
+}
+
+.bigscreen__stage {
+  position: relative;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 30px;
+  padding: 36px 4%;
+  min-height: 300px;
+}
+
+.bigscreen__team {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  text-align: right;
+}
+
+.bigscreen__team--away {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.bigscreen__badge {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid rgba(200, 241, 105, 0.28);
+  border-radius: var(--radius-md);
+  background: rgba(200, 241, 105, 0.08);
+  color: var(--lime);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.bigscreen__team h2 {
+  font-size: clamp(20px, 3.2vw, 40px);
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
+.bigscreen__tally {
+  display: flex;
+  gap: 16px;
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.bigscreen__tally span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bigscreen__tally b {
+  color: #fff;
+  font-size: 13px;
+}
+
+.tally {
+  width: 7px;
+  height: 9px;
+  border-radius: 1.5px;
+}
+
+.tally--goal {
+  background: var(--lime);
+}
+
+.tally--yellow {
+  background: #f2c94c;
+}
+
+.tally--red {
+  background: #ef5b57;
+}
+
+.bigscreen__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 280px;
+}
+
+.bigscreen__nums {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  font-size: clamp(64px, 12vw, 132px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: 0.02em;
+  color: #fff;
+  text-shadow: 0 0 46px rgba(200, 241, 105, 0.18);
+}
+
+.bigscreen__nums i {
+  font-style: normal;
+  font-size: 0.45em;
+  color: rgba(255, 255, 255, 0.26);
+}
+
+.bigscreen__score small {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.bigscreen__board-line {
+  width: 90px;
+  height: 2px;
+  background: rgba(200, 241, 105, 0.55);
+}
+
+.bigscreen__bottom {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 32px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bigscreen__eyebrow {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(200, 241, 105, 0.72);
+}
+
+.bigscreen__events {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: 640px;
+}
+
+.bigscreen__event {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.bigscreen__event b {
+  width: 32px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--lime);
+}
+
+.bigscreen__event small {
+  margin-left: auto;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.bigscreen__event-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--lime);
+}
+
+.bigscreen__event-dot.is-penalty {
+  background: #f2c94c;
+}
+
+.bigscreen__event-dot.is-substitution {
+  background: #8db4f0;
+}
+
+.bigscreen__empty {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.bigscreen__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.bigscreen__actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bigscreen__actions :deep(.el-button) {
+  --el-button-bg-color: rgba(255, 255, 255, 0.06);
+  --el-button-border-color: rgba(255, 255, 255, 0.16);
+  --el-button-text-color: #fff;
+  --el-button-hover-bg-color: rgba(255, 255, 255, 0.14);
+  --el-button-hover-border-color: rgba(255, 255, 255, 0.3);
+  --el-button-hover-text-color: #fff;
+}
+
+.bigscreen__actions :deep(.el-button--primary) {
+  --el-button-bg-color: var(--lime);
+  --el-button-border-color: var(--lime);
+  --el-button-text-color: #1c2a10;
+  --el-button-hover-bg-color: #d9f78d;
+  --el-button-hover-border-color: #d9f78d;
+  --el-button-hover-text-color: #1c2a10;
+}
+
+.bigscreen-enter-active,
+.bigscreen-leave-active {
+  transition: opacity 0.22s ease;
+}
+
+.bigscreen-enter-from,
+.bigscreen-leave-to {
+  opacity: 0;
+}
+
+@media (max-width: 900px) {
+  .bigscreen {
+    padding: 18px 16px;
+  }
+
+  .bigscreen__top {
+    grid-template-columns: 1fr auto;
+  }
+
+  .bigscreen__competition {
+    order: 1;
+  }
+
+  .bigscreen__close {
+    order: 2;
+  }
+
+  .bigscreen__status {
+    order: 3;
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .bigscreen__stage {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 26px 0;
+    text-align: center;
+  }
+
+  .bigscreen__team,
+  .bigscreen__team--away {
+    align-items: center;
+    text-align: center;
+  }
+
+  .bigscreen__team h2 {
+    font-size: 20px;
+  }
+
+  .bigscreen__tally {
+    justify-content: center;
+  }
+
+  .bigscreen__nums {
+    font-size: 72px;
+  }
+
+  .bigscreen__bottom {
+    grid-template-columns: 1fr;
+  }
+
+  .bigscreen__actions {
+    align-items: stretch;
+  }
+
+  .bigscreen__actions > div {
+    justify-content: flex-start;
+  }
+}
+
 .console-card {
   padding-top: 12px;
 }
@@ -816,11 +1373,11 @@ onMounted(loadAll)
 }
 
 .tab-label b {
-  padding: 0 6px;
-  border-radius: 99px;
+  padding: 0 5px;
+  border-radius: 3px;
   background: var(--brand-50);
   color: var(--brand-700);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 700;
 }
 
@@ -1035,7 +1592,7 @@ onMounted(loadAll)
 .result-side {
   align-self: start;
   padding: 20px;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: var(--paper);
   border: 1px solid var(--line);
 }

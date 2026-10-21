@@ -1,29 +1,54 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Medal, Trophy } from '@element-plus/icons-vue'
+import dayjs from 'dayjs'
+import { Football, Medal } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { GoalRankingRow } from '../../api/types'
 
 const loading = ref(false)
 const rows = ref<GoalRankingRow[]>([])
-const category = ref('')
+const category = ref('PRIMARY')
 const generatedAt = ref('')
 
 const categories = [
-  { label: '全部组别', value: '' },
   { label: '小学组', value: 'PRIMARY' },
   { label: '初中组', value: 'MIDDLE' },
   { label: '高校组', value: 'UNIVERSITY' },
 ]
 
-const podium = computed(() => rows.value.slice(0, 3))
-const rest = computed(() => rows.value.slice(3))
+const currentCategoryLabel = computed(
+  () => categories.find((item) => item.value === category.value)?.label || '当前组别',
+)
+
+/**
+ * 公开接口返回的 rank 是跨组别生成的，切组后会出现空号。
+ * 这里按组内进球数重排；同分并列，后续名次顺延（1、1、3）。
+ */
+const rankedRows = computed(() => {
+  const sorted = [...rows.value].sort(
+    (a, b) => b.goals - a.goals || a.athleteName.localeCompare(b.athleteName, 'zh-Hans-CN'),
+  )
+  let lastGoals: number | null = null
+  let lastRank = 0
+  return sorted.map((row, index) => {
+    const rank = row.goals === lastGoals ? lastRank : index + 1
+    lastGoals = row.goals
+    lastRank = rank
+    return { ...row, rank }
+  })
+})
+
+const podium = computed(() => rankedRows.value.slice(0, 3))
+const rest = computed(() => rankedRows.value.slice(3))
+const generatedTime = computed(() =>
+  generatedAt.value ? dayjs(generatedAt.value).format('MM-DD HH:mm') : '',
+)
 
 async function load() {
   loading.value = true
   try {
-    const res = await publicApi.goals({ groupCategory: category.value || undefined })
-    rows.value = [...res.rows].sort((a, b) => a.rank - b.rank)
+    const res = await publicApi.goals({ groupCategory: category.value })
+    rows.value = res.rows
     generatedAt.value = res.generatedAt
   } catch {
     rows.value = []
@@ -33,6 +58,7 @@ async function load() {
 }
 
 function switchCategory(value: string) {
+  if (category.value === value) return
   category.value = value
   load()
 }
@@ -45,15 +71,14 @@ onMounted(load)
     <section class="page-hero">
       <div class="container hero-grid">
         <div>
-          <span class="eyebrow">TOP SCORERS · 2026</span>
           <h1>射手榜</h1>
-          <p>统计全部已发布赛果中的进球数据，同一球员按总进球数排名。</p>
+          <p>按组别统计已发布赛果中的进球数据；同分并列，后续名次顺延。</p>
         </div>
         <div class="hero-badge">
-          <el-icon :size="26"><Trophy /></el-icon>
+          <el-icon :size="25"><Football /></el-icon>
           <div>
-            <strong>{{ rows.length }}</strong>
-            <span>上榜球员</span>
+            <strong class="num">{{ rows.length }}</strong>
+            <span>{{ currentCategoryLabel }} · 上榜球员</span>
           </div>
         </div>
       </div>
@@ -73,10 +98,14 @@ onMounted(load)
             {{ item.label }}
           </button>
         </div>
-        <span v-if="generatedAt" class="updated">数据更新于 {{ new Date(generatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }}</span>
+        <span v-if="generatedTime" class="updated">
+          2026 赛季 · 统计生成于 {{ generatedTime }}
+        </span>
       </div>
 
       <div v-loading="loading" class="ranking-content">
+        <p class="group-note">{{ currentCategoryLabel }} · 组内排名，不与其它年龄组混排</p>
+
         <div v-if="podium.length" class="podium">
           <div
             v-for="(row, index) in podium"
@@ -84,7 +113,7 @@ onMounted(load)
             class="podium-card"
             :class="`podium-card--${index + 1}`"
           >
-            <span class="podium-card__rank num">{{ index + 1 }}</span>
+            <span class="podium-card__rank num">{{ row.rank }}</span>
             <span class="podium-card__avatar">{{ row.athleteName.slice(0, 1) }}</span>
             <strong>{{ row.athleteName }}</strong>
             <small>{{ row.teamName }}</small>
@@ -106,16 +135,21 @@ onMounted(load)
               <strong>{{ row.athleteName }}</strong>
             </span>
             <span class="table-row__team">{{ row.teamName }}</span>
-            <span class="table-row__goals num">{{ row.goals }}</span>
+            <span class="table-row__goals num">{{ row.goals }}<i>球</i></span>
           </div>
-          <el-empty v-if="!loading && !rows.length" description="暂无进球数据" />
-          <div v-if="!loading && rows.length && !rest.length" class="table-foot">仅展示前 {{ rows.length }} 名球员</div>
+          <el-empty v-if="!loading && !rows.length" :description="`${currentCategoryLabel}暂无进球数据`" />
+          <div v-if="!loading && rows.length && !rest.length" class="table-foot">
+            当前组别仅展示前 {{ rows.length }} 名球员
+          </div>
         </div>
       </div>
 
       <p class="ranking-note">
         <el-icon><Medal /></el-icon>
-        射手榜数据来源于比赛记录台提交的进球事件；如对统计有异议，请由参赛单位向组委会书面申诉。
+        <span>
+          射手榜数据来源于比赛记录台提交并确认的进球事件；同一球员按组内总进球数排名，进球相同并列。
+          如对统计有异议，请由参赛单位向组委会书面申诉。
+        </span>
       </p>
     </div>
   </div>
@@ -129,44 +163,35 @@ onMounted(load)
 }
 
 .page-hero {
-  padding: 54px 0 44px;
-  background:
-    radial-gradient(circle at 84% 10%, rgba(200, 241, 105, 0.15), transparent 34%),
-    linear-gradient(150deg, #075c40, #054331);
+  padding: 28px 0 26px;
+  background: var(--brand-900);
   color: #fff;
 }
 
 .hero-grid {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
 }
 
-.eyebrow {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  color: var(--lime);
-}
-
 .page-hero h1 {
-  margin-top: 9px;
-  font-size: 36px;
+  font-size: 27px;
+  font-weight: 600;
 }
 
 .page-hero p {
-  margin-top: 9px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.56);
+  margin-top: 7px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.66);
 }
 
 .hero-badge {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 15px 20px;
-  border-radius: 14px;
+  padding: 12px 17px;
+  border-radius: 6px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--lime);
@@ -176,19 +201,17 @@ onMounted(load)
   display: block;
   font-size: 24px;
   line-height: 1;
-  font-family: var(--font-display);
 }
 
 .hero-badge span {
   display: block;
-  margin-top: 3px;
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.45);
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.68);
 }
 
 .ranking-body {
-  margin-top: -16px;
-  position: relative;
+  margin-top: 20px;
 }
 
 .ranking-toolbar {
@@ -197,12 +220,11 @@ onMounted(load)
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 10px 14px;
-  margin-bottom: 22px;
-  border-radius: 14px;
+  padding: 10px 12px;
+  margin-bottom: 18px;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid var(--line);
-  box-shadow: var(--shadow-card);
 }
 
 .tabs {
@@ -211,13 +233,18 @@ onMounted(load)
 }
 
 .tab {
-  padding: 8px 15px;
+  min-height: 36px;
+  padding: 7px 16px;
   border: none;
-  border-radius: 9px;
+  border-radius: 5px;
   background: transparent;
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--ink-500);
   cursor: pointer;
+}
+
+.tab:hover {
+  background: var(--paper);
 }
 
 .tab.is-active {
@@ -227,19 +254,25 @@ onMounted(load)
 }
 
 .updated {
-  font-size: 10px;
-  color: var(--ink-300);
+  font-size: 13px;
+  color: var(--ink-500);
 }
 
 .ranking-content {
   min-height: 200px;
 }
 
+.group-note {
+  margin-bottom: 10px;
+  font-size: 13.5px;
+  color: var(--ink-500);
+}
+
 .podium {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .podium-card {
@@ -247,16 +280,16 @@ onMounted(load)
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 24px 18px 20px;
-  border-radius: 16px;
+  padding: 16px 14px 14px;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid var(--line);
   overflow: hidden;
 }
 
 .podium-card--1 {
-  background: linear-gradient(160deg, #0b5c40, #073e2c);
-  border-color: transparent;
+  background: var(--brand-900);
+  border-color: var(--brand-900);
   color: #fff;
 }
 
@@ -266,7 +299,7 @@ onMounted(load)
 }
 
 .podium-card--1 small {
-  color: rgba(255, 255, 255, 0.5);
+  color: #dcefe6;
 }
 
 .podium-card--1 .podium-card__goals {
@@ -275,56 +308,56 @@ onMounted(load)
 
 .podium-card__rank {
   position: absolute;
-  right: 16px;
-  top: 10px;
-  font-size: 34px;
+  right: 15px;
+  top: 8px;
+  font-size: 30px;
   font-weight: 800;
   color: rgba(11, 122, 83, 0.1);
 }
 
 .podium-card--1 .podium-card__rank {
-  color: rgba(200, 241, 105, 0.18);
+  color: rgba(200, 243, 106, 0.2);
 }
 
 .podium-card__avatar {
   display: grid;
   place-items: center;
-  width: 58px;
-  height: 58px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   background: var(--brand-50);
   color: var(--brand-800);
-  font-size: 21px;
+  font-size: 18px;
   font-weight: 700;
 }
 
 .podium-card strong {
-  margin-top: 11px;
-  font-size: 15px;
+  margin-top: 8px;
+  font-size: 16px;
 }
 
 .podium-card small {
   margin-top: 3px;
-  font-size: 10.5px;
+  font-size: 14px;
   color: var(--ink-500);
 }
 
 .podium-card__goals {
-  margin-top: 12px;
-  font-size: 25px;
+  margin-top: 8px;
+  font-size: 22px;
   font-weight: 800;
   color: var(--brand-700);
 }
 
 .podium-card__goals i {
   margin-left: 2px;
-  font-size: 10px;
+  font-size: 11px;
   font-style: normal;
-  font-weight: 400;
+  font-weight: 500;
 }
 
 .table-card {
-  border-radius: 16px;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid var(--line);
   overflow: hidden;
@@ -340,20 +373,20 @@ onMounted(load)
 }
 
 .table-head {
-  height: 42px;
-  background: #f6faf8;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--ink-300);
+  height: 44px;
+  background: #f7f9f8;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: var(--ink-500);
 }
 
 .table-row {
-  min-height: 58px;
+  min-height: 62px;
   border-top: 1px solid var(--line);
 }
 
 .table-row__rank {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--ink-500);
 }
@@ -367,29 +400,36 @@ onMounted(load)
 .table-row__avatar {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: var(--brand-50);
   color: var(--brand-700);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .table-row__player strong {
-  font-size: 12.5px;
+  font-size: 16px;
 }
 
 .table-row__team {
-  font-size: 11.5px;
+  font-size: 14px;
   color: var(--ink-500);
 }
 
 .table-row__goals {
   text-align: right;
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 800;
   color: var(--brand-700);
+}
+
+.table-row__goals i {
+  margin-left: 2px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
 }
 
 .align-right {
@@ -399,25 +439,39 @@ onMounted(load)
 .table-foot {
   padding: 14px;
   text-align: center;
-  font-size: 10.5px;
-  color: var(--ink-300);
+  font-size: 13px;
+  color: var(--ink-500);
   border-top: 1px solid var(--line);
 }
 
 .ranking-note {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
+  gap: 8px;
   margin-top: 20px;
-  font-size: 10.5px;
-  line-height: 1.7;
-  color: var(--ink-300);
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--ink-500);
+}
+
+.ranking-note .el-icon {
+  flex-shrink: 0;
+  margin-top: 3px;
 }
 
 @media (max-width: 760px) {
+  .page-hero {
+    padding: 22px 0 20px;
+  }
+
+  .page-hero h1 {
+    font-size: 23px;
+  }
+
   .hero-grid {
     align-items: flex-start;
     flex-direction: column;
+    gap: 14px;
   }
 
   .podium {
@@ -436,7 +490,7 @@ onMounted(load)
   }
 
   .table-row__goals {
-    font-size: 15px;
+    font-size: 17px;
   }
 }
 </style>

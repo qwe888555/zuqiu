@@ -25,12 +25,10 @@ const entries = computed(() =>
   <div class="forbidden">
     <section class="forbidden-card">
       <div class="lock-art" aria-hidden="true">
-        <span class="lock-art__ring" />
-        <span class="lock-art__ring lock-art__ring--small" />
-        <el-icon :size="34"><Lock /></el-icon>
+        <el-icon :size="26"><Lock /></el-icon>
       </div>
 
-      <span class="eyebrow">ACCESS DENIED</span>
+      <span class="eyebrow">访问受限</span>
       <h1>当前角色无权访问该页面</h1>
       <p class="lede">
         系统已按角色拦截本次访问。如需处理该业务，请联系管理员调整账号角色，
@@ -89,68 +87,36 @@ const entries = computed(() =>
 }
 
 .forbidden-card {
-  position: relative;
   width: min(720px, 100%);
-  padding: 42px 46px 36px;
+  padding: 36px 40px 30px;
   border: 1px solid var(--line);
-  border-radius: 26px;
-  background:
-    radial-gradient(circle at 88% 0%, rgba(200, 241, 105, 0.28), transparent 34%),
-    #fff;
-  box-shadow: var(--shadow-soft);
-  overflow: hidden;
-}
-
-.forbidden-card::after {
-  content: '403';
-  position: absolute;
-  right: 24px;
-  bottom: 6px;
-  font-family: var(--font-display);
-  font-size: 118px;
-  font-weight: 700;
-  line-height: 1;
-  color: rgba(11, 122, 83, 0.05);
-  pointer-events: none;
+  border-top: 3px solid var(--brand-700);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  box-shadow: var(--shadow-card);
 }
 
 .lock-art {
-  position: relative;
   display: grid;
   place-items: center;
-  width: 76px;
-  height: 76px;
-  margin-bottom: 20px;
-  border-radius: 22px;
-  background: linear-gradient(135deg, var(--brand-700), var(--brand-500));
-  color: var(--lime);
-  box-shadow: 0 14px 30px rgba(11, 122, 83, 0.22);
-}
-
-.lock-art__ring {
-  position: absolute;
-  inset: -10px;
-  border: 1px solid rgba(11, 122, 83, 0.18);
-  border-radius: 28px;
-}
-
-.lock-art__ring--small {
-  inset: -20px;
-  border-radius: 34px;
-  opacity: 0.5;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 18px;
+  border-radius: 8px;
+  background: var(--brand-50);
+  color: var(--brand-700);
 }
 
 .eyebrow {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-  color: var(--brand-600);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand-700);
 }
 
 h1 {
   margin-top: 8px;
-  font-size: clamp(24px, 3vw, 32px);
-  letter-spacing: -0.02em;
+  font-size: clamp(22px, 3vw, 28px);
+  letter-spacing: -0.01em;
 }
 
 .lede {
@@ -170,7 +136,8 @@ h1 {
 
 .context-grid > div {
   padding: 12px 14px;
-  border-radius: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   background: var(--paper);
 }
 
@@ -204,10 +171,9 @@ h1 {
 
 .quick-links__label {
   width: 100%;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--ink-300);
+  color: var(--ink-500);
 }
 
 .quick-link {
@@ -216,7 +182,7 @@ h1 {
   gap: 6px;
   padding: 7px 11px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: #fff;
   color: var(--ink-700);
   font-size: 11.5px;

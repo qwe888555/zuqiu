@@ -7,6 +7,7 @@ import type { Event, StatRow } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import CityHeatMap from '../../components/stats/CityHeatMap.vue'
 
 const { can } = usePermission()
 const loading = ref(false)
@@ -15,6 +16,40 @@ const events = ref<Event[]>([])
 const rows = ref<StatRow[]>([])
 const eventId = ref('')
 const dimension = ref<'city' | 'group' | 'subjectType'>('city')
+const selectedCity = ref('')
+
+function cityKey(label: string) {
+  return label
+    .replace(/(藏族羌族自治州|彝族自治州|藏族自治州|自治州|地区|市|州)$/g, '')
+    .trim()
+}
+
+const displayRows = computed(() =>
+  selectedCity.value
+    ? rows.value.filter((row) => cityKey(row.label) === selectedCity.value)
+    : rows.value,
+)
+
+const topCity = computed(() =>
+  [...rows.value].filter((row) => row.teamCount > 0).sort((a, b) => b.teamCount - a.teamCount)[0],
+)
+
+function selectCity(city: string) {
+  if (selectedCity.value === city) {
+    selectedCity.value = ''
+    return
+  }
+  if (!rows.value.some((row) => cityKey(row.label) === city)) {
+    ElMessage.info('该市州在当前赛事范围内暂无报名数据')
+    return
+  }
+  selectedCity.value = city
+}
+
+function changeDimension() {
+  selectedCity.value = ''
+  load()
+}
 
 const totalTeams = computed(() => rows.value.reduce((sum, row) => sum + row.teamCount, 0))
 const totalAthletes = computed(() => rows.value.reduce((sum, row) => sum + row.athleteCount, 0))
@@ -78,7 +113,6 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="报名统计"
-      eyebrow="ENROLLMENT ANALYTICS"
       description="按市州、组别或报送主体聚合报名数据，辅助审核排期与名额统筹。数据实时来源于报名主档。"
     >
       <template #actions>
@@ -104,7 +138,7 @@ onMounted(() => {
       <el-select v-model="eventId" placeholder="全部赛事" clearable style="width: 280px" @change="load">
         <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
       </el-select>
-      <el-radio-group v-model="dimension" @change="load">
+      <el-radio-group v-model="dimension" @change="changeDimension">
         <el-radio-button value="city">按市州</el-radio-button>
         <el-radio-button value="group">按组别</el-radio-button>
         <el-radio-button value="subjectType">按主体</el-radio-button>
@@ -120,10 +154,52 @@ onMounted(() => {
       <StatCard label="已通过" :value="totalApproved" hint="完成终审" :icon="DataAnalysis" tone="blue" />
     </div>
 
+    <section v-if="dimension === 'city'" class="page-card heat-card">
+      <div class="section-title">
+        市州报名热力
+        <small>点击市州查看明细，示意布局不按行政区划比例</small>
+      </div>
+      <div class="heat-layout">
+        <CityHeatMap :rows="rows" :selected="selectedCity" @select="selectCity" />
+        <aside class="heat-insights">
+          <span class="heat-insights__eyebrow">全省概览</span>
+          <div class="heat-insights__hero">
+            <strong class="num">{{ rows.filter((row) => row.teamCount > 0).length }}</strong>
+            <span>个市州已有报名</span>
+          </div>
+          <div class="insight-row">
+            <span>报名领先</span>
+            <b>{{ topCity?.label || '—' }}</b>
+            <small v-if="topCity" class="num">{{ topCity.teamCount }} 支</small>
+          </div>
+          <div class="insight-row">
+            <span>待审报名</span>
+            <b class="num">{{ totalPending }}</b>
+            <small>需尽快处理</small>
+          </div>
+          <div class="insight-row">
+            <span>覆盖球员</span>
+            <b class="num">{{ totalAthletes }}</b>
+            <small>当前统计范围</small>
+          </div>
+          <el-button v-if="selectedCity" link type="primary" @click="selectedCity = ''">
+            清除「{{ selectedCity }}」筛选
+          </el-button>
+          <p v-else class="heat-insights__tip">点击左侧任一有数据的市州，可下钻查看该市州报名明细。</p>
+        </aside>
+      </div>
+    </section>
+
     <div class="grid-sidebar">
       <section class="page-card">
-        <div class="section-title">分布明细 <small>按{{ dimensionLabel }}聚合</small></div>
-        <el-table v-loading="loading" :data="rows" style="width: 100%">
+        <div class="section-title">
+          分布明细
+          <small>按{{ dimensionLabel }}聚合</small>
+          <el-tag v-if="selectedCity" size="small" closable @close="selectedCity = ''">
+            {{ selectedCity }}
+          </el-tag>
+        </div>
+        <el-table v-loading="loading" :data="displayRows" style="width: 100%">
           <el-table-column prop="label" :label="dimensionLabel" min-width="160">
             <template #default="{ row }">
               <div class="label-cell">
@@ -162,7 +238,11 @@ onMounted(() => {
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="!loading && !rows.length" description="当前筛选条件下暂无数据" :image-size="80" />
+        <el-empty
+          v-if="!loading && !displayRows.length"
+          :description="selectedCity ? '该市州在当前赛事范围内暂无报名' : '当前筛选条件下暂无数据'"
+          :image-size="80"
+        />
       </section>
 
       <aside class="page-card progress-card">
@@ -260,6 +340,87 @@ onMounted(() => {
   background: var(--brand-700);
 }
 
+.heat-card {
+  padding: 20px 22px 18px;
+}
+
+.heat-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(210px, 0.45fr);
+  gap: 24px;
+  margin-top: 16px;
+}
+
+.heat-insights {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--brand-900);
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.heat-insights__eyebrow {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.heat-insights__hero {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.16);
+}
+
+.heat-insights__hero strong {
+  font-size: 32px;
+  line-height: 1;
+  color: #fff;
+}
+
+.heat-insights__hero span {
+  font-size: 10px;
+}
+
+.insight-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 10.5px;
+}
+
+.insight-row span {
+  width: 56px;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.insight-row b {
+  color: #fff;
+  font-size: 12px;
+}
+
+.insight-row small {
+  margin-left: auto;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.heat-insights :deep(.el-button.is-link) {
+  align-self: flex-start;
+  padding-left: 0;
+  color: var(--lime);
+}
+
+.heat-insights__tip {
+  margin-top: auto;
+  font-size: 9.5px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.38);
+}
+
 .progress-card {
   align-self: start;
 }
@@ -340,6 +501,12 @@ onMounted(() => {
 
 .progress-tip {
   margin-top: 18px;
+}
+
+@media (max-width: 992px) {
+  .heat-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {
