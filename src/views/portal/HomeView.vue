@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
-import { ArrowRight, Calendar, Document, Football, Location, Medal, Ticket } from '@element-plus/icons-vue'
+import { ArrowRight, Calendar, Location, Ticket } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type {
   GoalRankingRow,
@@ -11,12 +11,8 @@ import type {
 } from '../../api/types'
 import { IMG } from '../../mock/data'
 import StatusTag from '../../components/common/StatusTag.vue'
-import {
-  matchDisplayStatus,
-  policyKind,
-  readFollowedTeam,
-  saveFollowedTeam,
-} from '../../utils/portal'
+import { useConsoleEntry } from '../../composables/useConsoleEntry'
+import { matchDisplayStatus, policyKind } from '../../utils/portal'
 
 interface PublicCard {
   publicationId: string
@@ -35,7 +31,10 @@ const MATCH_TABS = [
 ] as const
 type MatchTab = (typeof MATCH_TABS)[number]['key']
 
+const { loggedIn, enrollable, startEnrollment } = useConsoleEntry()
+
 const loading = ref(true)
+const loadError = ref(false)
 const banners = ref<PublicResource[]>([])
 const news = ref<PublicContent[]>([])
 const policies = ref<PublicContent[]>([])
@@ -44,29 +43,19 @@ const goals = ref<GoalRankingRow[]>([])
 const stars = ref<PublicCard[]>([])
 const matchTab = ref<MatchTab>('LIVE')
 const updatedAt = ref('')
-const followedTeam = ref(readFollowedTeam())
 
-// 关注学校后，相关资讯优先展示，其余仍按发布时间倒序。
-const orderedNews = computed(() => {
-  const list = news.value
-    .slice()
-    .sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
-  const team = followedTeam.value
-  if (!team) return list
-  const hit = (item: PublicContent) => `${item.title}${item.summary || ''}`.includes(team)
-  return [...list.filter(hit), ...list.filter((item) => !hit(item))]
-})
+const orderedNews = computed(() =>
+  news.value.slice().sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || '')),
+)
 const featured = computed(() => orderedNews.value[0])
 const newsRest = computed(() => orderedNews.value.slice(1, 4))
-// 超过合理时长仍为 LIVE 的场次仍放在“正在进行”页签，但状态显示为“赛况待更新”。
+
+// 超过合理时长仍未确认赛果的场次不再占用“比赛动态”，统一归入“最新赛果”并标注待确认。
 const liveMatches = computed(() =>
   matches.value
-    .filter((m) => ['LIVE', 'STALE'].includes(matchDisplayStatus(m)))
+    .filter((m) => matchDisplayStatus(m) === 'LIVE')
     .slice()
-    .sort((a, b) => {
-      const order = Number(matchDisplayStatus(b) === 'LIVE') - Number(matchDisplayStatus(a) === 'LIVE')
-      return order || dayjs(a.kickoffAt).valueOf() - dayjs(b.kickoffAt).valueOf()
-    }),
+    .sort((a, b) => dayjs(a.kickoffAt).valueOf() - dayjs(b.kickoffAt).valueOf()),
 )
 const scheduledMatches = computed(() =>
   matches.value
@@ -76,14 +65,27 @@ const scheduledMatches = computed(() =>
 )
 const finishedMatches = computed(() =>
   matches.value
-    .filter((m) => matchDisplayStatus(m) === 'FINISHED')
+    .filter((m) => ['FINISHED', 'STALE', 'CANCELLED'].includes(matchDisplayStatus(m)))
     .slice()
-    .sort((a, b) => dayjs(b.kickoffAt).valueOf() - dayjs(a.kickoffAt).valueOf()),
+    .sort((a, b) => {
+      // 已确认赛果 → 待确认 → 已取消；同一状态内按最近开球时间排序。
+      const rank = (match: PublicMatch) => {
+        const status = matchDisplayStatus(match)
+        if (status === 'FINISHED') return 0
+        if (status === 'STALE') return 1
+        return 2
+      }
+      return (
+        rank(a) - rank(b) || dayjs(b.kickoffAt).valueOf() - dayjs(a.kickoffAt).valueOf()
+      )
+    }),
 )
 const upcomingMatches = computed(() => scheduledMatches.value.slice(0, 4))
 const stripMatches = computed(() => {
-  const active = [...liveMatches.value, ...upcomingMatches.value]
-  return (active.length ? active : finishedMatches.value).slice(0, 4)
+  const focusId = featuredMatch.value?.id
+  const active = [...liveMatches.value, ...upcomingMatches.value].filter((match) => match.id !== focusId)
+  const fallback = finishedMatches.value.filter((match) => match.id !== focusId)
+  return (active.length ? active : fallback).slice(0, 4)
 })
 const tabMatches = computed(() => {
   if (matchTab.value === 'LIVE') return liveMatches.value
@@ -99,52 +101,34 @@ const featuredStatus = computed(() =>
   featuredMatch.value ? matchDisplayStatus(featuredMatch.value) : '',
 )
 const showFallbackNote = computed(() => !tabMatch.value && Boolean(featuredMatch.value))
-// 首屏图片优先使用后台轮播资源位；正式上线时由组委会上传授权的校园赛事照片。
-const heroImage = computed(() => banners.value[0]?.imageUrl || IMG.stadium)
-// 移动端首屏更高，竖幅人物图能保留完整动作，避免横幅球场图被裁成一条。
-// 演示数据以球场图作桌面占位；后台换成正式校园照片后，移动端会优先使用该图。
-const heroMobileImage = computed(() => {
-  const banner = banners.value[0]?.imageUrl
-  return banner && banner !== IMG.stadium ? banner : IMG.youth
+const activeTabLabel = computed(
+  () => MATCH_TABS.find((tab) => tab.key === matchTab.value)?.label || '',
+)
+const tabRemaining = computed(() => Math.max(0, tabMatches.value.length - 1))
+const maxGoals = computed(() => goals.value[0]?.goals || 1)
+const stripHasUpcoming = computed(() => {
+  const focusId = featuredMatch.value?.id
+  return [...liveMatches.value, ...upcomingMatches.value].some((match) => match.id !== focusId)
 })
 
-const materialsPolicy = computed(() =>
-  policies.value.find((policy) => /报名材料|材料准备/.test(policy.title)),
-)
-const followOptions = computed(() => {
-  const names = new Set<string>()
-  matches.value.forEach((match) => {
-    if (match.homeTeamName) names.add(match.homeTeamName)
-    if (match.awayTeamName) names.add(match.awayTeamName)
-  })
-  return Array.from(names).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
-})
-const followedMatches = computed(() =>
-  matches.value.filter(
-    (match) => match.homeTeamName === followedTeam.value || match.awayTeamName === followedTeam.value,
-  ),
-)
-const followMatch = computed(() => {
-  const list = followedMatches.value
-  return (
-    list.find((match) => ['LIVE', 'STALE'].includes(matchDisplayStatus(match))) ||
-    list
-      .filter((match) => matchDisplayStatus(match) === 'SCHEDULED')
-      .slice()
-      .sort((a, b) => dayjs(a.kickoffAt).valueOf() - dayjs(b.kickoffAt).valueOf())[0] ||
-    list
-      .filter((match) => matchDisplayStatus(match) === 'FINISHED')
-      .slice()
-      .sort((a, b) => dayjs(b.kickoffAt).valueOf() - dayjs(a.kickoffAt).valueOf())[0]
-  )
-})
+// 首屏只使用后勤配置的轮播图；没有配置时不加载外部图片，退回品牌色渐变底。
+const heroImage = computed(() => banners.value[0]?.imageUrl || '')
+const heroMobileImage = computed(() => banners.value[0]?.imageUrl || '')
 
-onMounted(async () => {
+function tabCount(key: MatchTab) {
+  if (key === 'LIVE') return liveMatches.value.length
+  if (key === 'SCHEDULED') return scheduledMatches.value.length
+  return finishedMatches.value.length
+}
+
+async function loadHome() {
+  loading.value = true
+  loadError.value = false
   try {
     const [resourceRes, newsRes, policyRes, matchRes, goalRes, pubRes] = await Promise.all([
       publicApi.resources(),
       publicApi.contents({ page: 1, pageSize: 6, contentType: 'NEWS' }),
-      publicApi.contents({ page: 1, pageSize: 5, contentType: 'POLICY' }),
+      publicApi.contents({ page: 1, pageSize: 4, contentType: 'POLICY' }),
       publicApi.matches({ page: 1, pageSize: 50 }),
       publicApi.goals({ groupCategory: 'PRIMARY' }),
       publicApi.publications({ page: 1, pageSize: 4 }),
@@ -154,25 +138,26 @@ onMounted(async () => {
     policies.value = policyRes.items
     matches.value = matchRes.items
     goals.value = goalRes.rows.slice(0, 5)
-    stars.value = pubRes.items
+    stars.value = pubRes.items.slice(0, 3)
+    updatedAt.value = dayjs().format('HH:mm')
     if (!liveMatches.value.length) {
       matchTab.value = scheduledMatches.value.length ? 'SCHEDULED' : 'FINISHED'
     }
-    if (followedTeam.value && !followOptions.value.includes(followedTeam.value)) {
-      followedTeam.value = ''
-    }
   } catch {
-    // 门户内容加载失败时保持空态
+    loadError.value = true
   } finally {
-    updatedAt.value = dayjs().format('HH:mm')
     loading.value = false
   }
-})
+}
 
-watch(followedTeam, (value) => saveFollowedTeam(value))
+onMounted(loadHome)
 
 function formatDate(value?: string) {
   return value ? dayjs(value).format('MM.DD') : '--'
+}
+
+function formatFullDate(value?: string) {
+  return value ? dayjs(value).format('YYYY.MM.DD') : '--'
 }
 
 function formatKickoff(value?: string) {
@@ -185,28 +170,34 @@ function matchCta(status?: string) {
   if (status === 'LIVE') return '查看实时赛况'
   if (status === 'STALE') return '查看已记录赛况'
   if (status === 'SCHEDULED') return '查看赛程详情'
+  if (status === 'CANCELLED') return '查看比赛详情'
   return '查看比赛结果'
 }
 
-function scoreText(match: PublicMatch) {
+function homeScoreText(match: PublicMatch) {
   const status = matchDisplayStatus(match)
-  if (status === 'SCHEDULED') return 'VS'
+  if (status === 'SCHEDULED') return '–'
   if (match.status === 'CANCELLED') return '—'
-  return `${match.homeScore} : ${match.awayScore}`
+  // 已过开球时间但未开赛的场次只有默认 0，不能当作真实比分展示。
+  if (status === 'STALE' && match.status === 'SCHEDULED') return '–'
+  return String(match.homeScore)
 }
 
-function opponentName(match: PublicMatch) {
-  return match.homeTeamName === followedTeam.value ? match.awayTeamName : match.homeTeamName
+function awayScoreText(match: PublicMatch) {
+  const status = matchDisplayStatus(match)
+  if (status === 'SCHEDULED') return '–'
+  if (match.status === 'CANCELLED') return '—'
+  if (status === 'STALE' && match.status === 'SCHEDULED') return '–'
+  return String(match.awayScore)
 }
 
-function followScore(match: PublicMatch) {
-  return matchDisplayStatus(match) === 'SCHEDULED'
-    ? 'VS'
-    : `${match.homeScore} : ${match.awayScore}`
+function goalBarWidth(value: number) {
+  return `${Math.max(8, Math.round((value / maxGoals.value) * 100))}%`
 }
 
-function policyImportant(title: string) {
-  return /报名|材料/.test(title)
+function publicationLink(star: PublicCard) {
+  const type = star.targetType === 'ENROLLMENT' ? 'ENROLLMENT' : 'PERSON'
+  return `/publications/${encodeURIComponent(`${type}|${star.groupName || '未标注组别'}`)}`
 }
 
 </script>
@@ -215,263 +206,240 @@ function policyImportant(title: string) {
   <div class="home">
     <section class="hero">
       <div class="hero__bg">
-        <picture>
+        <picture v-if="heroImage">
           <source media="(max-width: 760px)" :srcset="heroMobileImage" />
           <img :src="heroImage" alt="青少年足球联赛" />
         </picture>
         <div class="hero__shade" />
       </div>
+
       <div class="container hero__inner">
         <div class="hero__copy">
           <span class="hero__eyebrow">四川省青少年校园足球联赛 · 2026 赛季</span>
-          <h1>四川省中小学<br />足球联赛</h1>
+          <h1>全省校园足球<br /><em>在这里开球</em></h1>
           <p>
-            赛事官方信息发布平台。集中查询赛程比分、竞赛规程、政策文件与人才公示，了解全省校园足球赛事进展。
+            从报名审核到赛程比分，从政策原文到人才公示。一个入口，看见全省校园足球的每一个比赛日。
           </p>
-          <div class="hero__tasks">
-            <router-link to="/matches" class="hero-task hero-task--primary">
-              <el-icon><Calendar /></el-icon>
-              <span>
-                <strong>查看赛程</strong>
-                <small>比分与轮次</small>
-              </span>
+
+          <div class="hero__actions">
+            <router-link to="/matches" class="hero-btn hero-btn--lime">
+              查看赛程与比分
+              <el-icon><ArrowRight /></el-icon>
             </router-link>
-            <router-link to="/login" class="hero-task">
+            <button
+              v-if="!loggedIn || enrollable"
+              type="button"
+              class="hero-btn hero-btn--ghost"
+              @click="startEnrollment"
+            >
               <el-icon><Ticket /></el-icon>
-              <span>
-                <strong>球队报名</strong>
-                <small>球队与高校</small>
-              </span>
-            </router-link>
-            <router-link to="/policies" class="hero-task">
-              <el-icon><Document /></el-icon>
-              <span>
-                <strong>政策公告</strong>
-                <small>规程与材料</small>
-              </span>
-            </router-link>
-          </div>
-          <div class="hero__stats-block">
-            <span class="hero__stats-scope">2026 赛季 · 全省统计</span>
-            <div class="hero__stats">
-              <div>
-                <strong class="num">128</strong>
-                <span>本届参赛球队</span>
-              </div>
-              <div>
-                <strong class="num">2,436</strong>
-                <span>本届注册球员</span>
-              </div>
-              <div>
-                <strong class="num">186</strong>
-                <span>已完赛场次</span>
-              </div>
-              <div>
-                <strong class="num">36</strong>
-                <span>公示人数</span>
-              </div>
-            </div>
+              {{ loggedIn ? '继续报名' : '学校报名' }}
+            </button>
           </div>
         </div>
 
-        <div v-if="featuredMatch" class="hero-match">
-          <div class="hero-match__tabs" role="tablist" aria-label="比赛状态筛选">
+        <aside v-if="loading" class="scoreboard scoreboard--loading" aria-busy="true" aria-label="比赛信息加载中">
+          <header class="scoreboard__head">
+            <span class="scoreboard__kicker">比赛中心</span>
+          </header>
+          <div class="scoreboard__skeleton-tabs">
+            <span /><span /><span />
+          </div>
+          <div class="scoreboard__skeleton-board">
+            <span /><span /><span />
+          </div>
+          <div class="scoreboard__skeleton-lines">
+            <span /><span />
+          </div>
+        </aside>
+
+        <aside v-else-if="featuredMatch" class="scoreboard">
+          <header class="scoreboard__head">
+            <span class="scoreboard__kicker">比赛中心</span>
+            <span v-if="updatedAt" class="scoreboard__updated">{{ updatedAt }} 刷新</span>
+          </header>
+
+          <div class="scoreboard__tabs" role="tablist" aria-label="比赛状态筛选">
             <button
               v-for="tab in MATCH_TABS"
               :key="tab.key"
               type="button"
               role="tab"
-              class="hero-match__tab"
+              class="scoreboard__tab"
               :class="{ 'is-active': matchTab === tab.key }"
               :aria-selected="matchTab === tab.key"
               @click="matchTab = tab.key"
             >
               {{ tab.label }}
-              <span v-if="tab.key === 'LIVE' && liveMatches.length" class="hero-match__count">
-                {{ liveMatches.length }}
+              <span v-if="tabCount(tab.key)" class="scoreboard__count">
+                {{ tabCount(tab.key) }}
               </span>
             </button>
           </div>
 
-          <div class="hero-match__head">
-            <span class="hero-match__status">
-              <span v-if="featuredStatus === 'LIVE'" class="live-dot" />
-              <StatusTag :status="featuredStatus" kind="match" />
-            </span>
-            <span class="hero-match__group">{{ featuredMatch.groupName || featuredMatch.eventName }}</span>
+          <div class="scoreboard__meta">
+            <StatusTag :status="featuredStatus" kind="match" />
+            <span>{{ featuredMatch.groupName || featuredMatch.eventName }}</span>
           </div>
+          <p v-if="showFallbackNote" class="scoreboard__fallback">该时段暂无比赛，以下为最近一场</p>
 
-          <p v-if="showFallbackNote" class="hero-match__fallback">该时段暂无比赛，以下为最近一场</p>
-
-          <div class="hero-match__teams">
-            <div class="team">
-              <span class="team__badge">{{ featuredMatch.homeTeamName.slice(0, 1) }}</span>
+          <div class="scoreboard__board">
+            <div class="scoreboard__team">
+              <span class="scoreboard__crest">{{ featuredMatch.homeTeamName.slice(0, 1) }}</span>
               <strong>{{ featuredMatch.homeTeamName }}</strong>
+              <span class="scoreboard__score num" :class="{ 'is-live': featuredStatus === 'LIVE' }">
+                {{ homeScoreText(featuredMatch) }}
+              </span>
             </div>
-            <div class="hero-match__score">
-              <template v-if="featuredMatch.status !== 'SCHEDULED'">
-                <span class="num">{{ featuredMatch.homeScore }}</span>
-                <i>:</i>
-                <span class="num">{{ featuredMatch.awayScore }}</span>
-              </template>
-              <template v-else>
-                <span class="vs">VS</span>
-              </template>
+            <div class="scoreboard__divider">
+              <span v-if="featuredStatus === 'SCHEDULED'" class="num">
+                {{ dayjs(featuredMatch.kickoffAt).format('HH:mm') }}
+              </span>
+              <span v-else-if="featuredMatch.status === 'CANCELLED'" class="scoreboard__cancelled">比赛取消</span>
+              <span v-else class="scoreboard__colon">:</span>
             </div>
-            <div class="team">
-              <span class="team__badge">{{ featuredMatch.awayTeamName.slice(0, 1) }}</span>
+            <div class="scoreboard__team">
+              <span class="scoreboard__crest scoreboard__crest--away">{{ featuredMatch.awayTeamName.slice(0, 1) }}</span>
               <strong>{{ featuredMatch.awayTeamName }}</strong>
+              <span class="scoreboard__score num" :class="{ 'is-live': featuredStatus === 'LIVE' }">
+                {{ awayScoreText(featuredMatch) }}
+              </span>
             </div>
           </div>
-          <div class="hero-match__meta">
+
+          <div class="scoreboard__info">
             <span><el-icon><Calendar /></el-icon>{{ formatKickoff(featuredMatch.kickoffAt) }}</span>
             <span><el-icon><Location /></el-icon>{{ featuredMatch.venue || '场地待定' }}</span>
           </div>
-          <router-link :to="`/matches/${featuredMatch.id}`" class="hero-match__link">
+
+          <router-link :to="`/matches/${featuredMatch.id}`" class="scoreboard__cta">
             {{ matchCta(featuredStatus) }}
             <el-icon><ArrowRight /></el-icon>
           </router-link>
-          <span v-if="updatedAt" class="hero-match__updated">页面数据更新于 {{ updatedAt }}</span>
-        </div>
+          <router-link v-if="tabRemaining" to="/matches" class="scoreboard__more">
+            {{ activeTabLabel }}还有 {{ tabRemaining }} 场
+            <el-icon><ArrowRight /></el-icon>
+          </router-link>
+        </aside>
 
-        <div v-else class="hero-match hero-match--empty">
-          <span class="hero-match__group">赛程</span>
-          <p>当前暂无进行中或即将开始的比赛。</p>
-          <router-link to="/matches" class="hero-match__link">
+        <aside v-else class="scoreboard scoreboard--empty">
+          <span class="scoreboard__kicker">比赛中心</span>
+          <p>{{ loadError ? '比赛信息暂时无法加载，请稍后重试。' : '当前暂无进行中或即将开始的比赛。' }}</p>
+          <router-link to="/matches" class="scoreboard__cta">
             查看全部赛程
             <el-icon><ArrowRight /></el-icon>
           </router-link>
-        </div>
+        </aside>
       </div>
     </section>
 
-    <section v-if="followOptions.length" class="follow-strip">
-      <div class="container follow-strip__inner">
-        <div class="follow-strip__pick">
-          <span class="follow-strip__label">关注学校 / 球队</span>
-          <el-select
-            v-model="followedTeam"
-            class="follow-select"
-            placeholder="选择学校或球队"
-            filterable
-            clearable
-          >
-            <el-option v-for="team in followOptions" :key="team" :label="team" :value="team" />
-          </el-select>
-        </div>
+    <div v-if="loadError && !loading" class="container">
+      <div class="load-error" role="alert">
+        <span>首页部分内容加载失败，赛程、资讯与政策可能未完整展示。</span>
+        <button type="button" @click="loadHome">重新加载</button>
+      </div>
+    </div>
 
-        <router-link v-if="followedTeam && followMatch" :to="`/matches/${followMatch.id}`" class="follow-strip__match">
-          <StatusTag :status="matchDisplayStatus(followMatch)" kind="match" />
-          <strong>{{ followedTeam }}</strong>
-          <span class="follow-strip__opponent">对阵 {{ opponentName(followMatch) }}</span>
-          <span class="follow-strip__score num">{{ followScore(followMatch) }}</span>
-          <span class="follow-strip__time">{{ formatKickoff(followMatch.kickoffAt) }}</span>
+    <section class="container home-section news-section">
+      <div class="section-head">
+        <div>
+          <span class="section-kicker">赛事资讯</span>
+          <h2>赛场内外</h2>
+        </div>
+        <router-link to="/news" class="section-link">
+          全部资讯
           <el-icon><ArrowRight /></el-icon>
         </router-link>
-        <p v-else-if="followedTeam" class="follow-strip__hint">
-          暂未查到该校比赛，<router-link to="/matches">查看全部赛程</router-link>
-        </p>
-        <p v-else class="follow-strip__hint">
-          关注后，首页优先显示该校的下一场比赛与最新赛果；关注记录仅保存在本机浏览器。
-        </p>
-      </div>
-    </section>
-
-    <section class="container home-section">
-      <div class="headline">
-        <div>
-          <h2>赛事资讯</h2>
-        </div>
-        <router-link to="/news" class="more-link">
-          全部资讯 <el-icon><ArrowRight /></el-icon>
-        </router-link>
       </div>
 
-      <div class="news-layout" v-loading="loading">
-        <router-link v-if="featured" :to="`/news/${featured.id}`" class="feature-card">
-          <div class="feature-card__cover">
-            <img :src="featured.publicCoverUrl || IMG.match" :alt="featured.title" />
-            <span class="feature-card__tag">焦点</span>
-          </div>
-          <div class="feature-card__body">
-            <span class="feature-card__date">{{ formatDate(featured.publishedAt) }}</span>
+      <div v-loading="loading" class="news-board">
+        <router-link v-if="featured" :to="`/news/${featured.id}`" class="lead-card">
+          <img :src="featured.publicCoverUrl || IMG.match" :alt="featured.title" />
+          <span class="lead-card__shade" />
+          <div class="lead-card__body">
+            <span class="lead-card__tag">焦点</span>
             <h3>{{ featured.title }}</h3>
             <p>{{ featured.summary }}</p>
+            <span class="lead-card__meta">
+              {{ formatFullDate(featured.publishedAt) }}
+              <i />
+              阅读全文
+              <el-icon><ArrowRight /></el-icon>
+            </span>
           </div>
         </router-link>
 
-        <div class="news-list">
+        <div class="news-side">
+          <header class="news-side__head">
+            <span>最新发布</span>
+            <span>{{ newsRest.length }} 条</span>
+          </header>
           <router-link
-            v-for="item in newsRest"
+            v-for="(item, index) in newsRest"
             :key="item.id"
             :to="`/news/${item.id}`"
-            class="news-row"
+            class="news-line"
           >
-            <span class="news-row__date">
-              <strong class="num">{{ formatDate(item.publishedAt).split('.')[1] }}</strong>
-              <small>{{ formatDate(item.publishedAt).split('.')[0] }}月</small>
-            </span>
-            <span class="news-row__body">
+            <span class="news-line__index num">{{ String(index + 2).padStart(2, '0') }}</span>
+            <span class="news-line__body">
               <strong>{{ item.title }}</strong>
               <small>{{ item.summary }}</small>
             </span>
-            <el-icon class="news-row__arrow"><ArrowRight /></el-icon>
+            <span class="news-line__date num">{{ formatDate(item.publishedAt) }}</span>
           </router-link>
-          <el-empty v-if="!loading && !newsRest.length" description="暂无资讯" :image-size="70" />
+          <el-empty v-if="!loading && !newsRest.length" description="暂无资讯" :image-size="60" />
+        </div>
+      </div>
+    </section>
+
+    <section class="policy-band">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="section-kicker">政策服务</span>
+            <h2>政策与公告</h2>
+          </div>
+          <router-link to="/policies" class="section-link">
+            查看全部政策文件
+            <el-icon><ArrowRight /></el-icon>
+          </router-link>
         </div>
 
-        <aside class="policy-panel">
-          <div class="policy-panel__head">
-            <div>
-              <h3>政策公告</h3>
-              <p>报名、参赛与资格审查的正式依据</p>
-            </div>
-            <router-link to="/policies">全部</router-link>
-          </div>
+        <div class="policy-list">
           <router-link
             v-for="policy in policies"
             :key="policy.id"
             :to="`/policies/${policy.id}`"
-            class="policy-row"
+            class="policy-line"
           >
-            <span class="policy-row__tag" :class="{ 'is-important': policyImportant(policy.title) }">
-              {{ policyKind(policy.title) }}
+            <span class="policy-line__tag">{{ policyKind(policy.title) }}</span>
+            <span class="policy-line__body">
+              <strong>{{ policy.title }}</strong>
+              <small>{{ formatFullDate(policy.publishedAt) }} · 第 {{ policy.revision }} 版</small>
             </span>
-            <span class="policy-row__body">
-              <span class="policy-row__title">{{ policy.title }}</span>
-              <span class="policy-row__date">{{ formatDate(policy.publishedAt) }}</span>
+            <span class="policy-line__action" aria-hidden="true">
+              <el-icon><ArrowRight /></el-icon>
             </span>
           </router-link>
-          <router-link
-            :to="materialsPolicy ? `/policies/${materialsPolicy.id}` : '/policies'"
-            class="policy-panel__all"
-          >
-            查看报名办法与材料要求
-            <el-icon><ArrowRight /></el-icon>
-          </router-link>
-          <div class="policy-assist">
-            <el-icon><Medal /></el-icon>
-            <div>
-              <strong>政策原文问答</strong>
-              <span>点击右下角“政策问答”，回答均标注原文依据。</span>
-            </div>
-          </div>
-        </aside>
+          <el-empty v-if="!loading && !policies.length" description="暂无政策文件" :image-size="60" />
+        </div>
       </div>
     </section>
 
     <section class="match-section">
       <div class="container home-section">
-        <div class="headline headline--light">
+        <div class="section-head section-head--light">
           <div>
-            <h2>赛程与比分</h2>
+            <span class="section-kicker">赛程与比分</span>
+            <h2>{{ stripHasUpcoming ? '下一个比赛日' : '近期赛果' }}</h2>
           </div>
-          <router-link to="/matches" class="more-link more-link--light">
-            全部赛程 <el-icon><ArrowRight /></el-icon>
+          <router-link to="/matches" class="section-link section-link--light">
+            全部赛程
+            <el-icon><ArrowRight /></el-icon>
           </router-link>
         </div>
 
-        <div class="match-strip">
+        <div v-loading="loading" class="match-strip">
           <router-link
             v-for="match in stripMatches"
             :key="match.id"
@@ -479,84 +447,97 @@ function policyImportant(title: string) {
             class="match-card"
           >
             <div class="match-card__top">
-              <StatusTag :status="matchDisplayStatus(match)" kind="match" />
               <span>{{ match.groupName }}</span>
+              <StatusTag :status="matchDisplayStatus(match)" kind="match" />
             </div>
-            <div class="match-card__row">
-              <span class="match-card__team">{{ match.homeTeamName }}</span>
-              <span
-                class="match-card__score num"
-                :class="{ 'is-live': matchDisplayStatus(match) === 'LIVE' }"
-              >
-                {{ scoreText(match) }}
-              </span>
-              <span class="match-card__team match-card__team--right">{{ match.awayTeamName }}</span>
+            <div class="match-card__team-row">
+              <span class="match-card__crest">{{ match.homeTeamName.slice(0, 1) }}</span>
+              <span class="match-card__name">{{ match.homeTeamName }}</span>
+              <strong class="match-card__score num" :class="{ 'is-live': matchDisplayStatus(match) === 'LIVE' }">
+                {{ homeScoreText(match) }}
+              </strong>
+            </div>
+            <div class="match-card__team-row">
+              <span class="match-card__crest match-card__crest--away">{{ match.awayTeamName.slice(0, 1) }}</span>
+              <span class="match-card__name">{{ match.awayTeamName }}</span>
+              <strong class="match-card__score num" :class="{ 'is-live': matchDisplayStatus(match) === 'LIVE' }">
+                {{ awayScoreText(match) }}
+              </strong>
             </div>
             <div class="match-card__meta">
               <span>{{ formatKickoff(match.kickoffAt) }}</span>
               <span>{{ match.venue || '场地待定' }}</span>
             </div>
           </router-link>
-          <div v-if="!stripMatches.length" class="match-empty">
-            当前没有可展示的比赛，赛程发布后将在此更新。
+          <div v-if="!loading && !stripMatches.length" class="match-empty">
+            {{ loadError ? '比赛信息加载失败，请稍后重试。' : '当前没有可展示的比赛，赛程发布后将在此更新。' }}
           </div>
         </div>
       </div>
     </section>
 
-    <section class="container home-section">
-      <div class="split-layout">
-        <div class="ranking-card">
-          <div class="headline headline--compact">
+    <section class="container home-section bottom-section">
+      <div class="bottom-grid">
+        <div class="rank-card">
+          <div class="section-head section-head--compact">
             <div>
               <h2>小学组射手榜</h2>
-              <span class="headline__note">各组别分别统计，完整榜单可按组查看</span>
             </div>
-            <router-link to="/rankings" class="more-link">
-              完整榜单 <el-icon><ArrowRight /></el-icon>
+            <router-link to="/rankings" class="section-link">
+              完整榜单
+              <el-icon><ArrowRight /></el-icon>
             </router-link>
           </div>
-          <div class="ranking-list">
-            <div v-for="row in goals" :key="row.athleteId" class="ranking-row">
-              <span class="ranking-row__rank num" :class="{ 'is-top': row.rank <= 3 }">{{ row.rank }}</span>
-              <span class="ranking-row__avatar">{{ row.athleteName.slice(0, 1) }}</span>
-              <span class="ranking-row__body">
+
+          <div class="rank-list">
+            <div v-for="row in goals" :key="row.athleteId" class="rank-row" :class="{ 'is-leader': row.rank === 1 }">
+              <span class="rank-row__rank num">{{ String(row.rank).padStart(2, '0') }}</span>
+              <span class="rank-row__avatar">{{ row.athleteName.slice(0, 1) }}</span>
+              <span class="rank-row__body">
                 <strong>{{ row.athleteName }}</strong>
                 <small>{{ row.teamName }}</small>
               </span>
-              <span class="ranking-row__goals num">
-                <el-icon><Football /></el-icon>
-                {{ row.goals }}<i>球</i>
+              <span class="rank-row__goals">
+                <strong class="num">{{ row.goals }}</strong>
+                <small>球</small>
+              </span>
+              <span class="rank-row__bar">
+                <i :style="{ width: goalBarWidth(row.goals) }" />
               </span>
             </div>
-            <el-empty v-if="!loading && !goals.length" description="暂无进球数据" :image-size="70" />
+            <el-empty v-if="!loading && !goals.length" description="暂无进球数据" :image-size="60" />
           </div>
         </div>
 
-        <div class="star-panel">
-          <div class="headline headline--compact">
+        <div class="publication-card">
+          <div class="section-head section-head--compact">
             <div>
               <h2>最新公示</h2>
             </div>
-            <router-link to="/publications" class="more-link">
-              全部公示 <el-icon><ArrowRight /></el-icon>
+            <router-link to="/publications" class="section-link">
+              公示查询
+              <el-icon><ArrowRight /></el-icon>
             </router-link>
           </div>
-          <div class="star-grid">
+          <p class="publication-card__hint">点击公示事项，进入对应组别的完整名单。</p>
+
+          <div class="publication-list">
             <router-link
               v-for="star in stars"
               :key="star.publicationId"
-              to="/publications"
-              class="star-card"
+              :to="publicationLink(star)"
+              class="publication-row"
             >
-              <span class="star-card__avatar">{{ star.displayName.slice(0, 1) }}</span>
-              <strong>{{ star.displayName }}</strong>
-              <small>{{ star.teamName }}</small>
-              <span class="star-card__group">{{ star.groupName }}</span>
+              <span class="publication-row__avatar">{{ star.displayName.slice(0, 1) }}</span>
+              <span class="publication-row__body">
+                <strong>{{ star.displayName }}</strong>
+                <small>{{ star.teamName || star.cityName || '公示对象' }}</small>
+              </span>
+              <span class="publication-row__group">{{ star.groupName }}</span>
+              <el-icon><ArrowRight /></el-icon>
             </router-link>
-            <el-empty v-if="!loading && !stars.length" description="暂无公示" :image-size="70" />
+            <el-empty v-if="!loading && !stars.length" description="暂无公示" :image-size="60" />
           </div>
-          <p class="star-note">公示名单仅展示经审核确认的公开信息，姓名按脱敏规则展示。</p>
         </div>
       </div>
     </section>
@@ -568,13 +549,15 @@ function policyImportant(title: string) {
   background: var(--paper);
 }
 
+/* ---------- 首屏 ---------- */
 .hero {
   position: relative;
-  min-height: 540px;
+  min-height: 520px;
   display: flex;
   align-items: center;
   overflow: hidden;
-  background: var(--brand-900);
+  background: linear-gradient(135deg, var(--brand-900) 0%, #0a4a37 55%, #0d5a43 100%);
+  isolation: isolate;
 }
 
 .hero__bg {
@@ -592,25 +575,26 @@ function policyImportant(title: string) {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 58% 50%;
+  object-position: 60% 46%;
+  transform: scale(1.015);
 }
 
 .hero__shade {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, rgba(7, 52, 39, 0.97) 0%, rgba(7, 52, 39, 0.86) 48%, rgba(7, 52, 39, 0.34) 100%),
-    linear-gradient(0deg, rgba(7, 52, 39, 0.88), transparent 58%);
+    linear-gradient(90deg, rgba(5, 40, 30, 0.94) 0%, rgba(5, 40, 30, 0.84) 42%, rgba(5, 40, 30, 0.34) 74%, rgba(5, 40, 30, 0.46) 100%),
+    linear-gradient(0deg, rgba(5, 40, 30, 0.86) 0%, transparent 52%);
 }
 
 .hero__inner {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(330px, 0.65fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(380px, 0.85fr);
   align-items: center;
-  gap: 48px;
-  padding: 56px 0;
+  gap: 64px;
+  padding: 56px 0 52px;
 }
 
 .hero__copy {
@@ -618,584 +602,628 @@ function policyImportant(title: string) {
 }
 
 .hero__eyebrow {
-  font-size: 12px;
+  display: inline-block;
+  font-size: 12.5px;
   font-weight: 500;
-  letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.72);
+  letter-spacing: 0.06em;
+  color: var(--on-dark-2);
 }
 
 .hero__copy h1 {
-  margin-top: 14px;
-  font-size: clamp(36px, 4.2vw, 54px);
+  margin-top: 20px;
+  font-size: clamp(42px, 4.6vw, 66px);
   font-weight: 700;
-  line-height: 1.18;
-  letter-spacing: 0.01em;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
   color: #fff;
+}
+
+.hero__copy h1 em {
+  font-style: normal;
+  color: var(--lime);
 }
 
 .hero__copy p {
-  max-width: 540px;
-  margin-top: 18px;
-  font-size: 16px;
-  line-height: 1.9;
-  color: #dce8df;
-}
-
-.hero__tasks {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
   max-width: 560px;
-  margin-top: 26px;
+  margin-top: 22px;
+  font-size: 15.5px;
+  line-height: 1.9;
+  color: #d7e4db;
 }
 
-.hero-task {
+.hero__actions {
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 56px;
-  padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.07);
-  color: #fff;
-  transition: background 0.16s ease, border-color 0.16s ease;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 30px;
 }
 
-.hero-task:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.34);
-}
-
-.hero-task .el-icon {
-  flex-shrink: 0;
-  font-size: 17px;
-}
-
-.hero-task span {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.hero-task strong {
-  font-size: 12.5px;
+.hero-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 46px;
+  padding: 0 20px;
+  border-radius: 7px;
+  font-size: 14px;
   font-weight: 600;
-  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
 }
 
-.hero-task small {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.58);
-  white-space: nowrap;
+.hero-btn:hover {
+  transform: translateY(-1px);
 }
 
-.hero-task--primary {
-  border-color: var(--lime);
+.hero-btn--lime {
+  border: 1px solid var(--lime);
   background: var(--lime);
   color: var(--brand-900);
 }
 
-.hero-task--primary:hover {
-  border-color: var(--lime);
+.hero-btn--lime:hover {
   background: #d6f88a;
 }
 
-.hero-task--primary small {
-  color: rgba(7, 59, 44, 0.66);
-}
-
-.hero__stats-block {
-  margin-top: 30px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.16);
-}
-
-.hero__stats-scope {
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.56);
-}
-
-.hero__stats {
-  display: flex;
-  gap: 40px;
-  margin-top: 10px;
-}
-
-.hero__stats div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.hero__stats strong {
-  font-size: 25px;
-  line-height: 1.2;
+.hero-btn--ghost {
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
 
-.hero__stats span {
-  font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.64);
-}
-
-.hero-match {
-  min-width: 0;
-  padding: 18px 20px 16px;
-  border-radius: 8px;
-  background: #0a4a37;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: #fff;
-}
-
-.hero-match__tabs {
-  display: flex;
-  gap: 14px;
-  padding-bottom: 12px;
-  margin-bottom: 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.hero-match__tab {
-  position: relative;
-  padding: 0 0 8px;
-  border: none;
-  background: none;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.58);
-  cursor: pointer;
-}
-
-.hero-match__tab:hover {
-  color: #fff;
-}
-
-.hero-match__tab.is-active {
-  color: #fff;
-  font-weight: 600;
-}
-
-.hero-match__tab.is-active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--lime);
-}
-
-.hero-match__count {
-  margin-left: 4px;
-  padding: 0 5px;
-  border-radius: 8px;
+.hero-btn--ghost:hover {
+  border-color: rgba(255, 255, 255, 0.54);
   background: rgba(255, 255, 255, 0.12);
-  font-family: var(--font-display);
-  font-size: 9.5px;
-  color: rgba(255, 255, 255, 0.78);
 }
 
-.hero-match__head {
+/* ---------- 首屏比赛卡 ---------- */
+.scoreboard {
+  position: relative;
+  min-width: 0;
+  padding: 20px;
+  border-radius: 14px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.035) 46%, rgba(200, 243, 106, 0.06) 100%),
+    rgba(6, 48, 35, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(14px);
+  color: #fff;
+}
+
+.scoreboard__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.hero-match__status {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+.scoreboard__kicker {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--lime);
 }
 
-.hero-match__group {
+.scoreboard__updated {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--on-dark-3);
+}
+
+.scoreboard__tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 3px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.scoreboard__tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--on-dark-3);
+  cursor: pointer;
+  transition: 0.16s;
+}
+
+.scoreboard__tab:hover {
+  color: #fff;
+}
+
+.scoreboard__tab.is-active {
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
+  font-weight: 600;
+}
+
+.scoreboard__count {
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--lime);
+  color: var(--brand-900);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.scoreboard__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 12.5px;
+  color: var(--on-dark-2);
+}
+
+.scoreboard__fallback {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--live-on-dark);
+}
+
+.scoreboard__board {
+  margin-top: 14px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.scoreboard__team {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+}
+
+.scoreboard__team strong {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.scoreboard__crest {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--on-dark-1);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+/* 主客队徽保持一致的中性样式，避免用颜色暗示强弱。 */
+.scoreboard__crest--away {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--on-dark-1);
+}
+
+.scoreboard__score {
+  width: 34px;
+  flex-shrink: 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  text-align: right;
+}
+
+.scoreboard__score.is-live {
+  color: var(--live-on-dark);
+}
+
+.scoreboard__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 50px;
+  font-size: 12px;
+  color: var(--on-dark-3);
+}
+
+.scoreboard__cancelled {
   white-space: nowrap;
 }
 
-.hero-match__fallback {
-  margin-top: 8px;
-  font-size: 10.5px;
-  color: #ffc9a3;
+.scoreboard__divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.07);
 }
 
-.hero-match__teams {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 10px;
-  margin: 20px 0 16px;
+.scoreboard__colon {
+  font-family: var(--font-display);
+  letter-spacing: 0.2em;
 }
 
-.team {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  text-align: center;
-}
-
-.team__badge {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.team strong {
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.hero-match__score {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 30px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.hero-match__score i {
-  font-style: normal;
-  color: rgba(255, 255, 255, 0.4);
-}
-
-.hero-match__score .vs {
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.hero-match__meta {
+.scoreboard__info {
   display: flex;
   flex-direction: column;
   gap: 7px;
   padding: 13px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.68);
+  font-size: 12.5px;
+  color: var(--on-dark-2);
 }
 
-.hero-match__meta span {
+.scoreboard__info span {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.hero-match__link {
+.scoreboard__cta {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.26);
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 13px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: var(--lime);
+  color: var(--brand-900);
+  font-size: 12.5px;
+  font-weight: 700;
+  transition: background-color 0.16s;
+}
+
+.scoreboard__cta:hover {
+  background: #d6f88a;
+}
+
+.scoreboard--empty {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: center;
+  min-height: 240px;
+}
+
+.scoreboard--empty p {
+  font-size: 13.5px;
+  color: var(--on-dark-2);
+}
+
+.scoreboard__more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 10px;
   font-size: 12.5px;
   font-weight: 600;
-  transition: background 0.16s ease, border-color 0.16s ease;
+  color: var(--on-dark-2);
 }
 
-.hero-match__link:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.4);
+.scoreboard__more:hover {
+  color: var(--on-dark-1);
 }
 
-.hero-match__updated {
-  display: block;
-  margin-top: 8px;
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.5);
-  text-align: right;
+/* ---------- 首屏比赛卡加载骨架 ---------- */
+.scoreboard--loading {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 330px;
 }
 
-.hero-match--empty {
+.scoreboard__skeleton-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.scoreboard__skeleton-tabs span {
+  height: 34px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  animation: home-pulse 1.4s ease-in-out infinite;
+}
+
+.scoreboard__skeleton-board {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  justify-content: center;
-  min-height: 200px;
+  padding: 18px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.hero-match--empty p {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
+.scoreboard__skeleton-board span {
+  height: 34px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  animation: home-pulse 1.4s ease-in-out infinite;
 }
 
-.follow-strip {
-  background: #fff;
-  border-bottom: 1px solid var(--line);
-}
-
-.follow-strip__inner {
+.scoreboard__skeleton-lines {
   display: flex;
-  align-items: center;
-  gap: 20px;
-  min-height: 64px;
-  padding: 11px 0;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.follow-strip__pick {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
+.scoreboard__skeleton-lines span {
+  height: 12px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  animation: home-pulse 1.4s ease-in-out infinite;
 }
 
-.follow-strip__label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink-700);
-  white-space: nowrap;
+.scoreboard__skeleton-lines span:last-child {
+  width: 62%;
 }
 
-.follow-select {
-  width: 190px;
+@keyframes home-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
-.follow-select :deep(.el-select__wrapper) {
-  min-height: 34px;
-  background: var(--paper);
-  box-shadow: none;
-  border: 1px solid var(--line);
-}
-
-.follow-select :deep(.el-select__wrapper.is-focused) {
-  border-color: var(--brand-500);
-}
-
-.follow-strip__match {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  margin-left: auto;
-  padding: 7px 12px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--paper);
-}
-
-.follow-strip__match strong {
-  font-size: 12.5px;
-  color: var(--ink-900);
-  white-space: nowrap;
-}
-
-.follow-strip__opponent {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--ink-500);
-}
-
-.follow-strip__score {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--brand-800);
-  white-space: nowrap;
-}
-
-.follow-strip__time {
-  font-size: 11px;
-  color: var(--ink-500);
-  white-space: nowrap;
-}
-
-.follow-strip__match .el-icon {
-  flex-shrink: 0;
-  color: var(--ink-300);
-}
-
-.follow-strip__hint {
-  margin-left: auto;
-  font-size: 11.5px;
-  color: var(--ink-500);
-}
-
-.follow-strip__hint a {
-  color: var(--brand-700);
-  font-weight: 600;
-}
-
+/* ---------- 通用区块头 ---------- */
 .home-section {
-  padding: 56px 0;
+  padding: 58px 0;
 }
 
-.headline {
+.load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 12px 16px;
+  border: 1px solid #f0c9a8;
+  border-radius: 8px;
+  background: var(--live-soft);
+  font-size: 13px;
+  color: #7a3b08;
+}
+
+.load-error button {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid #d99a63;
+  border-radius: 5px;
+  background: #fff;
+  color: #7a3b08;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.load-error button:hover {
+  background: #fff7ef;
+}
+
+.section-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: 18px;
   margin-bottom: 22px;
 }
 
-.headline h2 {
-  font-size: 24px;
+.section-kicker {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11.5px;
   font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--brand-600);
+}
+
+.section-head h2 {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--ink-900);
 }
 
-.headline__note {
-  display: block;
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--ink-500);
-}
-
-.headline--light h2 {
-  color: #fff;
-}
-
-.headline--compact {
-  margin-bottom: 16px;
-}
-
-.headline--compact h2 {
-  font-size: 19px;
-}
-
-.more-link {
+.section-link {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12.5px;
-  color: var(--ink-500);
-}
-
-.more-link:hover {
+  flex-shrink: 0;
+  padding-bottom: 3px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--brand-700);
 }
 
-.more-link--light {
-  color: rgba(255, 255, 255, 0.56);
+.section-link:hover {
+  color: var(--brand-800);
 }
 
-.news-layout {
+.section-head--light .section-kicker {
+  color: var(--lime);
+}
+
+.section-head--light h2 {
+  color: #fff;
+}
+
+.section-link--light {
+  color: var(--on-dark-2);
+}
+
+.section-link--light:hover {
+  color: #fff;
+}
+
+.section-head--compact {
+  margin-bottom: 16px;
+}
+
+.section-head--compact h2 {
+  font-size: 20px;
+}
+
+/* ---------- 资讯 ---------- */
+.news-board {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr) minmax(250px, 0.6fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(380px, 1fr);
+  gap: 20px;
+  min-height: 330px;
 }
 
-.feature-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #fff;
-  border: 1px solid var(--line);
-}
-
-.feature-card__cover {
+.lead-card {
   position: relative;
-  aspect-ratio: 16 / 10;
+  display: block;
+  min-height: 360px;
   overflow: hidden;
-  background: var(--brand-50);
+  border-radius: 12px;
+  background: var(--brand-900);
 }
 
-.feature-card__cover img {
+.lead-card img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.4s ease;
+  transition: transform 0.5s ease;
 }
 
-.feature-card:hover img {
-  transform: scale(1.04);
+.lead-card:hover img {
+  transform: scale(1.035);
 }
 
-.feature-card__tag {
+.lead-card__shade {
   position: absolute;
-  left: 14px;
-  top: 14px;
+  inset: 0;
+  background:
+    linear-gradient(0deg, rgba(4, 33, 24, 0.94) 0%, rgba(4, 33, 24, 0.52) 42%, rgba(4, 33, 24, 0.04) 74%),
+    linear-gradient(90deg, rgba(4, 33, 24, 0.42), transparent 56%);
+}
+
+.lead-card__body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 26px 28px;
+  color: #fff;
+}
+
+.lead-card__tag {
+  display: inline-block;
   padding: 3px 8px;
   border-radius: 4px;
   background: var(--lime);
   color: var(--brand-900);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 
-.feature-card__body {
-  padding: 18px 20px 21px;
+.lead-card__body h3 {
+  max-width: 720px;
+  margin-top: 12px;
+  font-size: clamp(21px, 2vw, 28px);
+  font-weight: 700;
+  line-height: 1.4;
 }
 
-.feature-card__date {
-  font-size: 11.5px;
-  color: var(--ink-500);
-}
-
-.feature-card__body h3 {
-  margin-top: 9px;
-  font-size: 20px;
-  line-height: 1.45;
-}
-
-.feature-card__body p {
+.lead-card__body p {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-top: 9px;
-  font-size: 14px;
-  line-height: 1.8;
-  color: var(--ink-500);
+  max-width: 680px;
+  margin-top: 8px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--on-dark-2);
 }
 
-.news-list {
+.lead-card__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 13px;
+  font-size: 12px;
+  color: var(--on-dark-3);
+}
+
+.lead-card__meta i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.lead-card__meta .el-icon {
+  margin-left: 2px;
+}
+
+.news-side {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  padding: 6px 0;
 }
 
-.news-row {
+.news-side__head {
   display: flex;
   align-items: center;
-  gap: 15px;
-  padding: 16px 2px;
+  justify-content: space-between;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
-}
-
-.news-row:first-child {
-  padding-top: 4px;
-}
-
-.news-row__date {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex-shrink: 0;
-  width: 44px;
-}
-
-.news-row__date strong {
-  font-size: 21px;
-  line-height: 1;
-  color: var(--brand-800);
-}
-
-.news-row__date small {
-  margin-top: 2px;
-  font-size: 10px;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
   color: var(--ink-500);
 }
 
-.news-row__body {
+.news-side__head span:first-child {
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.news-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.news-line__index {
+  width: 22px;
+  flex-shrink: 0;
+  padding-top: 1px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-500);
+}
+
+.news-line__body {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -1203,184 +1231,151 @@ function policyImportant(title: string) {
   min-width: 0;
 }
 
-.news-row__body strong {
+.news-line__body strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   font-size: 15px;
+  font-weight: 600;
   line-height: 1.5;
   color: var(--ink-900);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  transition: color 0.15s;
 }
 
-.news-row__body small {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--ink-500);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.news-row__arrow {
-  margin-left: auto;
-  flex-shrink: 0;
-  color: var(--ink-300);
-}
-
-.news-row:hover .news-row__arrow {
+.news-line:hover .news-line__body strong {
   color: var(--brand-700);
 }
 
-.policy-panel {
-  padding: 18px;
-  border-radius: 8px;
-  background: #edf5ef;
-  border: 1px solid var(--line);
-  align-self: start;
-}
-
-.policy-panel__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(8, 127, 91, 0.14);
-}
-
-.policy-panel__head h3 {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.policy-panel__head p {
-  margin-top: 3px;
-  font-size: 10.5px;
-  line-height: 1.6;
+.news-line__body small {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--ink-500);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.policy-panel__head a {
+.news-line__date {
   flex-shrink: 0;
   padding-top: 2px;
   font-size: 11.5px;
-  color: var(--brand-700);
+  color: var(--ink-500);
 }
 
-.policy-row {
+/* ---------- 政策 ---------- */
+.policy-band {
+  position: relative;
+  overflow: hidden;
+  padding: 50px 0;
+  background: linear-gradient(120deg, #fbfdf8 0%, #edf6ef 55%, #e4f2e9 100%);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.policy-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.policy-line {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 11px 0;
-  border-bottom: 1px solid rgba(8, 127, 91, 0.12);
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  padding: 15px 15px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--line);
+  transition: border-color 0.16s, background-color 0.16s, transform 0.16s;
 }
 
-.policy-row__tag {
-  flex-shrink: 0;
-  margin-top: 1px;
-  padding: 2px 5px;
-  border: 1px solid #d3e6da;
-  border-radius: 3px;
+.policy-line:hover {
+  border-color: var(--brand-500);
   background: #fff;
-  font-size: 9.5px;
-  line-height: 1.4;
+  transform: translateY(-1px);
+}
+
+.policy-line__tag {
+  flex-shrink: 0;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--brand-50);
   color: var(--brand-700);
+  font-size: 11px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.policy-row__tag.is-important {
-  border-color: #f6d5c2;
-  background: var(--live-soft);
-  color: var(--live);
-}
-
-.policy-row__body {
+.policy-line__body {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
 }
 
-.policy-row__title {
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--ink-700);
-}
-
-.policy-row__date {
-  font-family: var(--font-display);
-  font-size: 11px;
-  color: var(--ink-500);
-}
-
-.policy-row:hover .policy-row__title {
-  color: var(--brand-800);
+.policy-line__body strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13.5px;
   font-weight: 600;
-}
-
-.policy-panel__all {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 7px 0;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--brand-700);
-}
-
-.policy-assist {
-  display: flex;
-  gap: 10px;
-  margin-top: 10px;
-  padding: 12px;
-  border-radius: 6px;
-  background: #fff;
-  border: 1px solid var(--line);
-  color: var(--brand-700);
-}
-
-.policy-assist strong {
-  display: block;
-  font-size: 11.5px;
+  line-height: 1.45;
   color: var(--ink-900);
 }
 
-.policy-assist span {
-  display: block;
-  margin-top: 3px;
-  font-size: 10.5px;
-  line-height: 1.65;
+.policy-line__body small {
+  font-size: 11.5px;
   color: var(--ink-500);
 }
 
+.policy-line__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-700);
+}
+
+/* ---------- 赛程 ---------- */
 .match-section {
+  position: relative;
+  overflow: hidden;
   background: var(--brand-900);
   color: #fff;
 }
 
 .match-section .home-section {
-  padding: 52px 0 58px;
+  position: relative;
+  z-index: 1;
+  padding: 54px 0 58px;
 }
 
 .match-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
 }
 
 .match-card {
-  padding: 16px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  padding: 15px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.055);
   border: 1px solid rgba(255, 255, 255, 0.13);
-  transition: background 0.16s ease, border-color 0.16s ease;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
 }
 
 .match-card:hover {
   background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.26);
+  transform: translateY(-2px);
 }
 
 .match-card__top {
@@ -1388,101 +1383,134 @@ function policyImportant(title: string) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 13px;
+  font-size: 11.5px;
+  color: var(--on-dark-2);
 }
 
-.match-card__row {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+.match-card__team-row {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 15px 0 12px;
+  gap: 9px;
+  min-height: 36px;
 }
 
-.match-card__team {
-  font-size: 13px;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.9);
+.match-card__crest {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--on-dark-1);
+  font-size: 11px;
+  font-weight: 700;
 }
 
-.match-card__team--right {
-  text-align: right;
+.match-card__crest--away {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--on-dark-1);
+}
+
+.match-card__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--on-dark-1);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .match-card__score {
-  font-size: 19px;
-  font-weight: 700;
+  flex-shrink: 0;
+  min-width: 20px;
+  font-size: 18px;
+  font-weight: 800;
   color: #fff;
-  white-space: nowrap;
+  text-align: right;
 }
 
 .match-card__score.is-live {
-  color: var(--lime);
+  color: var(--live-on-dark);
 }
 
 .match-card__meta {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
+  margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.62);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  color: var(--on-dark-3);
 }
 
 .match-empty {
   grid-column: 1 / -1;
   padding: 28px;
-  text-align: center;
-  font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.6);
   border: 1px dashed rgba(255, 255, 255, 0.2);
   border-radius: 8px;
+  font-size: 13px;
+  color: var(--on-dark-2);
+  text-align: center;
 }
 
-.split-layout {
+/* ---------- 底部 ---------- */
+.bottom-section {
+  padding-bottom: 72px;
+}
+
+.bottom-grid {
   display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 26px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
+  align-items: start;
+  gap: 20px;
 }
 
-.ranking-card,
-.star-panel {
-  padding: 20px;
+.rank-card,
+.publication-card {
+  padding: 22px 24px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: #fff;
 }
 
-.ranking-row {
+.rank-list {
   display: flex;
+  flex-direction: column;
+}
+
+.rank-row {
+  display: grid;
+  grid-template-columns: 30px 38px minmax(0, 1fr) 54px;
   align-items: center;
-  gap: 12px;
-  padding: 11px 0;
+  gap: 11px;
+  padding: 10px 0 12px;
   border-bottom: 1px solid var(--line);
 }
 
-.ranking-row:last-child {
+.rank-row:last-child {
   border-bottom: none;
 }
 
-.ranking-row__rank {
-  width: 22px;
-  font-size: 13px;
+.rank-row__rank {
+  font-size: 12px;
   font-weight: 700;
-  color: var(--ink-300);
+  color: var(--ink-500);
 }
 
-.ranking-row__rank.is-top {
+.rank-row.is-leader .rank-row__rank {
   color: var(--brand-700);
 }
 
-.ranking-row__avatar {
+.rank-row__avatar {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: var(--brand-50);
   color: var(--brand-800);
@@ -1490,120 +1518,186 @@ function policyImportant(title: string) {
   font-weight: 700;
 }
 
-.ranking-row__body {
+.rank-row.is-leader .rank-row__avatar {
+  background: var(--brand-900);
+  color: var(--lime);
+}
+
+.rank-row__body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
-.ranking-row__body strong {
-  font-size: 15px;
+.rank-row__body strong {
+  overflow: hidden;
+  font-size: 14.5px;
+  color: var(--ink-900);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.ranking-row__body small {
-  font-size: 13px;
+.rank-row__body small {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--ink-500);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rank-row__goals {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.rank-row__goals strong {
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--brand-700);
+}
+
+.rank-row.is-leader .rank-row__goals strong {
+  color: var(--brand-900);
+}
+
+.rank-row__goals small {
+  font-size: 11px;
   color: var(--ink-500);
 }
 
-.ranking-row__goals {
-  margin-left: auto;
+.rank-row__bar {
+  grid-column: 3 / 5;
+  height: 3px;
+  margin-top: -3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--paper);
+}
+
+.rank-row__bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--brand-500), var(--lime));
+}
+
+.publication-card {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #fff 0%, #f7fbf8 100%);
+}
+
+.publication-card__hint {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.publication-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.publication-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.publication-row:last-child {
+  border-bottom: none;
+}
+
+.publication-row__avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--brand-50);
   color: var(--brand-700);
-  font-size: 17px;
+  font-size: 12px;
   font-weight: 700;
 }
 
-.ranking-row__goals .el-icon {
-  font-size: 14px;
-}
-
-.ranking-row__goals i {
-  margin-left: 1px;
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 500;
-}
-
-.star-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.star-card {
+.publication-row__body {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 16px 10px;
-  border-radius: 6px;
+  gap: 2px;
+  min-width: 0;
+}
+
+.publication-row__body strong {
+  overflow: hidden;
+  font-size: 13.5px;
+  color: var(--ink-900);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.publication-row__body small {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--ink-500);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.publication-row__group {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
   background: var(--paper);
-  border: 1px solid transparent;
-  text-align: center;
-  transition: 0.16s;
-}
-
-.star-card:hover {
-  border-color: var(--brand-500);
-  background: var(--brand-50);
-}
-
-.star-card__avatar {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  margin-bottom: 4px;
-  border-radius: 50%;
-  background: var(--brand-700);
-  color: #fff;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.star-card strong {
-  font-size: 13px;
-}
-
-.star-card small {
   font-size: 11px;
   color: var(--ink-500);
 }
 
-.star-card__group {
-  margin-top: 4px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--brand-50);
+.publication-row > .el-icon {
+  flex-shrink: 0;
+  color: var(--ink-300);
+}
+
+.publication-row:hover .publication-row__body strong {
   color: var(--brand-700);
-  font-size: 9.5px;
 }
 
-.star-note {
-  margin-top: 14px;
-  font-size: 11px;
-  line-height: 1.7;
-  color: var(--ink-500);
+/* ---------- 响应式 ---------- */
+@media (max-width: 1180px) {
+  .hero__inner {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.8fr);
+    gap: 36px;
+  }
+
+  .news-board {
+    grid-template-columns: minmax(0, 1.35fr) minmax(330px, 1fr);
+  }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1020px) {
   .hero__inner {
     grid-template-columns: minmax(0, 1fr);
-    gap: 30px;
+    gap: 34px;
+    padding: 48px 0;
   }
 
-  .hero-match {
-    max-width: 460px;
+  .scoreboard {
+    max-width: 520px;
   }
 
-  .news-layout {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  .news-board,
+  .bottom-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .policy-panel {
-    grid-column: 1 / -1;
+  .lead-card {
+    min-height: 340px;
   }
 
   .match-strip {
@@ -1617,7 +1711,7 @@ function policyImportant(title: string) {
   }
 
   .hero__bg img {
-    object-position: 50% 44%;
+    object-position: 52% 42%;
   }
 
   .hero__inner {
@@ -1626,122 +1720,86 @@ function policyImportant(title: string) {
   }
 
   .hero__copy h1 {
-    font-size: 32px;
+    font-size: 36px;
   }
 
   .hero__copy p {
-    margin-top: 14px;
-    font-size: 15px;
-    line-height: 1.85;
+    margin-top: 15px;
+    font-size: 14px;
+    line-height: 1.8;
   }
 
-  .hero__tasks {
-    gap: 6px;
+  .hero__actions {
+    gap: 8px;
     margin-top: 22px;
   }
 
-  .hero-task {
-    gap: 7px;
-    min-height: 54px;
-    padding: 7px 8px;
+  .hero-btn {
+    min-height: 42px;
+    padding: 0 15px;
+    font-size: 13px;
   }
 
-  .hero-task .el-icon {
-    font-size: 15px;
-  }
-
-  .hero-task strong {
-    font-size: 12px;
-  }
-
-  .hero-task small {
-    font-size: 9.5px;
-  }
-
-  .hero__stats-block {
-    margin-top: 24px;
-  }
-
-  .hero__stats {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px 20px;
-    margin-top: 10px;
-  }
-
-  .hero__stats strong {
-    font-size: 21px;
-  }
-
-  .hero__stats span {
-    font-size: 11px;
-  }
-
-  .hero-match {
-    max-width: none;
+  .scoreboard {
     padding: 16px;
   }
 
-  .follow-strip__inner {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    padding: 14px 0;
+  .scoreboard__team strong {
+    font-size: 13.5px;
   }
 
-  .follow-strip__pick {
-    justify-content: space-between;
-  }
-
-  .follow-select {
-    width: min(210px, 62%);
-  }
-
-  .follow-strip__match {
-    margin-left: 0;
-    flex-wrap: wrap;
-  }
-
-  .follow-strip__hint {
-    margin-left: 0;
-  }
-
-  .news-layout,
-  .split-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .match-strip {
-    grid-template-columns: 1fr;
+  .section-head h2 {
+    font-size: 23px;
   }
 
   .home-section {
     padding: 40px 0;
   }
-}
 
-@media (max-width: 420px) {
-  .hero-task {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 5px;
-    min-height: 70px;
+  .lead-card {
+    min-height: 300px;
   }
 
-  .hero-task .el-icon {
-    display: none;
+  .lead-card__body {
+    padding: 20px;
   }
 
-  .hero-task strong {
-    font-size: 12px;
+  .lead-card__body h3 {
+    font-size: 21px;
   }
 
-  .follow-strip__label {
-    font-size: 11.5px;
+  .news-side {
+    padding-top: 0;
   }
 
-  .follow-select {
-    width: 58%;
+  .policy-band {
+    padding: 38px 0;
+  }
+
+  .policy-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .match-section .home-section {
+    padding: 40px 0;
+  }
+
+  .match-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bottom-section {
+    padding-bottom: 50px;
+  }
+
+  .rank-card,
+  .publication-card {
+    padding: 18px;
+  }
+
+  .rank-row {
+    grid-template-columns: 26px 34px minmax(0, 1fr) 46px;
+    gap: 8px;
   }
 }
 </style>

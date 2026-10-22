@@ -117,7 +117,6 @@ onMounted(load)
   gap: 18px;
   padding: 20px 22px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--brand-700);
   border-radius: var(--radius-lg);
   background: #fff;
   color: var(--ink-900);

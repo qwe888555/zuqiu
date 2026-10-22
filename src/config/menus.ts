@@ -26,6 +26,7 @@ import {
   VideoCamera,
 } from '@element-plus/icons-vue'
 import type { RoleCode } from '../api/types'
+import { workspaceLabelForRoles } from '../utils/roles'
 
 export interface MenuEntry {
   key: string
@@ -115,6 +116,33 @@ export const MENU_SECTIONS: MenuSection[] = [
     ],
   },
   {
+    key: 'identity',
+    title: '赛务核验',
+    items: [
+      {
+        key: 'identity',
+        title: '身份核验',
+        path: '/console/identity',
+        icon: VideoCamera,
+        roles: ['ADMIN', 'PROVINCE_REVIEWER', 'MATCH_RECORDER'],
+      },
+    ],
+  },
+  {
+    key: 'school',
+    title: '学校管理',
+    roles: ['UNIVERSITY'],
+    items: [
+      {
+        key: 'school-teams',
+        title: '本校球队',
+        path: '/console/school/teams',
+        icon: OfficeBuilding,
+        roles: ['UNIVERSITY'],
+      },
+    ],
+  },
+  {
     key: 'team',
     title: '球队管理',
     items: [
@@ -171,13 +199,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: '履历材料',
         path: '/console/materials',
         icon: Collection,
-        roles: PLAYERS,
-      },
-      {
-        key: 'affiliations',
-        title: '所属队伍',
-        path: '/console/affiliations',
-        icon: Grid,
         roles: PLAYERS,
       },
       {
@@ -262,13 +283,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: Medal,
         roles: ['ADMIN', 'PROVINCE_REVIEWER'],
       },
-      {
-        key: 'identity',
-        title: '身份核验',
-        path: '/console/identity',
-        icon: VideoCamera,
-        roles: ['ADMIN', 'PROVINCE_REVIEWER', 'MATCH_RECORDER'],
-      },
     ],
   },
   {
@@ -335,11 +349,27 @@ export const MENU_SECTIONS: MenuSection[] = [
   },
 ]
 
+/** 菜单严格按 roles 过滤：管理员也只能看到自己 roles 明确包含的菜单，避免出现"管理员的我的球队"这类身份错位。 */
+const MATCH_MANAGERS: RoleCode[] = ['ADMIN', 'PROVINCE_REVIEWER', 'MATCH_RECORDER']
+
 export function visibleSections(roles: RoleCode[]): MenuSection[] {
-  const isAdmin = roles.includes('ADMIN')
+  const workspaceLabel = workspaceLabelForRoles(roles)
+  const canManageMatch = MATCH_MANAGERS.some((role) => roles.includes(role))
   return MENU_SECTIONS.map((section) => ({
     ...section,
-    items: section.items.filter((item) => isAdmin || item.roles.some((r) => roles.includes(r))),
+    items: section.items
+      .filter((item) => item.roles.some((r) => roles.includes(r)))
+      .map((item) => {
+        if (item.key === 'dashboard') return { ...item, title: workspaceLabel }
+        if (item.key === 'enrollments') {
+          if (roles.includes('UNIVERSITY')) return { ...item, title: '本校报名' }
+          if (roles.includes('TEAM')) return { ...item, title: '报名进度' }
+          if (roles.includes('CITY')) return { ...item, title: '本市报名' }
+        }
+        // 参赛方只有查看权限，菜单名称不应让人误以为可以编排比赛。
+        if (item.key === 'matches' && !canManageMatch) return { ...item, title: '赛程与比分' }
+        return item
+      }),
   })).filter((section) => section.items.length > 0)
 }
 

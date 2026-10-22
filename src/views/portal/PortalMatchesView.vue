@@ -1,17 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
-import { Calendar, Search } from '@element-plus/icons-vue'
+import { ArrowRight, Calendar, Location, Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { PublicMatch } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
+import StatusTag from '../../components/common/StatusTag.vue'
 import MatchScheduleRow from '../../components/portal/MatchScheduleRow.vue'
-import {
-  MATCH_SECTIONS,
-  matchDisplayStatus,
-  readFollowedTeam,
-  sortPublicMatches,
-} from '../../utils/portal'
+import { MATCH_SECTIONS, matchDisplayStatus, sortPublicMatches } from '../../utils/portal'
 
 const loading = ref(false)
 const allItems = ref<PublicMatch[]>([])
@@ -21,21 +17,13 @@ const status = ref('')
 const date = ref('')
 const groupName = ref('')
 const keyword = ref('')
-const onlyFollowed = ref(false)
-const followedTeam = ref(readFollowedTeam())
 
 type ViewMode = 'list' | 'calendar'
-const viewMode = ref<ViewMode>('list')
+const viewMode = ref<ViewMode>('calendar')
 const month = ref(dayjs().startOf('month'))
 const selectedDay = ref('')
 
 const todayKey = dayjs().format('YYYY-MM-DD')
-const quickDates = [
-  { key: 'all', label: '全部', value: '' },
-  { key: 'yesterday', label: '昨天', value: dayjs().subtract(1, 'day').format('YYYY-MM-DD') },
-  { key: 'today', label: '今天', value: todayKey },
-  { key: 'tomorrow', label: '明天', value: dayjs().add(1, 'day').format('YYYY-MM-DD') },
-]
 
 interface CalendarCell {
   key: string
@@ -44,19 +32,11 @@ interface CalendarCell {
   matches: PublicMatch[]
 }
 
-function isFollowed(match: PublicMatch) {
-  return (
-    Boolean(followedTeam.value) &&
-    (match.homeTeamName === followedTeam.value || match.awayTeamName === followedTeam.value)
-  )
-}
-
 // 不含日期：用于月历，避免“今天/明天”把整月视图压成一天。
 const keywordScoped = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   return allItems.value.filter((match) => {
     if (groupName.value && match.groupName !== groupName.value) return false
-    if (onlyFollowed.value && !isFollowed(match)) return false
     if (kw) {
       const haystack = `${match.homeTeamName} ${match.awayTeamName} ${match.venue || ''} ${match.groupName || ''}`
       if (!haystack.toLowerCase().includes(kw)) return false
@@ -75,9 +55,11 @@ const dateScoped = computed(() =>
 )
 
 function statusCount(value: string) {
+  // 列表按所选日期计数；赛历按整月计数，页签数字才与日历上的场次一致。
+  const scope = viewMode.value === 'calendar' ? keywordScoped.value : dateScoped.value
   return value
-    ? dateScoped.value.filter((match) => matchDisplayStatus(match) === value).length
-    : dateScoped.value.length
+    ? scope.filter((match) => matchDisplayStatus(match) === value).length
+    : scope.length
 }
 
 const statusTabs = computed(() => [
@@ -148,8 +130,24 @@ const monthMatchCount = computed(() =>
   calendarCells.value.reduce((sum, cell) => sum + (cell?.matches.length || 0), 0),
 )
 
-const selectedDayMatches = computed(
-  () => calendarCells.value.find((cell) => cell?.key === selectedDay.value)?.matches || [],
+const monthStats = computed(() => {
+  const stats = { live: 0, scheduled: 0, stale: 0, finished: 0 }
+  calendarCells.value.forEach((cell) => {
+    cell?.matches.forEach((match) => {
+      const value = matchDisplayStatus(match)
+      if (value === 'LIVE') stats.live += 1
+      else if (value === 'SCHEDULED') stats.scheduled += 1
+      else if (value === 'STALE') stats.stale += 1
+      else if (value === 'FINISHED') stats.finished += 1
+    })
+  })
+  return stats
+})
+
+const selectedDayMatches = computed(() =>
+  (calendarCells.value.find((cell) => cell?.key === selectedDay.value)?.matches || [])
+    .slice()
+    .sort((a, b) => dayjs(a.kickoffAt).valueOf() - dayjs(b.kickoffAt).valueOf()),
 )
 
 function selectDefaultDay() {
@@ -166,8 +164,7 @@ async function load() {
     // 公开接口没有排序与球队搜索参数，一次取回后在本地分组、排序、分页。
     const res = await publicApi.matches({ page: 1, pageSize: 200 })
     allItems.value = res.items
-    followedTeam.value = readFollowedTeam()
-    if (!date.value && todayCount.value) date.value = todayKey
+    if (!date.value && todayCount.value && viewMode.value === 'list') date.value = todayKey
     if (viewMode.value === 'calendar') selectDefaultDay()
   } catch {
     allItems.value = []
@@ -178,11 +175,6 @@ async function load() {
 
 function switchStatus(value: string) {
   status.value = value
-  page.value = 1
-}
-
-function setQuickDate(value: string) {
-  date.value = value
   page.value = 1
 }
 
@@ -212,12 +204,11 @@ function resetFilters() {
   date.value = ''
   groupName.value = ''
   keyword.value = ''
-  onlyFollowed.value = false
   page.value = 1
 }
 
 function formatDayLabel(key: string) {
-  if (key === '日期待定') return key
+  if (!key) return '选择日期'
   const d = dayjs(key)
   const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
   return `${d.format('MM月DD日')} · ${weekdays[d.day()]}`
@@ -227,6 +218,17 @@ function formatTime(value?: string) {
   return value ? dayjs(value).format('HH:mm') : '--:--'
 }
 
+function agendaScore(match: PublicMatch) {
+  const display = matchDisplayStatus(match)
+  if (display === 'SCHEDULED') return 'VS'
+  if (display === 'STALE' && match.status === 'SCHEDULED') return '—'
+  return `${match.homeScore} : ${match.awayScore}`
+}
+
+function statusTone(value: string) {
+  return `is-${value.toLowerCase()}`
+}
+
 onMounted(load)
 </script>
 
@@ -234,9 +236,10 @@ onMounted(load)
   <div class="matches-page">
     <section class="page-hero">
       <div class="container hero-grid">
-        <div>
+        <div class="hero-copy">
+          <span class="hero-kicker">FIXTURES &amp; RESULTS · 2026 SEASON</span>
           <h1>赛程与比分</h1>
-          <p>查询赛程安排、实时比分与比赛事件，按日期或赛历查看全部场次。</p>
+          <p>查询赛程安排、实时比分与比赛事件。可以按状态筛选，也可以在赛历中按日期查看。</p>
         </div>
         <div v-if="!loading" class="hero-stats">
           <div>
@@ -268,18 +271,6 @@ onMounted(load)
               <span class="status-tab__count num">{{ tab.count }}</span>
             </button>
           </div>
-          <div class="quick-dates">
-            <button
-              v-for="item in quickDates"
-              :key="item.key"
-              type="button"
-              class="quick-date"
-              :class="{ 'is-active': date === item.value }"
-              @click="setQuickDate(item.value)"
-            >
-              {{ item.label }}
-            </button>
-          </div>
         </div>
 
         <div class="filter-row filter-row--controls">
@@ -296,7 +287,7 @@ onMounted(load)
               :class="{ 'is-active': viewMode === 'calendar' }"
               @click="switchView('calendar')"
             >
-              日历
+              赛历
             </button>
           </div>
           <el-date-picker
@@ -329,16 +320,6 @@ onMounted(load)
             class="team-search"
             @input="page = 1"
           />
-          <button
-            v-if="followedTeam"
-            type="button"
-            class="follow-chip"
-            :class="{ 'is-active': onlyFollowed }"
-            :title="`只看 ${followedTeam} 的比赛`"
-            @click="onlyFollowed = !onlyFollowed; page = 1"
-          >
-            只看关注
-          </button>
           <el-button text @click="resetFilters">重置</el-button>
         </div>
 
@@ -360,7 +341,6 @@ onMounted(load)
               v-for="match in section.items"
               :key="match.id"
               :match="match"
-              :followed-team="followedTeam"
             />
           </div>
         </section>
@@ -370,68 +350,128 @@ onMounted(load)
         </el-empty>
       </div>
 
-      <div v-else v-loading="loading" class="calendar-wrap">
-        <div class="calendar-head">
-          <button type="button" class="month-btn" aria-label="上个月" @click="changeMonth(-1)">‹</button>
-          <strong class="num">{{ month.format('YYYY 年 MM 月') }}</strong>
-          <button type="button" class="month-btn" aria-label="下个月" @click="changeMonth(1)">›</button>
-          <span class="calendar-head__count">{{ monthMatchCount }} 场比赛</span>
-          <el-button text size="small" @click="goToday">回到本月</el-button>
-        </div>
+      <div v-else v-loading="loading" class="calendar-layout">
+        <section class="calendar-panel">
+          <header class="calendar-head">
+            <div class="month-nav">
+              <button type="button" class="month-btn" aria-label="上个月" @click="changeMonth(-1)">‹</button>
+              <strong class="num">{{ month.format('YYYY 年 MM 月') }}</strong>
+              <button type="button" class="month-btn" aria-label="下个月" @click="changeMonth(1)">›</button>
+            </div>
+            <div class="month-meta">
+              <span class="month-count num">{{ monthMatchCount }} 场</span>
+              <button type="button" class="today-link" @click="goToday">回到本月</button>
+            </div>
+          </header>
 
-        <div class="calendar-week">
-          <span v-for="week in ['日', '一', '二', '三', '四', '五', '六']" :key="week">{{ week }}</span>
-        </div>
-
-        <div class="calendar-grid">
-          <template v-for="(cell, index) in calendarCells" :key="cell?.key || `blank-${index}`">
-            <div v-if="!cell" class="calendar-cell is-blank" />
-            <button
-              v-else
-              type="button"
-              class="calendar-cell"
-              :class="{
-                'is-today': cell.isToday,
-                'is-selected': cell.key === selectedDay,
-                'has-match': cell.matches.length,
-              }"
-              @click="selectedDay = cell.key"
-            >
-              <span class="calendar-cell__day num">{{ cell.day }}</span>
-              <span v-if="cell.matches.length" class="calendar-cell__count">{{ cell.matches.length }}</span>
-              <span class="calendar-cell__matches">
-                <span v-for="match in cell.matches.slice(0, 2)" :key="match.id">
-                  {{ formatTime(match.kickoffAt) }}
-                  {{ match.homeTeamName.slice(0, 4) }}
-                  <b v-if="matchDisplayStatus(match) !== 'SCHEDULED'" class="num">
-                    {{ match.homeScore }}:{{ match.awayScore }}
-                  </b>
-                  <b v-else>vs</b>
-                  {{ match.awayTeamName.slice(0, 4) }}
-                </span>
-                <small v-if="cell.matches.length > 2">+{{ cell.matches.length - 2 }}</small>
-              </span>
-            </button>
-          </template>
-        </div>
-
-        <div v-if="selectedDay" class="calendar-day">
-          <div class="section-head">
-            <span class="section-head__label">{{ formatDayLabel(selectedDay) }}</span>
-            <span class="section-head__count">{{ selectedDayMatches.length }} 场</span>
+          <div class="calendar-week">
+            <span v-for="week in ['日', '一', '二', '三', '四', '五', '六']" :key="week">{{ week }}</span>
           </div>
-          <div v-if="selectedDayMatches.length" class="match-list">
-            <MatchScheduleRow
+
+          <div class="calendar-grid">
+            <template v-for="(cell, index) in calendarCells" :key="cell?.key || `blank-${index}`">
+              <div v-if="!cell" class="calendar-cell is-blank" />
+              <button
+                v-else
+                type="button"
+                class="calendar-cell"
+                :class="{
+                  'is-today': cell.isToday,
+                  'is-selected': cell.key === selectedDay,
+                  'has-match': cell.matches.length,
+                }"
+                @click="selectedDay = cell.key"
+              >
+                <span class="calendar-cell__top">
+                  <span class="calendar-cell__day num">{{ cell.day }}</span>
+                  <span v-if="cell.matches.length" class="calendar-cell__count num">
+                    {{ cell.matches.length }}
+                  </span>
+                </span>
+                <span v-if="cell.matches.length" class="calendar-cell__marks">
+                  <i
+                    v-for="match in cell.matches.slice(0, 3)"
+                    :key="match.id"
+                    :class="statusTone(matchDisplayStatus(match))"
+                  />
+                </span>
+                <span v-if="cell.matches.length" class="calendar-cell__hint">
+                  {{ formatTime(cell.matches[0].kickoffAt) }} 开赛
+                </span>
+              </button>
+            </template>
+          </div>
+
+          <footer class="calendar-legend">
+            <span><i class="is-live" />进行中 {{ monthStats.live }}</span>
+            <span><i class="is-scheduled" />未开赛 {{ monthStats.scheduled }}</span>
+            <span><i class="is-finished" />已结束 {{ monthStats.finished }}</span>
+            <span v-if="monthStats.stale"><i class="is-stale" />待更新 {{ monthStats.stale }}</span>
+          </footer>
+        </section>
+
+        <aside class="day-panel">
+          <header class="day-head">
+            <span class="day-kicker">DAY AGENDA</span>
+            <div class="day-title">
+              <h3>{{ formatDayLabel(selectedDay) }}</h3>
+              <span>{{ selectedDayMatches.length }} 场</span>
+            </div>
+          </header>
+
+          <div v-if="selectedDayMatches.length" class="agenda-list">
+            <router-link
               v-for="match in selectedDayMatches"
               :key="match.id"
-              :match="match"
-              :followed-team="followedTeam"
-            />
-          </div>
-          <el-empty v-else description="当天没有比赛" :image-size="60" />
-        </div>
+              :to="`/matches/${match.id}`"
+              class="agenda-card"
+            >
+              <div class="agenda-card__top">
+                <strong class="num">{{ formatTime(match.kickoffAt) }}</strong>
+                <StatusTag :status="matchDisplayStatus(match)" kind="match" />
+                <span class="agenda-card__group">{{ match.groupName || '组别待定' }}</span>
+              </div>
 
-        <el-empty v-if="!loading && !monthMatchCount" description="本月暂无比赛安排" :image-size="70" />
+              <div class="agenda-matchup">
+                <div class="agenda-team">
+                  <span class="agenda-team__badge">{{ match.homeTeamName.slice(0, 1) }}</span>
+                  <span class="agenda-team__name">{{ match.homeTeamName }}</span>
+                </div>
+                <span class="agenda-score num" :class="{ 'is-upcoming': matchDisplayStatus(match) === 'SCHEDULED' }">
+                  {{ agendaScore(match) }}
+                </span>
+                <div class="agenda-team agenda-team--away">
+                  <span class="agenda-team__badge">{{ match.awayTeamName.slice(0, 1) }}</span>
+                  <span class="agenda-team__name">{{ match.awayTeamName }}</span>
+                </div>
+              </div>
+
+              <div class="agenda-card__foot">
+                <span>
+                  <el-icon><Location /></el-icon>
+                  {{ match.venue || '场地待定' }}
+                </span>
+                <span class="agenda-card__more">
+                  比赛详情
+                  <el-icon><ArrowRight /></el-icon>
+                </span>
+              </div>
+            </router-link>
+          </div>
+
+          <div v-else class="day-empty">
+            <span class="day-empty__mark">—</span>
+            <strong>当天没有比赛</strong>
+            <p>选择赛历中带圆点标记的日期，查看当天赛程。</p>
+          </div>
+        </aside>
+
+        <el-empty
+          v-if="!loading && !monthMatchCount"
+          class="calendar-empty"
+          description="本月暂无比赛安排"
+          :image-size="70"
+        />
       </div>
 
       <PaginationBar
@@ -449,54 +489,73 @@ onMounted(load)
 <style scoped>
 .matches-page {
   min-height: 70vh;
-  padding-bottom: 60px;
+  padding-bottom: 64px;
   background: var(--paper);
 }
 
 .page-hero {
-  padding: 28px 0 26px;
+  padding: 34px 0 38px;
   background: var(--brand-900);
   color: #fff;
 }
 
 .hero-grid {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
+  gap: 30px;
+}
+
+.hero-copy {
+  min-width: 0;
+}
+
+.hero-kicker {
+  display: block;
+  margin-bottom: 9px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--lime);
 }
 
 .page-hero h1 {
-  font-size: 27px;
-  font-weight: 600;
+  font-size: clamp(30px, 3.4vw, 42px);
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .page-hero p {
-  margin-top: 7px;
+  max-width: 660px;
+  margin-top: 11px;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.66);
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .hero-stats {
   display: flex;
-  gap: 26px;
+  gap: 32px;
+  flex-shrink: 0;
 }
 
 .hero-stats div {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .hero-stats strong {
-  font-size: 26px;
+  font-size: 29px;
+  font-weight: 800;
   line-height: 1;
   color: var(--lime);
 }
 
 .hero-stats span {
-  font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.48);
 }
 
 .match-body {
@@ -506,10 +565,10 @@ onMounted(load)
 .filter-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  margin-bottom: 20px;
-  border-radius: 8px;
+  gap: 9px;
+  padding: 11px 14px;
+  margin-bottom: 18px;
+  border-radius: 9px;
   background: #fff;
   border: 1px solid var(--line);
 }
@@ -527,30 +586,32 @@ onMounted(load)
 
 .status-tabs {
   display: flex;
-  gap: 4px;
   flex-wrap: wrap;
+  gap: 3px;
 }
 
 .status-tab {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 40px;
-  padding: 8px 13px;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
   border: none;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
-  font-size: 13.5px;
+  font-size: 12.5px;
   color: var(--ink-500);
   cursor: pointer;
+  transition: 0.15s;
 }
 
 .status-tab:hover {
   background: var(--paper);
+  color: var(--ink-900);
 }
 
 .status-tab.is-active {
-  background: var(--brand-700);
+  background: var(--brand-900);
   color: #fff;
   font-weight: 600;
 }
@@ -559,52 +620,24 @@ onMounted(load)
   padding: 0 5px;
   border-radius: 999px;
   background: rgba(24, 53, 43, 0.07);
-  font-size: 11.5px;
+  font-size: 10px;
 }
 
 .status-tab.is-active .status-tab__count {
   background: rgba(255, 255, 255, 0.18);
+  color: var(--lime);
 }
 
 .live-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--live);
   box-shadow: 0 0 0 3px rgba(181, 71, 8, 0.14);
 }
 
-.quick-dates {
-  display: flex;
-  gap: 4px;
-}
-
-.quick-date {
-  min-height: 36px;
-  padding: 6px 13px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #fff;
-  font-size: 13px;
-  color: var(--ink-500);
-  cursor: pointer;
-  transition: 0.15s;
-}
-
-.quick-date:hover {
-  border-color: var(--brand-500);
-  color: var(--brand-700);
-}
-
-.quick-date.is-active {
-  border-color: var(--brand-700);
-  background: var(--brand-50);
-  color: var(--brand-800);
-  font-weight: 600;
-}
-
 .filter-row--controls {
-  padding-top: 10px;
+  padding-top: 9px;
   border-top: 1px solid var(--line);
 }
 
@@ -617,26 +650,25 @@ onMounted(load)
 }
 
 .view-switch button {
-  min-height: 34px;
-  padding: 5px 14px;
+  min-height: 32px;
+  padding: 0 13px;
   border: none;
   border-radius: 4px;
   background: transparent;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ink-500);
   cursor: pointer;
-  transition: 0.16s;
 }
 
 .view-switch button.is-active {
   background: #fff;
   color: var(--brand-800);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(16, 33, 26, 0.08);
+  box-shadow: 0 1px 3px rgba(24, 53, 43, 0.1);
 }
 
 .date-picker {
-  width: 168px;
+  width: 170px;
 }
 
 .group-select {
@@ -647,282 +679,530 @@ onMounted(load)
   width: 210px;
 }
 
-.follow-chip {
-  min-height: 36px;
-  padding: 6px 12px;
-  border: 1px dashed var(--brand-500);
-  border-radius: 6px;
-  background: #fff;
-  font-size: 13px;
-  color: var(--brand-700);
-  cursor: pointer;
-}
-
-.follow-chip.is-active {
-  border-style: solid;
-  background: var(--brand-700);
-  color: #fff;
-}
-
 .time-note {
-  font-size: 12.5px;
-  color: var(--ink-500);
+  padding-top: 2px;
+  font-size: 10.5px;
+  color: var(--ink-300);
 }
 
 .schedule {
-  min-height: 180px;
+  min-height: 200px;
 }
 
-.match-section {
-  margin-bottom: 22px;
+.match-section + .match-section {
+  margin-top: 20px;
 }
 
 .section-head {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 9px;
-  padding-left: 2px;
 }
 
 .section-head__label {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink-900);
 }
 
-.section-head__label.is-live {
-  color: var(--live);
-}
-
-.section-head__label.is-upcoming {
-  color: var(--whistle);
-}
-
-.section-head__label.is-stale {
-  color: var(--ink-500);
-}
-
-.section-head__label.is-finished {
-  color: var(--ink-700);
-}
-
 .section-head__count {
-  font-size: 13px;
-  color: var(--ink-500);
+  font-size: 11.5px;
+  color: var(--ink-300);
 }
 
 .match-list {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
 }
 
-/* 赛历：把整月赛程压进一张球场视角的排期板 */
-.calendar-wrap {
-  min-height: 180px;
-  padding: 16px;
-  border-radius: 8px;
-  background: #fff;
+/* ---------- 赛历 ---------- */
+.calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(330px, 0.8fr);
+  align-items: start;
+  gap: 16px;
+  min-height: 300px;
+}
+
+.calendar-panel {
+  padding: 18px;
   border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fff;
 }
 
 .calendar-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
-.calendar-head strong {
+.month-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.month-nav strong {
+  min-width: 132px;
   font-size: 17px;
+  font-weight: 700;
+  text-align: center;
   color: var(--ink-900);
 }
 
-.calendar-head .month-btn {
+.month-btn {
   display: grid;
   place-items: center;
   width: 30px;
   height: 30px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 50%;
   background: #fff;
   color: var(--ink-500);
   font-size: 17px;
   line-height: 1;
   cursor: pointer;
+  transition: 0.15s;
 }
 
-.calendar-head .month-btn:hover {
+.month-btn:hover {
   border-color: var(--brand-500);
   color: var(--brand-700);
 }
 
-.calendar-head__count {
-  margin-left: 6px;
+.month-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.month-count {
   padding: 3px 8px;
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--brand-50);
-  font-size: 12px;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--brand-700);
 }
 
-.calendar-head .el-button {
-  margin-left: auto;
+.today-link {
+  border: none;
+  background: transparent;
+  font-size: 10.5px;
+  color: var(--ink-500);
+  cursor: pointer;
 }
 
-.calendar-week,
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 5px;
+.today-link:hover {
+  color: var(--brand-700);
 }
 
 .calendar-week {
-  margin-bottom: 5px;
-  font-size: 12px;
-  color: var(--ink-500);
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+.calendar-week span {
+  font-size: 10px;
+  color: var(--ink-300);
   text-align: center;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+  margin-top: 7px;
 }
 
 .calendar-cell {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  min-height: 84px;
-  padding: 6px 7px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: #fff;
+  min-height: 68px;
+  padding: 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: 0.16s;
-  overflow: hidden;
-}
-
-.calendar-cell.is-blank {
-  border-color: transparent;
-  background: transparent;
-  cursor: default;
+  transition: background-color 0.14s, border-color 0.14s;
 }
 
 .calendar-cell:hover {
-  border-color: var(--brand-500);
+  background: var(--paper);
 }
 
-.calendar-cell.has-match {
-  background: #f7fbf9;
+.calendar-cell.is-blank {
+  cursor: default;
 }
 
-.calendar-cell.is-today .calendar-cell__day {
-  color: var(--brand-700);
-  font-weight: 700;
+.calendar-cell.is-today {
+  border-color: var(--brand-100);
+  background: #fbfdf9;
 }
 
 .calendar-cell.is-selected {
   border-color: var(--brand-700);
   background: var(--brand-50);
-  box-shadow: inset 0 0 0 1px var(--brand-700);
+}
+
+.calendar-cell__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
 }
 
 .calendar-cell__day {
   font-size: 12.5px;
+  font-weight: 600;
   color: var(--ink-700);
 }
 
+.calendar-cell.is-today .calendar-cell__day {
+  color: var(--brand-700);
+}
+
+.calendar-cell.is-selected .calendar-cell__day {
+  color: var(--brand-900);
+}
+
 .calendar-cell__count {
-  position: absolute;
-  top: 5px;
-  right: 6px;
-  min-width: 16px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: var(--brand-700);
-  color: #fff;
-  font-size: 9.5px;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--brand-900);
+  font-size: 8.5px;
+  line-height: 15px;
+  color: var(--lime);
   text-align: center;
 }
 
-.calendar-cell__matches {
+.calendar-cell__marks {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+  gap: 3px;
+  margin-top: 9px;
 }
 
-.calendar-cell__matches span {
-  display: block;
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: rgba(11, 122, 83, 0.08);
+.calendar-cell__marks i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-300);
+}
+
+.calendar-cell__marks .is-live {
+  background: var(--live);
+  box-shadow: 0 0 0 2px rgba(181, 71, 8, 0.12);
+}
+
+.calendar-cell__marks .is-scheduled {
+  background: var(--brand-500);
+}
+
+.calendar-cell__marks .is-finished {
+  background: var(--ink-300);
+}
+
+.calendar-cell__marks .is-stale {
+  background: #c9a227;
+}
+
+.calendar-cell__hint {
+  margin-top: auto;
+  padding-top: 5px;
+  font-size: 8.5px;
+  color: var(--ink-300);
+}
+
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+.calendar-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 9.5px;
-  line-height: 1.4;
-  color: var(--brand-800);
-  white-space: nowrap;
+  color: var(--ink-300);
+}
+
+.calendar-legend i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-300);
+}
+
+.calendar-legend i.is-live {
+  background: var(--live);
+}
+
+.calendar-legend i.is-scheduled {
+  background: var(--brand-500);
+}
+
+.calendar-legend i.is-finished {
+  background: var(--ink-300);
+}
+
+.calendar-legend i.is-stale {
+  background: #c9a227;
+}
+
+.day-panel {
+  position: sticky;
+  top: 92px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fff;
+}
+
+.day-head {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.day-kicker {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--brand-600);
+}
+
+.day-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.day-title h3 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.day-title span {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ink-300);
+}
+
+.agenda-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.agenda-card {
+  display: block;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.agenda-card:hover {
+  border-color: var(--brand-500);
+  background: #fbfdf9;
+}
+
+.agenda-card__top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.agenda-card__top > strong {
+  font-size: 13px;
+  color: var(--ink-900);
+}
+
+.agenda-card__group {
+  margin-left: auto;
   overflow: hidden;
+  font-size: 9.5px;
+  color: var(--ink-300);
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.calendar-cell__matches b {
+.agenda-matchup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.agenda-team {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agenda-team--away {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.agenda-team__badge {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: 9px;
   font-weight: 700;
 }
 
-.calendar-cell__matches small {
-  font-size: 9.5px;
-  color: var(--ink-500);
+.agenda-team__name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--ink-900);
 }
 
-.calendar-day {
-  margin-top: 18px;
-  padding-top: 14px;
+.agenda-score {
+  flex-shrink: 0;
+  min-width: 40px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--brand-800);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.agenda-score.is-upcoming {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-300);
+}
+
+.agenda-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
   border-top: 1px dashed var(--line);
+  font-size: 9.5px;
+  color: var(--ink-300);
 }
 
-@media (max-width: 860px) {
-  .filter-row--controls {
-    width: 100%;
+.agenda-card__foot > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.agenda-card__more {
+  flex-shrink: 0;
+  color: var(--brand-700);
+  font-weight: 600;
+}
+
+.day-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 42px 10px 34px;
+  text-align: center;
+}
+
+.day-empty__mark {
+  font-size: 25px;
+  color: var(--line-strong);
+}
+
+.day-empty strong {
+  font-size: 13px;
+  color: var(--ink-700);
+}
+
+.day-empty p {
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: var(--ink-300);
+}
+
+.calendar-empty {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1040px) {
+  .calendar-layout {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .team-search {
-    flex: 1;
-    min-width: 180px;
-    width: auto;
+  .day-panel {
+    position: static;
   }
 
-  .calendar-cell {
-    min-height: 66px;
-  }
-
-  .calendar-cell__matches span {
-    font-size: 9px;
+  .agenda-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 560px) {
-  .page-hero {
-    padding: 22px 0 20px;
-  }
-
-  .page-hero h1 {
-    font-size: 23px;
-  }
-
+@media (max-width: 820px) {
   .hero-grid {
     align-items: flex-start;
     flex-direction: column;
-    gap: 14px;
+    gap: 18px;
   }
 
-  .hero-stats {
-    gap: 22px;
+  .hero-stats strong {
+    font-size: 24px;
   }
 
-  .filter-panel {
-    align-items: stretch;
+  .date-picker,
+  .group-select,
+  .team-search {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .page-hero {
+    padding: 26px 0 28px;
   }
 
   .filter-row--top {
@@ -930,68 +1210,56 @@ onMounted(load)
     flex-direction: column;
   }
 
-  .status-tabs {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .quick-dates {
-    width: 100%;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    padding-bottom: 2px;
-  }
-
-  .status-tab,
-  .quick-date {
-    flex-shrink: 0;
-  }
-
-  .date-picker,
-  .group-select {
-    flex: 1;
-    min-width: 140px;
-    width: auto;
-  }
-
-  .team-search {
-    flex-basis: 100%;
-  }
-
-  .view-switch {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .view-switch button {
-    flex: 1;
-  }
-
-  .calendar-wrap {
-    padding: 12px 8px;
-  }
-
-  .calendar-grid,
-  .calendar-week {
-    gap: 2px;
+  .calendar-panel,
+  .day-panel {
+    padding: 14px;
   }
 
   .calendar-cell {
-    min-height: 46px;
-    padding: 4px;
+    min-height: 58px;
+    padding: 6px;
   }
 
-  .calendar-cell__matches {
+  .calendar-cell__hint {
     display: none;
   }
 
-  .calendar-cell.has-match {
-    background: var(--brand-100);
+  .agenda-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .status-tab {
+    padding: 0 9px;
+  }
+
+  .calendar-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .month-meta {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .calendar-cell {
+    min-height: 48px;
+    padding: 4px;
+  }
+
+  .calendar-cell__day {
+    font-size: 11px;
   }
 
   .calendar-cell__count {
-    top: 2px;
-    right: 2px;
+    display: none;
+  }
+
+  .calendar-cell__marks {
+    margin-top: 6px;
   }
 }
 </style>

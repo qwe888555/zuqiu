@@ -34,7 +34,6 @@ const typeOptions: { value: OrgType; label: string }[] = [
   { value: 'PROVINCE', label: '省级' },
   { value: 'CITY', label: '市州' },
   { value: 'SCHOOL', label: '中小学校' },
-  { value: 'UNIVERSITY', label: '高等院校' },
   { value: 'TEAM', label: '独立球队' },
 ]
 
@@ -43,7 +42,6 @@ const typeLabel = Object.fromEntries(typeOptions.map((item) => [item.value, item
 const provinces = computed(() => orgs.value.filter((org) => org.orgType === 'PROVINCE').length)
 const cities = computed(() => orgs.value.filter((org) => org.orgType === 'CITY').length)
 const schools = computed(() => orgs.value.filter((org) => org.orgType === 'SCHOOL').length)
-const universities = computed(() => orgs.value.filter((org) => org.orgType === 'UNIVERSITY').length)
 
 const tree = computed<OrgNode[]>(() => {
   const map = new Map<string, OrgNode>()
@@ -187,7 +185,7 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="组织结构"
-      description="维护省—市州—学校/高校的四级组织结构。组织结构决定账号归属、数据权限与市州审核范围。"
+      description="维护省—市州—学校的组织结构。组织结构决定账号归属、数据权限与市州审核范围。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -199,7 +197,6 @@ onMounted(load)
       <StatCard label="省级单位" :value="provinces" hint="根节点" :icon="Search" tone="green" />
       <StatCard label="市州" :value="cities" hint="审核主体" :icon="Search" tone="lime" />
       <StatCard label="中小学校" :value="schools" hint="参赛主体" :icon="Search" tone="blue" />
-      <StatCard label="高等院校" :value="universities" hint="参赛主体" :icon="Search" tone="amber" />
     </div>
 
     <section class="page-card">
@@ -301,7 +298,7 @@ onMounted(load)
           :closable="false"
           show-icon
           title="层级关系说明"
-          description="省级下设市州，市州下设学校与高校；独立球队可直接挂靠市州，用于社会青训等场景。"
+          description="省级下设市州，市州下设中小学校；独立球队可直接挂靠市州，用于社会青训等场景。"
         />
       </el-form>
       <template #footer>

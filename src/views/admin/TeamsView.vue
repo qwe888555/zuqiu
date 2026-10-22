@@ -43,8 +43,20 @@ const createForm = reactive({
   orgId: '',
   cityOrgId: '',
   category: 'MIDDLE' as GroupCategory,
+  gender: 'MALE' as 'MALE' | 'FEMALE' | 'MIXED',
+  campusName: '',
   intro: '',
 })
+
+const genderOptions = [
+  { value: 'MALE', label: '男子' },
+  { value: 'FEMALE', label: '女子' },
+  { value: 'MIXED', label: '混合' },
+]
+
+function genderLabel(value?: string) {
+  return value === 'FEMALE' ? '女子' : value === 'MIXED' ? '混合' : '男子'
+}
 
 const drawerVisible = ref(false)
 const detailLoading = ref(false)
@@ -77,9 +89,7 @@ async function loadCities() {
 async function loadSchools() {
   try {
     const res = await orgApi.list({ page: 1, pageSize: 500 })
-    schools.value = res.items.filter(
-      (org) => org.enabled && (org.orgType === 'SCHOOL' || org.orgType === 'UNIVERSITY'),
-    )
+    schools.value = res.items.filter((org) => org.enabled && org.orgType === 'SCHOOL')
   } catch {
     schools.value = []
   }
@@ -90,6 +100,8 @@ function openCreate() {
   createForm.orgId = ''
   createForm.cityOrgId = filters.cityOrgId || ''
   createForm.category = 'MIDDLE'
+  createForm.gender = 'MALE'
+  createForm.campusName = ''
   createForm.intro = ''
   createVisible.value = true
 }
@@ -104,6 +116,8 @@ async function createTeam() {
       schoolOrgId: createForm.orgId,
       cityOrgId: createForm.cityOrgId || undefined,
       groupCategory: createForm.category,
+      gender: createForm.gender,
+      campusName: createForm.campusName.trim() || undefined,
       intro: createForm.intro || undefined,
     })
     ElMessage.success('球队已创建')
@@ -318,8 +332,7 @@ onMounted(async () => {
         @change="search"
       >
         <el-option label="小学组" value="PRIMARY" />
-        <el-option label="初中组" value="MIDDLE" />
-        <el-option label="大学组" value="UNIVERSITY" />
+        <el-option label="中学组" value="MIDDLE" />
       </el-select>
       <el-input
         v-model="filters.keyword"
@@ -342,7 +355,7 @@ onMounted(async () => {
               <span class="team-mark">{{ row.name.slice(0, 1) }}</span>
               <div>
                 <strong>{{ row.name }}</strong>
-                <small>{{ row.schoolName || row.shortName || '—' }}</small>
+                <small>{{ row.schoolName || row.shortName || '—' }} · {{ row.campusName || '本部' }}</small>
               </div>
             </div>
           </template>
@@ -400,8 +413,8 @@ onMounted(async () => {
             <span class="eyebrow">球队档案</span>
             <h2>{{ detail?.name || '球队详情' }}</h2>
             <p>
-              {{ detail?.cityName || '—' }} · {{ categoryLabel(detail?.category) }} ·
-              {{ detail?.schoolName || '—' }}
+              {{ detail?.cityName || '—' }} · {{ categoryLabel(detail?.category) }} · {{ genderLabel(detail?.gender) }} ·
+              {{ detail?.schoolName || '—' }} · {{ detail?.campusName || '本部' }}
             </p>
           </div>
           <StatusTag :status="detail?.status" kind="review" size="large" />
@@ -569,9 +582,16 @@ onMounted(async () => {
           <el-form-item label="参赛组别" required>
             <el-select v-model="createForm.category" style="width: 100%">
               <el-option label="小学组" value="PRIMARY" />
-              <el-option label="初中组" value="MIDDLE" />
-              <el-option label="大学组" value="UNIVERSITY" />
+              <el-option label="中学组" value="MIDDLE" />
             </el-select>
+          </el-form-item>
+          <el-form-item label="球队性别" required>
+            <el-select v-model="createForm.gender" style="width: 100%">
+              <el-option v-for="item in genderOptions" :key="item.value" :label="item.label" :value="item.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="校区 / 分校（选填）">
+            <el-input v-model="createForm.campusName" placeholder="不填视为本部" maxlength="30" />
           </el-form-item>
         </div>
         <el-form-item label="球队简介">
@@ -715,8 +735,7 @@ onMounted(async () => {
 .team-intro {
   margin-top: 14px;
   padding: 11px 13px;
-  border-left: 3px solid var(--brand-500);
-  border-radius: 0 9px 9px 0;
+  border-radius: 9px;
   background: var(--brand-50);
   font-size: 10.5px;
   line-height: 1.8;

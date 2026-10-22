@@ -24,7 +24,7 @@ const enrollmentMap: Record<string, [string, TagType]> = {
 const matchMap: Record<string, [string, TagType]> = {
   SCHEDULED: ['未开赛', 'primary'],
   LIVE: ['进行中', 'warning'],
-  STALE: ['赛况待更新', 'info'],
+  STALE: ['比分待确认', 'info'],
   FINISHED: ['已结束', 'info'],
   CANCELLED: ['已取消', 'info'],
 }

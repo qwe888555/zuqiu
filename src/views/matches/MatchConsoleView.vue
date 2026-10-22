@@ -392,7 +392,12 @@ onMounted(loadAll)
       <template #actions>
         <el-button :icon="FullScreen" @click="bigScreen = true">赛场大屏</el-button>
         <el-button :icon="Refresh" @click="loadAll">刷新</el-button>
-        <el-button type="primary" plain :icon="VideoCamera" @click="router.push(`/matches/${matchId}`)">
+        <el-button
+          type="primary"
+          plain
+          :icon="VideoCamera"
+          @click="router.push({ name: 'portal-match-detail', params: { id: matchId }, query: { preview: '1' } })"
+        >
           门户预览
         </el-button>
       </template>

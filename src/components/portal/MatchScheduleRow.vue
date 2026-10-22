@@ -91,11 +91,12 @@ function formatTime(value?: string) {
 }
 
 .match-row.is-live {
-  border-left: 3px solid var(--live);
+  border-color: rgba(181, 71, 8, 0.28);
+  background: var(--live-soft);
 }
 
 .match-row.is-stale {
-  border-left: 3px solid var(--line-strong);
+  background: var(--paper);
 }
 
 .match-row.is-followed {

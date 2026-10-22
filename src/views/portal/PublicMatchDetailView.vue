@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Calendar, Football, Location, Switch, VideoCamera, Warning } from '@element-plus/icons-vue'
-import { publicApi } from '../../api'
-import type { LiveLink, MatchEvent, PublicLivePost, PublicMatch } from '../../api/types'
+import { Back, Calendar, Football, Location, Switch, VideoCamera, View, Warning } from '@element-plus/icons-vue'
+import { matchApi, publicApi } from '../../api'
+import type { LiveLink, LivePost, MatchEvent, PublicLivePost, PublicMatch } from '../../api/types'
 import StatusTag from '../../components/common/StatusTag.vue'
 import { matchDisplayStatus } from '../../utils/portal'
 
@@ -14,12 +14,26 @@ interface MatchDetail extends PublicMatch {
 }
 
 const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const match = ref<MatchDetail | null>(null)
 const liveFeed = ref<PublicLivePost[]>([])
 const liveLinks = ref<LiveLink[]>([])
 const activeTab = ref('events')
 let timer: number | undefined
+
+/** 管理端「门户预览」携带 preview=1，可查看尚未发布的比赛。 */
+const previewMode = computed(() => route.query.preview === '1')
+const published = ref(true)
+
+/** 预览结束返回来源页；直接打开预览链接时退回比赛管理。 */
+function leavePreview() {
+  if (router.options.history.state.back) {
+    router.back()
+  } else {
+    router.push({ name: 'matches' })
+  }
+}
 
 const displayStatus = computed(() => (match.value ? matchDisplayStatus(match.value) : ''))
 const isLive = computed(() => displayStatus.value === 'LIVE')
@@ -52,7 +66,7 @@ const briefText = computed(() => {
     .slice()
     .reverse()
     .slice(0, 5)
-    .map((event) => `${event.minute}' ${event.scorerName || '球员'}${event.teamName ? `（${event.teamName}）` : ''}`)
+    .map((event) => `${event.minute} 分钟 ${event.scorerName || '球员'}${event.teamName ? `（${event.teamName}）` : ''}`)
     .join('；')
 
   if (status === 'STALE') {
@@ -87,11 +101,50 @@ const eventPlayer = (event: MatchEvent) => {
   return `${event.outAthleteName || '-'} → ${event.inAthleteName || '-'}`
 }
 
+function toPublicPosts(posts: LivePost[]): PublicLivePost[] {
+  return posts.map((post) => ({
+    id: post.id,
+    text: post.text,
+    imageUrls: post.imageUrls,
+    minute: post.minute,
+    updatedAt: post.createdAt,
+  }))
+}
+
+/** 未发布比赛无法通过门户接口读取，预览时改走管理端接口。 */
+async function loadPreviewDetail(id: string): Promise<boolean> {
+  try {
+    const [detail, events, posts, links] = await Promise.all([
+      matchApi.get(id),
+      matchApi.events(id, { page: 1, pageSize: 200 }),
+      matchApi.livePosts(id, { page: 1, pageSize: 200 }),
+      matchApi.liveLinks(id),
+    ])
+    published.value = detail.published
+    match.value = {
+      ...detail,
+      homeScore: detail.homeScore ?? 0,
+      awayScore: detail.awayScore ?? 0,
+      events: events.items,
+    }
+    liveFeed.value = toPublicPosts(posts.items)
+    liveLinks.value = links
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function load() {
   const id = String(route.params.id)
   loading.value = true
   try {
+    if (previewMode.value) {
+      if (!(await loadPreviewDetail(id))) match.value = null
+      return
+    }
     match.value = await publicApi.match(id)
+    published.value = true
     const [feed, links] = await Promise.all([
       publicApi.liveFeed(id),
       publicApi.liveLinks(id),
@@ -108,6 +161,11 @@ async function load() {
 async function refreshLive() {
   if (!match.value || !isLive.value) return
   try {
+    if (previewMode.value) {
+      const feed = await matchApi.livePosts(match.value.id, { page: 1, pageSize: 200 })
+      liveFeed.value = toPublicPosts(feed.items)
+      return
+    }
     const feed = await publicApi.liveFeed(match.value.id)
     liveFeed.value = feed.items
   } catch {
@@ -129,9 +187,24 @@ watch(() => route.params.id, load)
 
 <template>
   <div class="match-detail" v-loading="loading">
+    <div v-if="previewMode" class="preview-banner">
+      <span class="preview-banner__text">
+        <el-icon><View /></el-icon>
+        {{ published ? '内部预览模式，页面效果与门户展示一致。' : '内部预览模式：该场比赛尚未发布到门户，访客暂时看不到。' }}
+      </span>
+      <el-button size="small" type="primary" plain :icon="Back" @click="leavePreview">返回</el-button>
+    </div>
     <template v-if="match">
       <section class="scoreboard">
         <div class="container">
+          <nav class="crumbs" aria-label="面包屑">
+            <router-link to="/">首页</router-link>
+            <span>/</span>
+            <router-link to="/matches">赛程与比分</router-link>
+            <span>/</span>
+            <span class="crumbs__current">{{ match.homeTeamName }} vs {{ match.awayTeamName }}</span>
+          </nav>
+
           <div class="scoreboard__meta">
             <span class="group-pill">{{ match.groupName }}</span>
             <StatusTag :status="displayStatus" kind="match" size="default" />
@@ -158,7 +231,7 @@ watch(() => route.params.id, load)
                     : displayStatus === 'LIVE'
                       ? '比赛进行中'
                       : displayStatus === 'STALE'
-                        ? '赛况待更新'
+                        ? '比分待组委会确认'
                         : displayStatus === 'CANCELLED'
                           ? '比赛已取消'
                           : '全场结束'
@@ -209,9 +282,11 @@ watch(() => route.params.id, load)
 
             <div v-if="sortedEvents.length" class="timeline">
               <div v-for="event in sortedEvents" :key="event.id" class="event-row">
-                <span class="event-row__minute num">
-                  {{ event.minute }}'
-                  <small v-if="event.stoppageMinute">+{{ event.stoppageMinute }}</small>
+                <span class="event-row__minute">
+                  <strong class="num">
+                    {{ event.minute }}<template v-if="event.stoppageMinute">+{{ event.stoppageMinute }}</template>
+                  </strong>
+                  <small>分钟</small>
                 </span>
                 <span class="event-row__icon" :class="`type-${event.eventType.toLowerCase()}`">
                   <el-icon :size="14"><component :is="eventIcon(event.eventType)" /></el-icon>
@@ -307,7 +382,6 @@ watch(() => route.params.id, load)
             <p>比分与事件数据由现场记录员实时提交，并以赛后正式公告为准。</p>
             <p>观众可通过图文直播关注比赛进程，文明观赛，为少年球员加油。</p>
           </div>
-          <router-link to="/matches" class="back-link">← 返回赛程与比分</router-link>
         </aside>
       </div>
     </template>
@@ -316,11 +390,12 @@ watch(() => route.params.id, load)
       v-else-if="!loading"
       class="not-found"
       icon="warning"
-      title="比赛不存在或未发布"
-      sub-title="请返回赛程与比分查看其他比赛。"
+      :title="previewMode ? '无法加载比赛预览' : '比赛不存在或未发布'"
+      :sub-title="previewMode ? '请检查比赛是否已被删除，或返回比赛管理继续操作。' : '请返回赛程与比分查看其他比赛。'"
     >
       <template #extra>
-        <router-link to="/matches">
+        <el-button v-if="previewMode" type="primary" @click="leavePreview">返回比赛管理</el-button>
+        <router-link v-else to="/matches">
           <el-button type="primary">返回赛程与比分</el-button>
         </router-link>
       </template>
@@ -335,11 +410,53 @@ watch(() => route.params.id, load)
   background: var(--paper);
 }
 
+.preview-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 20px;
+  background: var(--brand-50);
+  border-bottom: 1px solid var(--line);
+  color: var(--brand-700);
+  font-size: 12px;
+}
+
+.preview-banner__text {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .scoreboard {
   padding: 30px 0 26px;
   background: var(--scoreboard);
   border-bottom: 1px solid var(--scoreboard-line);
   color: #fff;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-bottom: 18px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.crumbs a:hover {
+  color: #fff;
+}
+
+.crumbs__current {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .scoreboard__meta {
@@ -525,8 +642,7 @@ watch(() => route.params.id, load)
 .match-brief {
   margin-bottom: 20px;
   padding: 14px 16px;
-  border-left: 3px solid var(--lime);
-  border-radius: 0 8px 8px 0;
+  border-radius: 8px;
   background: var(--brand-50);
 }
 
@@ -573,12 +689,19 @@ watch(() => route.params.id, load)
 }
 
 .event-row__minute {
-  width: 42px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 46px;
   flex-shrink: 0;
-  padding-top: 7px;
+  padding-top: 4px;
+  color: var(--brand-800);
+}
+
+.event-row__minute strong {
   font-size: 14px;
   font-weight: 700;
-  color: var(--brand-800);
+  line-height: 1.2;
 }
 
 .event-row__minute small {
@@ -818,12 +941,6 @@ watch(() => route.params.id, load)
   line-height: 1.8;
   color: var(--ink-500);
   margin-bottom: 8px;
-}
-
-.back-link {
-  font-size: 11.5px;
-  color: var(--ink-500);
-  padding-left: 3px;
 }
 
 .not-found {

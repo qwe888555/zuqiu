@@ -18,8 +18,10 @@ import {
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import { useAppStore } from '../../stores/app'
-import { enrollmentApi, matchApi, meApi, materialApi } from '../../api'
-import type { Enrollment, Match, Material, MyAffiliation } from '../../api/types'
+import { enrollmentApi, matchApi, meApi, materialApi, teamApi } from '../../api'
+import type { Enrollment, Match, Material, MyAffiliation, Team } from '../../api/types'
+import { categoryLabel } from '../../config/labels'
+import { canEnroll, workspaceLabelForRoles } from '../../utils/roles'
 import StatCard from '../../components/common/StatCard.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 
@@ -28,18 +30,62 @@ const app = useAppStore()
 const router = useRouter()
 
 const loading = ref(false)
-const counts = ref({ all: 0, pending: 0, approved: 0, rejected: 0 })
+const counts = ref({ all: 0, pendingCity: 0, pendingProvince: 0, approved: 0, rejected: 0 })
+const upcomingMatchTotal = ref(0)
 const recentEnrollments = ref<Enrollment[]>([])
 const recentMatches = ref<Match[]>([])
 const materials = ref<Material[]>([])
 const affiliations = ref<MyAffiliation[]>([])
 const myTeams = ref<{ id: string; name: string }[]>([])
+const schoolTeams = ref<Team[]>([])
 
-const isSubmitter = computed(() => auth.hasRole(['TEAM', 'UNIVERSITY', 'CITY']))
+const isSchool = computed(() => auth.roles.includes('UNIVERSITY'))
+const isTeam = computed(() => auth.roles.includes('TEAM'))
+// 学校是唯一报送主体；球队端仅查看报名进度。
+const isSubmitter = computed(() => canEnroll(auth.roles))
 const isReviewer = computed(() => auth.hasRole(['CITY', 'PROVINCE_REVIEWER', 'ADMIN']))
-const isPlayer = computed(() => auth.hasRole(['ATHLETE', 'COACH']))
-const isRecorder = computed(() => auth.hasRole(['MATCH_RECORDER']))
+// 管理员虽然可访问全部页面，但工作台应按管理员身份展示，不能误入运动员视图。
+const isPlayer = computed(() => auth.roles.includes('ATHLETE') || auth.roles.includes('COACH'))
+const isRecorder = computed(() => auth.roles.includes('MATCH_RECORDER'))
 const isAdmin = computed(() => auth.roles.includes('ADMIN'))
+const workspaceLabel = computed(() => workspaceLabelForRoles(auth.roles))
+const schoolMemberTotal = computed(() =>
+  schoolTeams.value.reduce((sum, team) => sum + (team.memberCount || 0), 0),
+)
+const recorderMatchStats = computed(() => {
+  const stats = { live: 0, scheduled: 0, finished: 0 }
+  recentMatches.value.forEach((match) => {
+    if (match.status === 'LIVE') stats.live += 1
+    else if (match.status === 'SCHEDULED') stats.scheduled += 1
+    else if (match.status === 'FINISHED') stats.finished += 1
+  })
+  return stats
+})
+
+/**
+ * 「待审核」对不同角色含义不同：
+ * 审核方看到的是自己当前要处理的阶段；参赛方看到的是已提交、等待上级处理的报名。
+ */
+const pendingCount = computed(() => {
+  if (isAdmin.value) return counts.value.pendingCity + counts.value.pendingProvince
+  if (auth.roles.includes('CITY')) return counts.value.pendingCity
+  if (auth.roles.includes('PROVINCE_REVIEWER')) return counts.value.pendingProvince
+  return counts.value.pendingCity + counts.value.pendingProvince
+})
+
+const pendingHint = computed(() => {
+  if (isAdmin.value) return '市州 / 省级待办'
+  if (auth.roles.includes('CITY')) return '待本市初审'
+  if (auth.roles.includes('PROVINCE_REVIEWER')) return '待省级终审'
+  return '等待市州 / 省级审核'
+})
+
+const approvedHint = computed(() => {
+  if (isAdmin.value) return '已完成终审'
+  if (auth.roles.includes('PROVINCE_REVIEWER')) return '已完成终审'
+  if (auth.roles.includes('CITY')) return '省级终审通过'
+  return '已完成终审'
+})
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
@@ -53,10 +99,12 @@ const greeting = computed(() => {
 const roleText = computed(() => {
   if (isAdmin.value) return '统筹赛事报名、比赛、遴选与门户运营。'
   if (auth.roles.includes('PROVINCE_REVIEWER')) return '处理省级终审、赛事配置、成绩发布与内容运营。'
-  if (auth.roles.includes('CITY')) return '管理本市参赛队伍，完成报名初审与统计。'
+  if (auth.roles.includes('CITY')) return '审核本市学校报名，完成初审、统计与导出，不代学校填报。'
   if (auth.roles.includes('MATCH_RECORDER')) return '负责比赛现场记录、比分与图文直播。'
   if (isPlayer.value) return '维护个人履历材料，关注公示与所属球队动态。'
-  return '完成球队报名、名单维护与材料报送。'
+  if (isSchool.value) return '以学校为报送主体，统筹本校及分校区球队、名额与材料报送。'
+  if (isTeam.value) return '维护所属球队资料、名单与材料；报名由学校端统一提交，可查看本队进度。'
+  return '查看报名进度，维护球队资料与名单。'
 })
 
 const today = dayjs().format('YYYY年MM月DD日')
@@ -66,7 +114,7 @@ const quickActions = computed(() => {
     return [
       { label: '完善个人资料', desc: '身份与学籍信息', path: '/console/profile', icon: User },
       { label: '上传履历材料', desc: '证书、获奖与经历', path: '/console/materials', icon: Collection },
-      { label: '查看所属队伍', desc: '球队与教练信息', path: '/console/affiliations', icon: Tickets },
+      { label: '我的球队', desc: '查看归属与球队资料', path: '/console/my-teams', icon: Tickets },
       { label: '我的公示', desc: '公示记录与状态', path: '/console/my-publications', icon: Trophy },
     ]
   }
@@ -77,13 +125,31 @@ const quickActions = computed(() => {
       { label: '我的消息', desc: '赛务通知', path: '/console/messages', icon: Bell },
     ]
   }
+  if (isSchool.value) {
+    return [
+      { label: '本校球队', desc: '含分校区，共享学校名额', path: '/console/school/teams', icon: Trophy },
+      { label: '新建报名', desc: '以学校名义报送球队', path: '/console/enrollments/create', icon: Plus },
+      { label: '本校报名', desc: '查看本校报名进度', path: '/console/enrollments', icon: Tickets },
+      { label: '球队材料', desc: '按球队维护材料', path: '/console/team/materials', icon: Collection },
+    ]
+  }
+  if (isTeam.value) {
+    return [
+      { label: '报名进度', desc: '查看本队报名与审核结果', path: '/console/enrollments', icon: Tickets },
+      { label: '球队资料', desc: '维护球队与校区信息', path: '/console/team/profile', icon: Trophy },
+      { label: '球员名单', desc: '维护参赛球员', path: '/console/team/members', icon: User },
+      { label: '球队材料', desc: '上传盖章文件', path: '/console/team/materials', icon: Collection },
+    ]
+  }
   if (isReviewer.value) {
     const actions = [
       { label: '审核工作台', desc: '处理待审报名', path: '/console/review', icon: Stamp },
       { label: '报名统计', desc: '按市州与组别分析', path: '/console/enrollment-stats', icon: DataAnalysis },
       isAdmin.value
         ? { label: '遴选档案', desc: '检索运动员档案', path: '/console/selection/dossiers', icon: Collection }
-        : { label: '参赛队伍', desc: '全省球队与赛程', path: '/console/teams-overview', icon: Trophy },
+        : auth.hasRole(['CITY'])
+          ? { label: '报名单', desc: '本市报名与审核进度', path: '/console/enrollments', icon: Tickets }
+          : { label: '参赛队伍', desc: '全省球队与赛程', path: '/console/teams-overview', icon: Trophy },
     ]
     if (isAdmin.value) {
       actions.push({ label: '权限矩阵', desc: '角色、菜单与数据范围', path: '/console/admin/permissions', icon: Key })
@@ -91,19 +157,35 @@ const quickActions = computed(() => {
     return actions
   }
   return [
-    { label: '新建报名', desc: '选择赛事与组别', path: '/console/enrollments/create', icon: Plus },
+    { label: '报名进度', desc: '查看权限范围内报名', path: '/console/enrollments', icon: Tickets },
     { label: '球员名单', desc: '维护参赛球员', path: '/console/team/members', icon: User },
-    { label: '球队材料', desc: '上传盖章文件', path: '/console/team/materials', icon: Tickets },
+    { label: '球队材料', desc: '上传盖章文件', path: '/console/team/materials', icon: Collection },
   ]
 })
 
 const statCards = computed(() => {
+  if (isRecorder.value && !isAdmin.value) {
+    return [
+      { label: '近期比赛', value: recentMatches.value.length, hint: '最近更新的场次', icon: Calendar, tone: 'green' as const },
+      { label: '进行中', value: recorderMatchStats.value.live, hint: '需要现场记录', icon: Trophy, tone: 'amber' as const },
+      { label: '未开赛', value: recorderMatchStats.value.scheduled, hint: '待开赛场次', icon: Calendar, tone: 'blue' as const },
+      { label: '未读消息', value: app.unreadCount, hint: '赛务通知', icon: Bell, tone: 'lime' as const },
+    ]
+  }
   if (isPlayer.value) {
     return [
       { label: '履历材料', value: materials.value.length, hint: '已归档材料总数', icon: Collection, tone: 'green' as const },
       { label: '所属队伍', value: affiliations.value.length || myTeams.value.length, hint: '当前关联球队', icon: Tickets, tone: 'lime' as const },
       { label: '未读消息', value: app.unreadCount, hint: '来自组委会的通知', icon: Bell, tone: 'amber' as const },
       { label: '账号角色', value: auth.roles.includes('COACH') ? '教练员' : '运动员', hint: auth.user?.orgName || '—', icon: User, tone: 'blue' as const },
+    ]
+  }
+  if (isSchool.value) {
+    return [
+      { label: '本校球队', value: schoolTeams.value.length, hint: '学校端统一管理', icon: Trophy, tone: 'green' as const },
+      { label: '在册球员', value: schoolMemberTotal.value, hint: '各队球员合计', icon: User, tone: 'lime' as const },
+      { label: '报名单', value: counts.value.all, hint: '本校全部报名', icon: Tickets, tone: 'blue' as const },
+      { label: '审核中', value: pendingCount.value, hint: pendingHint.value, icon: Stamp, tone: 'amber' as const },
     ]
   }
   return [
@@ -115,23 +197,23 @@ const statCards = computed(() => {
       tone: 'green' as const,
     },
     {
-      label: '待处理审核',
-      value: counts.value.pending,
-      hint: '需尽快处理的报名',
+      label: isReviewer.value ? '待处理审核' : '审核中',
+      value: pendingCount.value,
+      hint: pendingHint.value,
       icon: Stamp,
       tone: 'amber' as const,
     },
     {
-      label: '审核通过',
+      label: isReviewer.value ? '审核通过' : '已通过',
       value: counts.value.approved,
-      hint: '已完成终审',
+      hint: approvedHint.value,
       icon: Trophy,
       tone: 'lime' as const,
     },
     {
       label: '近期比赛',
-      value: recentMatches.value.length,
-      hint: '进行中与即将开始',
+      value: upcomingMatchTotal.value,
+      hint: '已排期待开赛',
       icon: Calendar,
       tone: 'blue' as const,
     },
@@ -151,6 +233,13 @@ async function load() {
       affiliations.value = affRes.items
       myTeams.value = teams
     } else {
+      if (isSchool.value || isTeam.value) {
+        try {
+          schoolTeams.value = await meApi.teams()
+        } catch {
+          schoolTeams.value = []
+        }
+      }
       const calls: Promise<unknown>[] = [
         enrollmentApi.list({ page: 1, pageSize: 5 }),
         enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_CITY_REVIEW' }),
@@ -165,16 +254,33 @@ async function load() {
         { total: number },
         { total: number },
         { total: number },
-        { items: Match[] },
+        { items: Match[]; total: number },
       ]
       recentEnrollments.value = recent.items
       counts.value = {
         all: recent.total,
-        pending: pc.total + pv.total,
+        pendingCity: pc.total,
+        pendingProvince: pv.total,
         approved: approved.total,
         rejected: rejected.total,
       }
-      recentMatches.value = matches.items
+
+      if ((isSchool.value || isTeam.value) && !isReviewer.value) {
+        // 学校端 / 球队端只应看到本校或本队的赛程，不能把全省赛程当成“我的比赛”。
+        const teamMatchPages = await Promise.all(
+          schoolTeams.value.map((team) => teamApi.matches(team.id, { page: 1, pageSize: 100 })),
+        )
+        const upcoming = teamMatchPages
+          .flatMap((page) => page.items)
+          .filter((match) => match.status === 'SCHEDULED')
+          .filter((match, index, all) => all.findIndex((item) => item.id === match.id) === index)
+          .sort((left, right) => dayjs(left.kickoffAt).valueOf() - dayjs(right.kickoffAt).valueOf())
+        upcomingMatchTotal.value = upcoming.length
+        recentMatches.value = upcoming.slice(0, 5)
+      } else {
+        upcomingMatchTotal.value = matches.total
+        recentMatches.value = matches.items
+      }
     }
   } catch {
     // 仪表盘加载失败时保留空态
@@ -194,7 +300,9 @@ onMounted(load)
   <div class="page dashboard" v-loading="loading">
     <section class="welcome-card">
       <div class="welcome-card__body">
-        <span class="welcome-card__eyebrow">2026 赛季 · {{ auth.roles.includes('ADMIN') ? '管理中心' : '工作台' }}</span>
+        <span class="welcome-card__eyebrow">
+          2026 赛季 · {{ workspaceLabel }}
+        </span>
         <h1>{{ greeting }}，{{ auth.displayName }}</h1>
         <p>{{ roleText }}</p>
         <div class="welcome-card__meta">
@@ -229,20 +337,59 @@ onMounted(load)
       <section class="page-card">
         <div class="page-toolbar">
           <div class="section-title">
-            {{ isPlayer ? '最近材料' : isRecorder ? '近期比赛' : '最近报名' }}
-            <small>{{ isPlayer ? '按更新时间排序' : '按状态与时间排序' }}</small>
+            {{ isPlayer ? '最近材料' : isRecorder ? '近期比赛' : isSchool ? '本校球队' : '最近报名' }}
+            <small>
+              {{ isPlayer ? '按更新时间排序' : isSchool ? '按学段与认证状态' : '按状态与时间排序' }}
+            </small>
           </div>
           <el-button
             text
             type="primary"
-            @click="go(isPlayer ? '/console/materials' : isRecorder ? '/console/matches' : '/console/enrollments')"
+            @click="
+              go(
+                isPlayer
+                  ? '/console/materials'
+                  : isRecorder
+                    ? '/console/matches'
+                    : isSchool
+                      ? '/console/school/teams'
+                      : '/console/enrollments',
+              )
+            "
           >
             查看全部
             <el-icon><ArrowRight /></el-icon>
           </el-button>
         </div>
 
-        <template v-if="isPlayer">
+        <template v-if="isSchool">
+          <div v-if="schoolTeams.length" class="mini-list">
+            <div
+              v-for="team in schoolTeams"
+              :key="team.id"
+              class="mini-row mini-row--link"
+              @click="go(`/console/team/profile?teamId=${team.id}`)"
+            >
+              <span class="mini-row__icon"><el-icon><Trophy /></el-icon></span>
+              <div class="mini-row__body">
+                <strong>{{ team.name }}</strong>
+                <small>
+                  {{ team.campusName || '本部' }} · {{ categoryLabel(team.category) }} ·
+                  {{ team.memberCount || 0 }} 名球员 · {{ team.coachName || '未设置教练' }}
+                </small>
+              </div>
+              <el-tag :type="team.status === 'APPROVED' ? 'success' : 'warning'" effect="plain" size="small">
+                {{ team.status === 'APPROVED' ? '已认证' : '待认证' }}
+              </el-tag>
+              <el-icon class="mini-row__arrow"><ArrowRight /></el-icon>
+            </div>
+          </div>
+          <el-empty v-else description="本校还没有球队" :image-size="80">
+            <el-button type="primary" plain @click="go('/console/school/teams')">前往创建球队</el-button>
+          </el-empty>
+        </template>
+
+        <template v-else-if="isPlayer">
           <div v-if="materials.length" class="mini-list">
             <div v-for="item in materials" :key="item.id" class="mini-row">
               <span class="mini-row__icon"><el-icon><Collection /></el-icon></span>
@@ -278,35 +425,25 @@ onMounted(load)
         </template>
 
         <template v-else>
-          <el-table v-if="recentEnrollments.length" :data="recentEnrollments" style="width: 100%">
-            <el-table-column prop="teamName" label="参赛球队" min-width="180">
-              <template #default="{ row }">
-                <div class="team-cell">
-                  <span class="team-cell__avatar">{{ row.teamName.slice(0, 1) }}</span>
-                  <div>
-                    <strong>{{ row.teamName }}</strong>
-                    <small>{{ row.groupName }}</small>
-                  </div>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="cityName" label="市州" width="100" />
-            <el-table-column label="状态" width="130">
-              <template #default="{ row }">
-                <StatusTag :status="row.status" kind="enrollment" />
-              </template>
-            </el-table-column>
-            <el-table-column label="更新时间" width="150">
-              <template #default="{ row }">
-                <span class="muted">{{ dayjs(row.updatedAt).format('MM-DD HH:mm') }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="" width="80" align="right">
-              <template #default="{ row }">
-                <el-button text type="primary" @click="go(`/console/enrollments/${row.id}`)">查看</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+          <div v-if="recentEnrollments.length" class="mini-list">
+            <div
+              v-for="row in recentEnrollments"
+              :key="row.id"
+              class="mini-row mini-row--link"
+              @click="go(`/console/enrollments/${row.id}`)"
+            >
+              <span class="mini-row__icon">{{ row.teamName.slice(0, 1) }}</span>
+              <div class="mini-row__body">
+                <strong>{{ row.teamName }}</strong>
+                <small>
+                  {{ row.schoolName || '—' }} · {{ row.campusName || '本部' }} · {{ row.groupName }} ·
+                  更新 {{ dayjs(row.updatedAt).format('MM-DD HH:mm') }}
+                </small>
+              </div>
+              <StatusTag :status="row.status" kind="enrollment" />
+              <el-icon class="mini-row__arrow"><ArrowRight /></el-icon>
+            </div>
+          </div>
           <el-empty v-else description="暂时没有报名记录" :image-size="80">
             <el-button v-if="isSubmitter" type="primary" plain @click="go('/console/enrollments/create')">
               新建报名
@@ -375,7 +512,6 @@ onMounted(load)
   gap: 24px;
   padding: 22px 24px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--brand-700);
   border-radius: var(--radius-lg);
   background: #fff;
 }
@@ -476,36 +612,6 @@ onMounted(load)
   color: var(--ink-300);
 }
 
-.team-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.team-cell__avatar {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: var(--brand-50);
-  color: var(--brand-700);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.team-cell strong {
-  display: block;
-  font-size: 12.5px;
-}
-
-.team-cell small {
-  display: block;
-  margin-top: 2px;
-  font-size: 10px;
-  color: var(--ink-300);
-}
-
 .mini-list {
   display: flex;
   flex-direction: column;
@@ -562,8 +668,17 @@ onMounted(load)
 .mini-row__body small {
   display: block;
   margin-top: 3px;
+  overflow: hidden;
   font-size: 10px;
   color: var(--ink-300);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mini-row__arrow {
+  flex-shrink: 0;
+  color: var(--ink-300);
+  font-size: 12px;
 }
 
 .side-column {

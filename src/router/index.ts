@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
+import { homeForRoles } from '../utils/roles'
 import type { RoleCode } from '../api/types'
 
 declare module 'vue-router' {
@@ -26,6 +27,12 @@ const routes: RouteRecordRaw[] = [
       { path: 'matches/:id', name: 'portal-match-detail', component: () => import('../views/portal/PublicMatchDetailView.vue'), meta: { title: '比赛详情' } },
       { path: 'rankings', name: 'rankings', component: () => import('../views/portal/RankingsView.vue'), meta: { title: '射手榜' } },
       { path: 'publications', name: 'portal-publications', component: () => import('../views/portal/PublicationsView.vue'), meta: { title: '公示查询' } },
+      {
+        path: 'publications/:id',
+        name: 'portal-publication-detail',
+        component: () => import('../views/portal/PublicationDetailView.vue'),
+        meta: { title: '公示详情' },
+      },
     ],
   },
   {
@@ -48,6 +55,12 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: '/console/dashboard' },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/console/DashboardView.vue'), meta: { title: '工作台' } },
       {
+        path: 'school/teams',
+        name: 'school-teams',
+        component: () => import('../views/school/SchoolTeamsView.vue'),
+        meta: { title: '本校球队', roles: ['UNIVERSITY'] },
+      },
+      {
         path: 'forbidden',
         name: 'forbidden',
         component: () => import('../views/console/ForbiddenView.vue'),
@@ -63,7 +76,8 @@ const routes: RouteRecordRaw[] = [
         path: 'enrollments/create',
         name: 'enrollment-create',
         component: () => import('../views/enrollment/EnrollmentWizardView.vue'),
-        meta: { title: '新建报名', roles: ['TEAM', 'UNIVERSITY', 'CITY'] },
+        // 学校是唯一报送主体；schoolOnly 在守卫中优先于 ADMIN 的全角色放行。
+        meta: { title: '新建报名', roles: ['UNIVERSITY'], schoolOnly: true },
       },
       {
         path: 'enrollments/:id',
@@ -142,9 +156,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'affiliations',
-        name: 'affiliations',
-        component: () => import('../views/people/AffiliationsView.vue'),
-        meta: { title: '所属队伍', roles: ['ATHLETE', 'COACH'] },
+        redirect: '/console/my-teams',
       },
       {
         path: 'my-teams',
@@ -282,7 +294,17 @@ router.beforeEach(async (to) => {
   document.title = to.meta.title ? `${to.meta.title} · 省级中小学足球联赛` : '省级中小学足球联赛'
 
   if (to.meta.guestOnly && auth.token) {
-    return { name: 'dashboard' }
+    // 已登录用户仍可主动打开登录页切换身份；其余情况直接回到所属角色的工作台。
+    if (to.query.switch === '1') return true
+    if (!auth.user) {
+      try {
+        await auth.fetchMe()
+      } catch {
+        auth.clear()
+        return true
+      }
+    }
+    return homeForRoles(auth.roles)
   }
   if (!to.meta.requiresAuth) return true
 
@@ -296,6 +318,10 @@ router.beforeEach(async (to) => {
       auth.clear()
       return { name: 'login', query: { redirect: to.fullPath } }
     }
+  }
+  if (to.meta.schoolOnly && !auth.roles.includes('UNIVERSITY')) {
+    ElMessage.warning('报名由学校端统一提交，请使用学校账号')
+    return { name: 'forbidden', query: { from: to.fullPath } }
   }
   if (to.meta.roles && !auth.hasRole(to.meta.roles)) {
     ElMessage.warning('当前角色没有访问该页面的权限')

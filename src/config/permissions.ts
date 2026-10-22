@@ -56,15 +56,15 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   {
     key: 'enrollment',
     title: '报名与审核',
-    hint: '三类主体共用一套报名引擎，市州初审、省级终审',
+    hint: '学校为唯一报送主体，市州初审、省级终审',
     permissions: [
-      { code: 'enrollment.create', label: '新建报名', description: '创建球队/高校/市州报名单' },
+      { code: 'enrollment.create', label: '新建报名', description: '由学校为本校及校区球队创建报名单' },
       { code: 'enrollment.edit', label: '编辑报名', description: '草稿或被驳回后修改报名信息与名单' },
       { code: 'enrollment.submit', label: '提交报名', description: '预检并冻结报名快照' },
       { code: 'enrollment.export', label: '导出报名资料', description: '报名表 PDF、球员 Word 与批量打包' },
       { code: 'enrollment.review.city', label: '市州初审', description: '审核本市学校报名并驳回/通过' },
       { code: 'enrollment.review.province', label: '省级终审', description: '终审全部报名并查看历史记录' },
-      { code: 'enrollment.stats', label: '报名统计', description: '按市州、组别与主体汇总统计' },
+      { code: 'enrollment.stats', label: '报名统计', description: '按市州、组别与学校汇总统计' },
     ],
   },
   {
@@ -138,7 +138,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { code: 'data.province', label: '全省数据', description: '省级审核员、管理员与赛事记录员' },
       { code: 'data.city', label: '本市数据', description: '市州账号仅能访问所属市州数据' },
-      { code: 'data.team', label: '本队数据', description: '球队与高校账号仅能访问绑定球队' },
+      { code: 'data.team', label: '本校 / 本队数据', description: '学校端可访问本校全部球队，球队端仅能访问所属球队' },
       { code: 'data.self', label: '本人数据', description: '运动员与教练员仅能访问本人档案' },
     ],
   },
@@ -148,10 +148,19 @@ export const ALL_PERMISSION_CODES: PermissionCode[] = PERMISSION_GROUPS.flatMap(
   group.permissions.map((permission) => permission.code),
 )
 
-const submitterPermissions: PermissionCode[] = [
+const schoolReporterPermissions: PermissionCode[] = [
   'enrollment.create',
   'enrollment.edit',
   'enrollment.submit',
+  'enrollment.export',
+  'match.view',
+  'team.manage',
+  'message.view',
+  'portal.view',
+  'data.team',
+]
+
+const teamPermissions: PermissionCode[] = [
   'enrollment.export',
   'match.view',
   'team.manage',
@@ -183,12 +192,9 @@ const reviewerPermissions: PermissionCode[] = [
 ]
 
 export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
-  TEAM: submitterPermissions,
-  UNIVERSITY: submitterPermissions,
+  TEAM: teamPermissions,
+  UNIVERSITY: schoolReporterPermissions,
   CITY: [
-    'enrollment.create',
-    'enrollment.edit',
-    'enrollment.submit',
     'enrollment.export',
     'enrollment.review.city',
     'enrollment.stats',
@@ -214,9 +220,9 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
 }
 
 export const ROLE_DESCRIPTIONS: Record<RoleCode, string> = {
-  TEAM: '中小学球队端。维护球队、球员与教练，报送报名与材料，查看审核结果。',
-  UNIVERSITY: '高校端。维护高校球队与球员，完成赛事报名与材料报送。',
-  CITY: '市州审核端。本市报名代报、初审、统计与导出，数据范围限本市。',
+  TEAM: '球队端。维护所属球队、球员与教练，查看学校提交的报名进度；报名由学校统一报送。',
+  UNIVERSITY: '学校端。以学校为报送主体，统筹本校及分校区球队完成报名、名单与材料报送。',
+  CITY: '市州审核端。本市学校报名初审、统计与导出，不代报；数据范围限本市。',
   PROVINCE_REVIEWER: '省级审核端。全部报名终审、赛事配置、比赛与成绩发布、账号与内容运营；遴选评分由管理员完成。',
   ATHLETE: '运动员端。维护个人档案、履历材料、所属队伍，查看本人公示。',
   COACH: '教练员端。维护个人档案与履历材料，查看所属队伍与本人公示。',

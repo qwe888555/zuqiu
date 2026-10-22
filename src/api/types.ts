@@ -1,5 +1,10 @@
 /** 后端接口文档 v1.0.0-draft 对应的前端类型定义（节选常用模型） */
 
+/**
+ * 角色编码。UNIVERSITY 为接口沿用的历史编码，前端统一展示为“学校端”；
+ * 学校端与 TEAM（球队端）是上下级关系，共用登录入口，按角色进入不同工作台并隔离数据。
+ * 该编码只表示中小学学校端，不代表高校组别。
+ */
 export type RoleCode =
   | 'TEAM'
   | 'UNIVERSITY'
@@ -10,7 +15,7 @@ export type RoleCode =
   | 'ADMIN'
   | 'MATCH_RECORDER'
 
-export type SubjectType = 'SCHOOL_TEAM' | 'UNIVERSITY' | 'CITY'
+export type SubjectType = 'SCHOOL_TEAM' | 'CITY'
 
 export type EnrollmentStatus =
   | 'DRAFT'
@@ -23,7 +28,7 @@ export type EnrollmentStatus =
 export type MatchStatus = 'SCHEDULED' | 'LIVE' | 'FINISHED' | 'CANCELLED'
 export type ContentType = 'NEWS' | 'POLICY' | 'HIGHLIGHT' | 'BEST_LINEUP'
 export type RoundType = 'PRELIMINARY' | 'FINAL'
-export type GroupCategory = 'PRIMARY' | 'MIDDLE' | 'UNIVERSITY'
+export type GroupCategory = 'PRIMARY' | 'MIDDLE'
 
 export interface Envelope<T> {
   code: string
@@ -93,7 +98,7 @@ export interface Organization {
   id: string
   parentId?: string
   name: string
-  orgType: 'PROVINCE' | 'CITY' | 'SCHOOL' | 'UNIVERSITY' | 'TEAM'
+  orgType: 'PROVINCE' | 'CITY' | 'SCHOOL' | 'TEAM'
   code: string
   enabled: boolean
   version: number
@@ -184,6 +189,9 @@ export interface Team {
   cityName?: string
   category?: GroupCategory
   schoolName?: string
+  /** 分校/校区名称；同一学校（orgId）下的校区共享学校名额。 */
+  campusName?: string
+  gender?: 'MALE' | 'FEMALE' | 'MIXED'
   coachName?: string
   intro?: string
   flagUrl?: string
@@ -261,11 +269,17 @@ export interface EventGroup {
   category: GroupCategory
   gender: 'MALE' | 'FEMALE' | 'MIXED'
   quota?: number
+  /** 每所学校在该组别最多可报的球队数；0 表示不限，缺省按 1 处理。 */
+  schoolQuota?: number
   minAge?: number
   maxAge?: number
   maxPlayers: number
   requiredMaterialTypes: string[]
   teamCount?: number
+  /** 接口动态返回：该组别已占用名额的报名数。 */
+  totalUsed?: number
+  /** 接口动态返回：当前学校在该组别已占用的名额数。 */
+  schoolUsed?: number
   version: number
 }
 
@@ -278,12 +292,17 @@ export interface Enrollment {
   teamId: string
   teamName: string
   subjectType: SubjectType
+  /** 报送学校（与球队 orgId 一致）。 */
+  schoolOrgId?: string
+  schoolName?: string
+  campusName?: string
   cityOrgId?: string
   cityName?: string
   status: EnrollmentStatus
   submissionNo: number
   contactName: string
   maskedContactPhone?: string
+  remarks?: string
   editable: boolean
   snapshotId?: string
   playerCount: number

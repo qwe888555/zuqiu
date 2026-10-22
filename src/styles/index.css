@@ -10,6 +10,11 @@
   --lime-soft: #f1fad9;
   --live: #b54708;
   --live-soft: #fef0e6;
+  --live-on-dark: #ffb27a;
+  --on-dark-1: #ffffff;
+  --on-dark-2: #d3e4da;
+  --on-dark-3: #a7c0b2;
+  --focus-on-dark: #e2ff9e;
   --whistle: #245ea8;
   --whistle-soft: #eaf1fa;
   --pitch-line: rgba(8, 127, 91, 0.14);
@@ -358,15 +363,27 @@ button {
 }
 
 :where(button, a, .el-button, .el-menu-item):focus-visible {
-  outline: 2px solid rgba(11, 122, 83, 0.45);
+  outline: 2px solid var(--brand-700);
   outline-offset: 2px;
+}
+
+/* 深色区块中的焦点环改用浅色，避免与深绿背景混在一起。 */
+:where(.hero, .scoreboard, .match-section, .lead-card, .portal-footer, .site-footer)
+  :where(button, a, .el-button):focus-visible {
+  outline-color: var(--focus-on-dark);
 }
 
 /* ---------- 门户通用 ---------- */
 
 .container {
-  width: min(1200px, calc(100% - 48px));
+  width: min(1360px, calc(100% - 64px));
   margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .container {
+    width: calc(100% - 40px);
+  }
 }
 
 @media (max-width: 768px) {

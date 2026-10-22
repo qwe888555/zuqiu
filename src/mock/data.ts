@@ -69,22 +69,22 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     password: '12345678',
     accountId: 'acc_team_01',
     role: 'TEAM',
-    displayName: '成都市实验小学·管理员',
+    displayName: '成都市实验小学·球队管理员',
     orgId: 'org_school_cd_syxx',
     orgName: '成都市实验小学',
     teamIds: ['team_cd_syxx'],
-    description: '中小学球队端：球队档案、球员报送、报名提交',
+    description: '球队端：维护所属球队、名单与材料，查看学校提交的报名进度',
   },
   {
-    username: 'university',
+    username: 'school',
     password: '12345678',
-    accountId: 'acc_uni_01',
+    accountId: 'acc_school_01',
     role: 'UNIVERSITY',
-    displayName: '四川大学·球队管理员',
-    orgId: 'org_uni_scu',
-    orgName: '四川大学',
-    teamIds: ['team_scu'],
-    description: '高校端：高校球队报名与材料报送',
+    displayName: '成都七中育才学校·学校管理员',
+    orgId: 'org_school_cd_qz',
+    orgName: '成都七中育才学校',
+    teamIds: ['team_cd_qz', 'team_cd_qz_g', 'team_cd_qz_b'],
+    description: '学校端：以学校为报送主体，统筹本校及校区球队完成报名',
   },
   {
     username: 'city',
@@ -94,7 +94,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     displayName: '成都市教育局·审核员',
     orgId: 'org_city_cd',
     orgName: '成都市教育局',
-    description: '市州端：本市报名代报、初审与统计',
+    description: '市州端：本市学校报名初审、统计与导出',
   },
   {
     username: 'province',
@@ -163,15 +163,13 @@ export const organizations: Organization[] = [
   { id: 'org_school_cd_qz', parentId: 'org_city_cd', name: '成都七中育才学校', orgType: 'SCHOOL', code: 'CD-QZYC', enabled: true, version: 1 },
   { id: 'org_school_my_ns', parentId: 'org_city_my', name: '绵阳南山中学', orgType: 'SCHOOL', code: 'MY-NSZX', enabled: true, version: 1 },
   { id: 'org_school_dy_wz', parentId: 'org_city_dy', name: '德阳市第五中学', orgType: 'SCHOOL', code: 'DY-WZ', enabled: true, version: 1 },
-  { id: 'org_uni_scu', parentId: 'org_province', name: '四川大学', orgType: 'UNIVERSITY', code: 'SCU', enabled: true, version: 1 },
-  { id: 'org_uni_uestc', parentId: 'org_province', name: '电子科技大学', orgType: 'UNIVERSITY', code: 'UESTC', enabled: true, version: 1 },
-  { id: 'org_uni_swjtu', parentId: 'org_province', name: '西南交通大学', orgType: 'UNIVERSITY', code: 'SWJTU', enabled: true, version: 1 },
+  { id: 'org_school_yb_rml', parentId: 'org_city_yb', name: '宜宾市人民路小学', orgType: 'SCHOOL', code: 'YB-RMLXX', enabled: true, version: 1 },
+  { id: 'org_school_lz_sy', parentId: 'org_city_lz', name: '泸州市实验小学', orgType: 'SCHOOL', code: 'LZ-SYXX', enabled: true, version: 1 },
 ]
 
 export const dictionaries: DictionaryItem[] = [
   { id: 'dict_01', dictType: 'GROUP_CATEGORY', value: 'PRIMARY', label: '小学组', sortOrder: 1, enabled: true, version: 1 },
   { id: 'dict_02', dictType: 'GROUP_CATEGORY', value: 'MIDDLE', label: '中学组', sortOrder: 2, enabled: true, version: 1 },
-  { id: 'dict_03', dictType: 'GROUP_CATEGORY', value: 'UNIVERSITY', label: '高校组', sortOrder: 3, enabled: true, version: 1 },
   { id: 'dict_04', dictType: 'POSITION', value: 'GK', label: '守门员', sortOrder: 1, enabled: true, version: 1 },
   { id: 'dict_05', dictType: 'POSITION', value: 'DF', label: '后卫', sortOrder: 2, enabled: true, version: 1 },
   { id: 'dict_06', dictType: 'POSITION', value: 'MF', label: '中场', sortOrder: 3, enabled: true, version: 1 },
@@ -183,7 +181,6 @@ export const dictionaries: DictionaryItem[] = [
   { id: 'dict_12', dictType: 'MATERIAL_TYPE', value: 'AWARD', label: '获奖证书', sortOrder: 3, enabled: true, version: 1 },
   { id: 'dict_13', dictType: 'MATERIAL_TYPE', value: 'TEACHER_LICENSE', label: '教师资格证', sortOrder: 4, enabled: true, version: 1 },
   { id: 'dict_14', dictType: 'EVENT_CATEGORY', value: 'YOUTH', label: '青少年校园足球', sortOrder: 1, enabled: true, version: 1 },
-  { id: 'dict_15', dictType: 'EVENT_CATEGORY', value: 'UNIVERSITY', label: '大学生足球', sortOrder: 2, enabled: true, version: 1 },
 ]
 
 export const events: Event[] = [
@@ -210,24 +207,10 @@ export const events: Event[] = [
     registrationClosesAt: '2026-11-20T18:00:00+08:00',
     status: 'REGISTRATION_OPEN',
     description:
-      '面向全省普通中学、中等职业学校，设初中男子组、高中男子组。市级联赛优胜队伍获得省级总决赛资格。',
+      '面向全省普通中学，设初中男子组、初中女子组。市级联赛优胜队伍获得省级总决赛资格。',
     groupCount: 2,
     teamCount: 28,
     version: 2,
-  },
-  {
-    id: 'event_university_2026',
-    name: '2026年四川省大学生足球联赛',
-    season: '2026',
-    eventCategory: 'UNIVERSITY',
-    registrationOpensAt: '2026-08-20T09:00:00+08:00',
-    registrationClosesAt: '2026-10-10T18:00:00+08:00',
-    status: 'RUNNING',
-    description:
-      '四川省大学生体育协会主办，全省普通高等学校参加。采用主客场与赛会制结合，赛事数据同步门户。',
-    groupCount: 1,
-    teamCount: 16,
-    version: 5,
   },
 ]
 
@@ -239,6 +222,7 @@ export const eventGroups: EventGroup[] = [
     category: 'PRIMARY',
     gender: 'MALE',
     quota: 24,
+    schoolQuota: 1,
     minAge: 8,
     maxAge: 13,
     maxPlayers: 18,
@@ -253,6 +237,7 @@ export const eventGroups: EventGroup[] = [
     category: 'PRIMARY',
     gender: 'FEMALE',
     quota: 16,
+    schoolQuota: 1,
     minAge: 8,
     maxAge: 13,
     maxPlayers: 16,
@@ -267,6 +252,7 @@ export const eventGroups: EventGroup[] = [
     category: 'MIDDLE',
     gender: 'MALE',
     quota: 20,
+    schoolQuota: 1,
     minAge: 12,
     maxAge: 16,
     maxPlayers: 20,
@@ -275,31 +261,18 @@ export const eventGroups: EventGroup[] = [
     version: 1,
   },
   {
-    id: 'group_middle_senior',
+    id: 'group_middle_girls',
     eventId: 'event_middle_2026',
-    name: '高中男子组',
+    name: '初中女子组',
     category: 'MIDDLE',
-    gender: 'MALE',
+    gender: 'FEMALE',
     quota: 16,
-    minAge: 15,
-    maxAge: 19,
-    maxPlayers: 22,
+    schoolQuota: 1,
+    minAge: 12,
+    maxAge: 16,
+    maxPlayers: 16,
     requiredMaterialTypes: ['STAMPED_FORM', 'STUDENT_STATUS'],
-    teamCount: 12,
-    version: 1,
-  },
-  {
-    id: 'group_university_men',
-    eventId: 'event_university_2026',
-    name: '大学男子组',
-    category: 'UNIVERSITY',
-    gender: 'MALE',
-    quota: 16,
-    minAge: 17,
-    maxAge: 25,
-    maxPlayers: 23,
-    requiredMaterialTypes: ['STAMPED_FORM', 'STUDENT_STATUS'],
-    teamCount: 16,
+    teamCount: 0,
     version: 1,
   },
 ]
@@ -399,21 +372,21 @@ const teamSeeds: Array<{
   name: string
   cityOrgId: string
   cityName: string
-  category: 'PRIMARY' | 'MIDDLE' | 'UNIVERSITY'
+  category: 'PRIMARY' | 'MIDDLE'
   schoolOrgId: string
   schoolName: string
   gender: 'MALE' | 'FEMALE'
+  campusName?: string
   count: number
 }> = [
-  { id: 'team_cd_syxx', name: '成都市实验小学足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'PRIMARY', schoolOrgId: 'org_school_cd_syxx', schoolName: '成都市实验小学', gender: 'MALE', count: 16 },
-  { id: 'team_cd_qz', name: '成都七中育才学校足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'MIDDLE', schoolOrgId: 'org_school_cd_qz', schoolName: '成都七中育才学校', gender: 'MALE', count: 18 },
-  { id: 'team_my_ns', name: '绵阳南山中学足球队', cityOrgId: 'org_city_my', cityName: '绵阳市', category: 'MIDDLE', schoolOrgId: 'org_school_my_ns', schoolName: '绵阳南山中学', gender: 'MALE', count: 20 },
-  { id: 'team_dy_wz', name: '德阳五中足球队', cityOrgId: 'org_city_dy', cityName: '德阳市', category: 'MIDDLE', schoolOrgId: 'org_school_dy_wz', schoolName: '德阳市第五中学', gender: 'MALE', count: 18 },
-  { id: 'team_yb_rml', name: '宜宾人民路小学足球队', cityOrgId: 'org_city_yb', cityName: '宜宾市', category: 'PRIMARY', schoolOrgId: 'org_school_cd_syxx', schoolName: '宜宾市人民路小学', gender: 'MALE', count: 14 },
-  { id: 'team_scu', name: '四川大学男子足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'UNIVERSITY', schoolOrgId: 'org_uni_scu', schoolName: '四川大学', gender: 'MALE', count: 22 },
-  { id: 'team_uestc', name: '电子科技大学男子足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'UNIVERSITY', schoolOrgId: 'org_uni_uestc', schoolName: '电子科技大学', gender: 'MALE', count: 20 },
-  { id: 'team_swjtu', name: '西南交通大学足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'UNIVERSITY', schoolOrgId: 'org_uni_swjtu', schoolName: '西南交通大学', gender: 'MALE', count: 20 },
-  { id: 'team_lz_sy', name: '泸州实验小学足球队', cityOrgId: 'org_city_lz', cityName: '泸州市', category: 'PRIMARY', schoolOrgId: 'org_school_cd_syxx', schoolName: '泸州市实验小学', gender: 'FEMALE', count: 14 },
+  { id: 'team_cd_syxx', name: '成都市实验小学足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'PRIMARY', schoolOrgId: 'org_school_cd_syxx', schoolName: '成都市实验小学', gender: 'MALE', campusName: '本部', count: 16 },
+  { id: 'team_cd_qz', name: '成都七中育才学校足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'MIDDLE', schoolOrgId: 'org_school_cd_qz', schoolName: '成都七中育才学校', gender: 'MALE', campusName: '水井坊校区', count: 18 },
+  { id: 'team_my_ns', name: '绵阳南山中学足球队', cityOrgId: 'org_city_my', cityName: '绵阳市', category: 'MIDDLE', schoolOrgId: 'org_school_my_ns', schoolName: '绵阳南山中学', gender: 'MALE', campusName: '本部', count: 20 },
+  { id: 'team_dy_wz', name: '德阳五中足球队', cityOrgId: 'org_city_dy', cityName: '德阳市', category: 'MIDDLE', schoolOrgId: 'org_school_dy_wz', schoolName: '德阳市第五中学', gender: 'MALE', campusName: '本部', count: 18 },
+  { id: 'team_yb_rml', name: '宜宾人民路小学足球队', cityOrgId: 'org_city_yb', cityName: '宜宾市', category: 'PRIMARY', schoolOrgId: 'org_school_yb_rml', schoolName: '宜宾市人民路小学', gender: 'MALE', campusName: '本部', count: 14 },
+  { id: 'team_lz_sy', name: '泸州实验小学足球队', cityOrgId: 'org_city_lz', cityName: '泸州市', category: 'PRIMARY', schoolOrgId: 'org_school_lz_sy', schoolName: '泸州市实验小学', gender: 'FEMALE', campusName: '本部', count: 14 },
+  { id: 'team_cd_qz_g', name: '成都七中育才学校女子足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'MIDDLE', schoolOrgId: 'org_school_cd_qz', schoolName: '成都七中育才学校', gender: 'FEMALE', campusName: '汇源校区', count: 16 },
+  { id: 'team_cd_qz_b', name: '成都七中育才学校（汇源校区）男子足球队', cityOrgId: 'org_city_cd', cityName: '成都市', category: 'MIDDLE', schoolOrgId: 'org_school_cd_qz', schoolName: '成都七中育才学校', gender: 'MALE', campusName: '汇源校区', count: 17 },
 ]
 
 const teamCovers = [IMG.youth, IMG.match, IMG.training, IMG.stadium, IMG.crowd, IMG.ball, IMG.match, IMG.training, IMG.youth]
@@ -427,16 +400,15 @@ export const teams: Team[] = teamSeeds.map((t, i) => ({
   cityName: t.cityName,
   category: t.category,
   schoolName: t.schoolName,
+  campusName: t.campusName,
+  gender: t.gender,
   coachName: coachNames[i % coachNames.length],
-  intro:
-    t.category === 'UNIVERSITY'
-      ? `${t.schoolName}男子足球队长期坚持系统训练，多次参加省级大学生联赛，球队作风硬朗、攻守均衡。`
-      : `${t.schoolName}足球队坚持“以球育人”，将足球纳入校本课程，形成梯队培养体系，多次在市级联赛中取得优异成绩。`,
+  intro: `${t.schoolName}足球队坚持“以球育人”，将足球纳入校本课程，形成梯队培养体系，多次在市级联赛中取得优异成绩。`,
   flagUrl: teamCovers[i % teamCovers.length],
   emblemUrl: teamCovers[(i + 2) % teamCovers.length],
   groupPhotoUrl: teamCovers[(i + 4) % teamCovers.length],
   memberCount: t.count,
-  status: i === 3 ? 'PENDING' : 'APPROVED',
+  status: t.id === 'team_dy_wz' ? 'PENDING' : 'APPROVED',
   version: 1,
   createdAt: `2026-0${(i % 8) + 1}-18T10:00:00+08:00`,
 }))
@@ -562,34 +534,16 @@ export const enrollments: Enrollment[] = [
     playerCount: 20, version: 3, createdAt: '2026-10-09T09:40:00+08:00',
     updatedAt: '2026-10-15T10:10:00+08:00',
   },
-  {
-    id: 'enr_006', eventId: 'event_middle_2026', eventName: events[1].name,
-    groupId: 'group_middle_senior', groupName: '高中男子组', teamId: 'team_dy_wz',
-    teamName: '德阳五中足球队', subjectType: 'SCHOOL_TEAM', cityOrgId: 'org_city_dy',
-    cityName: '德阳市', status: 'DRAFT', submissionNo: 0,
-    contactName: '陈刚', maskedContactPhone: '138****3344', editable: true,
-    playerCount: 12, version: 2, createdAt: '2026-10-16T15:00:00+08:00',
-    updatedAt: '2026-10-18T09:30:00+08:00',
-  },
-  {
-    id: 'enr_007', eventId: 'event_university_2026', eventName: events[2].name,
-    groupId: 'group_university_men', groupName: '大学男子组', teamId: 'team_scu',
-    teamName: '四川大学男子足球队', subjectType: 'UNIVERSITY', cityOrgId: 'org_city_cd',
-    cityName: '成都市', status: 'APPROVED', submissionNo: 1,
-    contactName: '杨帆', maskedContactPhone: '136****5566', editable: false,
-    playerCount: 22, version: 4, createdAt: '2026-09-18T10:00:00+08:00',
-    updatedAt: '2026-09-30T14:00:00+08:00',
-  },
-  {
-    id: 'enr_008', eventId: 'event_university_2026', eventName: events[2].name,
-    groupId: 'group_university_men', groupName: '大学男子组', teamId: 'team_uestc',
-    teamName: '电子科技大学男子足球队', subjectType: 'UNIVERSITY', cityOrgId: 'org_city_cd',
-    cityName: '成都市', status: 'WITHDRAWN', submissionNo: 1,
-    contactName: '周斌', maskedContactPhone: '137****9900', editable: true,
-    playerCount: 20, version: 7, createdAt: '2026-09-19T11:20:00+08:00',
-    updatedAt: '2026-10-06T09:00:00+08:00',
-  },
 ]
+
+// 报送学校/校区由球队归属派生，避免种子数据逐条重复且与球队组织脱节。
+enrollments.forEach((e) => {
+  const team = teams.find((t) => t.id === e.teamId)
+  if (!team) return
+  e.schoolOrgId = team.orgId
+  e.schoolName = team.schoolName
+  e.campusName = team.campusName
+})
 
 export const rosterItems: RosterItem[] = []
 enrollments.forEach((e) => {
@@ -734,37 +688,6 @@ export const matches: Match[] = [
     published: true, resultPublished: false, scoreRevision: 0,
     referees: [], version: 1,
   },
-  {
-    id: 'match_006', eventId: 'event_university_2026', eventName: events[2].name,
-    groupId: 'group_university_men', groupName: '大学男子组',
-    homeTeamId: 'team_scu', awayTeamId: 'team_uestc',
-    homeTeamName: '四川大学', awayTeamName: '电子科技大学',
-    kickoffAt: '2026-10-17T19:30:00+08:00', venue: '四川大学望江校区体育场',
-    stage: '第 5 轮', status: 'FINISHED', homeScore: 2, awayScore: 2,
-    published: true, resultPublished: true, scoreRevision: 16,
-    referees: [{ name: '张宏', role: 'REFEREE', level: '国家级' }],
-    version: 20,
-  },
-  {
-    id: 'match_007', eventId: 'event_university_2026', eventName: events[2].name,
-    groupId: 'group_university_men', groupName: '大学男子组',
-    homeTeamId: 'team_swjtu', awayTeamId: 'team_scu',
-    homeTeamName: '西南交通大学', awayTeamName: '四川大学',
-    kickoffAt: '2026-10-22T19:00:00+08:00', venue: '西南交通大学犀浦校区体育场',
-    stage: '第 6 轮', status: 'SCHEDULED', homeScore: 0, awayScore: 0,
-    published: true, resultPublished: false, scoreRevision: 0,
-    referees: [], version: 1,
-  },
-  {
-    id: 'match_008', eventId: 'event_university_2026', eventName: events[2].name,
-    groupId: 'group_university_men', groupName: '大学男子组',
-    homeTeamId: 'team_uestc', awayTeamId: 'team_swjtu',
-    homeTeamName: '电子科技大学', awayTeamName: '西南交通大学',
-    kickoffAt: '2026-10-15T19:00:00+08:00', venue: '电子科技大学清水河校区体育场',
-    stage: '第 4 轮', status: 'CANCELLED', homeScore: 0, awayScore: 0,
-    published: true, resultPublished: false, scoreRevision: 0,
-    referees: [], version: 4,
-  },
 ]
 
 export const matchEvents: MatchEvent[] = [
@@ -837,15 +760,13 @@ export const matchDocuments: MatchDocument[] = [
 
 export const goalRanking: GoalRankingRow[] = [
   { rank: 1, athleteId: 'person_team_my_ns_009', athleteName: '郑博文', teamId: 'team_my_ns', teamName: '绵阳南山中学', goals: 9 },
-  { rank: 2, athleteId: 'person_team_scu_008', athleteName: '周俊杰', teamId: 'team_scu', teamName: '四川大学', goals: 8 },
-  { rank: 3, athleteId: 'person_team_cd_syxx_001', athleteName: '张子轩', teamId: 'team_cd_syxx', teamName: '成都市实验小学', goals: 7 },
-  { rank: 4, athleteId: 'person_team_cd_qz_010', athleteName: '吴梓涵', teamId: 'team_cd_qz', teamName: '成都七中育才学校', goals: 6 },
-  { rank: 5, athleteId: 'person_team_yb_rml_009', athleteName: '郑博文', teamId: 'team_yb_rml', teamName: '宜宾人民路小学', goals: 6 },
-  { rank: 6, athleteId: 'person_team_uestc_007', athleteName: '孙泽宇', teamId: 'team_uestc', teamName: '电子科技大学', goals: 5 },
-  { rank: 7, athleteId: 'person_team_dy_wz_011', athleteName: '冯奕辰', teamId: 'team_dy_wz', teamName: '德阳五中', goals: 5 },
-  { rank: 8, athleteId: 'person_team_swjtu_006', athleteName: '赵天佑', teamId: 'team_swjtu', teamName: '西南交通大学', goals: 4 },
-  { rank: 9, athleteId: 'person_team_lz_sy_003', athleteName: '陈欣然', teamId: 'team_lz_sy', teamName: '泸州实验小学', goals: 4 },
-  { rank: 10, athleteId: 'person_team_cd_syxx_007', athleteName: '孙泽宇', teamId: 'team_cd_syxx', teamName: '成都市实验小学', goals: 3 },
+  { rank: 2, athleteId: 'person_team_cd_syxx_001', athleteName: '张子轩', teamId: 'team_cd_syxx', teamName: '成都市实验小学', goals: 7 },
+  { rank: 3, athleteId: 'person_team_cd_qz_010', athleteName: '吴梓涵', teamId: 'team_cd_qz', teamName: '成都七中育才学校', goals: 6 },
+  { rank: 4, athleteId: 'person_team_yb_rml_009', athleteName: '郑博文', teamId: 'team_yb_rml', teamName: '宜宾人民路小学', goals: 6 },
+  { rank: 5, athleteId: 'person_team_dy_wz_011', athleteName: '冯奕辰', teamId: 'team_dy_wz', teamName: '德阳五中', goals: 5 },
+  { rank: 6, athleteId: 'person_team_lz_sy_003', athleteName: '陈欣然', teamId: 'team_lz_sy', teamName: '泸州实验小学', goals: 4 },
+  { rank: 7, athleteId: 'person_team_cd_syxx_007', athleteName: '孙泽宇', teamId: 'team_cd_syxx', teamName: '成都市实验小学', goals: 3 },
+  { rank: 8, athleteId: 'person_team_cd_qz_g_003', athleteName: '张若曦', teamId: 'team_cd_qz_g', teamName: '成都七中育才学校', goals: 3 },
 ]
 
 export const contents: Content[] = [
@@ -853,7 +774,7 @@ export const contents: Content[] = [
     id: 'content_news_001', contentType: 'NEWS', title: '2026年四川省青少年校园足球联赛正式开幕',
     summary: '10月18日上午，2026年四川省青少年校园足球联赛在成都开幕，全省32支小学队伍、28支中学队伍参加本届赛事。',
     bodyHtml:
-      '<p>10月18日上午，2026年四川省青少年校园足球联赛开幕式在成都市青羊区体育中心举行。省教育厅相关负责同志出席并宣布开幕。</p><p>本届联赛以“奔跑吧·少年”为主题，设置小学男子组、小学女子组、初中男子组、高中男子组四个组别，覆盖全省21个市州。赛事将持续至11月下旬。</p><p>开幕式后，东道主成都市实验小学与宜宾人民路小学进行了揭幕战。现场近千名师生和家长观赛，氛围热烈。</p>',
+      '<p>10月18日上午，2026年四川省青少年校园足球联赛开幕式在成都市青羊区体育中心举行。省教育厅相关负责同志出席并宣布开幕。</p><p>本届联赛以“奔跑吧·少年”为主题，设置小学男子组、小学女子组、初中男子组三个组别，覆盖全省21个市州。赛事将持续至11月下旬。</p><p>开幕式后，东道主成都市实验小学与宜宾人民路小学进行了揭幕战。现场近千名师生和家长观赛，氛围热烈。</p>',
     coverUrl: IMG.stadium, pinned: true, status: 'PUBLISHED',
     publishedAt: '2026-10-18T12:00:00+08:00', revision: 2, author: '赛事宣传组',
     viewCount: 3280, version: 3, createdAt: '2026-10-18T10:00:00+08:00',
@@ -878,7 +799,7 @@ export const contents: Content[] = [
   },
   {
     id: 'content_news_004', contentType: 'NEWS', title: '志愿者招募完成，200名青年志愿者服务赛事',
-    summary: '来自成都体育学院等高校的200名志愿者将承担竞赛服务、场地保障、媒体运行等工作。',
+    summary: '经过公开招募和培训，200名青年志愿者将承担竞赛服务、场地保障、媒体运行等工作。',
     bodyHtml:
       '<p>经过报名、面试和培训，本届联赛共招募志愿者200名。他们将在竞赛组织、场地器材、医疗保障、媒体服务等岗位提供志愿服务。</p><p>志愿者代表表示，将以饱满的热情和专业的态度服务好每一场比赛。</p>',
     coverUrl: IMG.ball, status: 'PUBLISHED',
@@ -889,7 +810,7 @@ export const contents: Content[] = [
     id: 'content_policy_001', contentType: 'POLICY', title: '2026年四川省青少年校园足球联赛竞赛规程',
     summary: '本届联赛竞赛办法、参赛资格、报名要求、录取名次与奖励办法。',
     bodyHtml:
-      '<h3>一、竞赛办法</h3><p>小学组、初中组采用分组循环加交叉淘汰赛制；高中组、高校组根据报名情况确定赛制。</p><h3>二、参赛资格</h3><p>参赛运动员须具有四川省正式学籍，且符合相应组别年龄要求。每名运动员只能代表一支球队参加同一组别比赛。</p><h3>三、报名要求</h3><p>各参赛队须在规定时间内通过赛事系统提交报名表、球员名单、学籍证明及盖章扫描件。报名截止后不再受理。</p><h3>四、录取名次</h3><p>各组别录取前八名，颁发奖杯、奖牌和证书。</p>',
+      '<h3>一、竞赛办法</h3><p>小学组、初中组采用分组循环加交叉淘汰赛制。</p><h3>二、参赛资格</h3><p>参赛运动员须具有四川省正式学籍，且符合相应组别年龄要求。每名运动员只能代表一支球队参加同一组别比赛。</p><h3>三、报名要求</h3><p>各参赛队须在规定时间内通过赛事系统提交报名表、球员名单、学籍证明及盖章扫描件。报名截止后不再受理。</p><h3>四、录取名次</h3><p>各组别录取前八名，颁发奖杯、奖牌和证书。</p>',
     policyDocumentNo: '川教体〔2026〕18号', policyEffectiveFrom: '2026-09-01',
     policyEffectiveTo: '2026-12-31', pinned: true, status: 'PUBLISHED',
     publishedAt: '2026-09-01T09:00:00+08:00', revision: 3, author: '省教育厅体卫艺处',
@@ -909,7 +830,7 @@ export const contents: Content[] = [
     id: 'content_policy_003', contentType: 'POLICY', title: '运动员参赛资格与年龄组别说明',
     summary: '各组别年龄区间、学籍要求、转学与借读运动员参赛规定。',
     bodyHtml:
-      '<p>小学组：2013年9月1日至2018年8月31日出生。初中组：2010年9月1日至2013年8月31日出生。高中组：2007年9月1日至2010年8月31日出生。</p><p>转学运动员须提供转学证明，且在原学校未参加本届赛事同一组别比赛。</p>',
+      '<p>小学组：2013年9月1日至2018年8月31日出生。初中组：2010年9月1日至2013年8月31日出生。</p><p>转学运动员须提供转学证明，且在原学校未参加本届赛事同一组别比赛。</p>',
     policyDocumentNo: '赛事指南〔2026〕05号', policyEffectiveFrom: '2026-09-10',
     policyEffectiveTo: '2026-11-30', status: 'PUBLISHED',
     publishedAt: '2026-09-10T10:00:00+08:00', revision: 1, author: '资格审查组',
@@ -935,15 +856,6 @@ export const contents: Content[] = [
     viewCount: 2210, version: 1, createdAt: '2026-10-19T12:00:00+08:00',
   },
   {
-    id: 'content_highlight_002', contentType: 'HIGHLIGHT', title: '精彩瞬间｜大学组第 5 轮：川大 2:2 电子科大',
-    summary: '双方四粒进球，比赛最后时刻绝平，现场气氛火爆。',
-    bodyHtml:
-      '<p>四川大学与电子科技大学的比赛跌宕起伏。电子科大两度领先，川大在补时阶段由 10 号球员头球绝平，最终 2:2 握手言和。</p>',
-    coverUrl: IMG.match, status: 'PUBLISHED',
-    publishedAt: '2026-10-18T09:00:00+08:00', revision: 1, author: '赛事宣传组',
-    viewCount: 1740, version: 1, createdAt: '2026-10-18T08:00:00+08:00',
-  },
-  {
     id: 'content_lineup_001', contentType: 'BEST_LINEUP', title: '2026小学男子组第 1 轮最佳阵容',
     summary: '门将、后卫、中场、前锋各位置表现最突出的球员。',
     bodyHtml:
@@ -953,17 +865,8 @@ export const contents: Content[] = [
     viewCount: 980, version: 1, createdAt: '2026-10-19T19:30:00+08:00',
   },
   {
-    id: 'content_lineup_002', contentType: 'BEST_LINEUP', title: '2026大学男子组第 5 轮最佳阵容',
-    summary: '川大、电子科大、西南交大球员领衔本轮最佳阵容。',
-    bodyHtml:
-      '<p>门将：许文昊（四川大学）；后卫：邓凯、冯子豪、曾俊熙；中场：彭宇轩、肖景行；前锋：唐子杰、罗嘉瑞。</p>',
-    coverUrl: IMG.coach, status: 'PUBLISHED',
-    publishedAt: '2026-10-18T20:00:00+08:00', revision: 1, author: '技术分析组',
-    viewCount: 760, version: 1, createdAt: '2026-10-18T19:30:00+08:00',
-  },
-  {
     id: 'content_news_draft', contentType: 'NEWS', title: '赛事第二周赛程预告（草稿）',
-    summary: '第二周共安排 24 场比赛，涉及小学组、初中组和大学组。',
+    summary: '第二周共安排 24 场比赛，涉及小学组和初中组。',
     bodyHtml: '<p>待补充具体赛程与场地信息。</p>', status: 'DRAFT',
     revision: 1, author: '竞赛部', viewCount: 0, version: 1,
     createdAt: '2026-10-19T08:00:00+08:00',
@@ -980,8 +883,8 @@ export const portalResources: PortalResource[] = [
     imageUrl: IMG.match, targetContentId: 'content_highlight_001', sortOrder: 2, enabled: true, version: 1,
   },
   {
-    id: 'res_003', resourceType: 'CAROUSEL', title: '大学组焦点战',
-    imageUrl: IMG.crowd, targetContentId: 'content_highlight_002', sortOrder: 3, enabled: true, version: 1,
+    id: 'res_003', resourceType: 'CAROUSEL', title: '首轮最佳阵容',
+    imageUrl: IMG.team, targetContentId: 'content_lineup_001', sortOrder: 3, enabled: true, version: 1,
   },
   {
     id: 'res_004', resourceType: 'NEWS_LINK_IMAGE', title: '报名材料准备指南',
@@ -995,18 +898,12 @@ export const portalResources: PortalResource[] = [
     id: 'res_006', resourceType: 'PARTNER', title: '四川校园足球',
     targetUrl: 'https://example.com/partner/2', sortOrder: 2, enabled: true, version: 1,
   },
-  {
-    id: 'res_007', resourceType: 'PARTNER', title: '成都体育学院',
-    targetUrl: 'https://example.com/partner/3', sortOrder: 3, enabled: false, version: 1,
-  },
 ]
 
 export const publications: Publication[] = [
   { id: 'pub_001', targetType: 'ENROLLMENT', targetId: 'enr_002', targetName: '宜宾人民路小学足球队', teamName: '宜宾人民路小学足球队', eventId: 'event_primary_2026', groupId: 'group_primary_boys', groupName: '小学男子组', cityName: '宜宾市', active: true, publishedAt: '2026-10-11T12:00:00+08:00', version: 1 },
-  { id: 'pub_002', targetType: 'ENROLLMENT', targetId: 'enr_007', targetName: '四川大学男子足球队', teamName: '四川大学男子足球队', eventId: 'event_university_2026', groupId: 'group_university_men', groupName: '大学男子组', cityName: '成都市', active: true, publishedAt: '2026-09-30T15:00:00+08:00', version: 1 },
   { id: 'pub_003', targetType: 'ATHLETE', targetId: 'person_team_cd_syxx_001', targetName: '张子轩', teamName: '成都市实验小学', groupName: '小学男子组', cityName: '成都市', active: true, publishedAt: '2026-10-12T09:00:00+08:00', version: 1 },
   { id: 'pub_004', targetType: 'ATHLETE', targetId: 'person_team_my_ns_009', targetName: '郑博文', teamName: '绵阳南山中学', groupName: '初中男子组', cityName: '绵阳市', active: true, publishedAt: '2026-10-10T10:00:00+08:00', version: 1 },
-  { id: 'pub_005', targetType: 'ATHLETE', targetId: 'person_team_scu_008', targetName: '周俊杰', teamName: '四川大学', groupName: '大学男子组', cityName: '成都市', active: true, publishedAt: '2026-10-09T10:00:00+08:00', version: 1 },
   { id: 'pub_006', targetType: 'COACH', targetId: 'person_coach_001', targetName: '李建国', teamName: '成都市实验小学', groupName: '小学男子组', cityName: '成都市', active: true, publishedAt: '2026-10-08T10:00:00+08:00', version: 1 },
   { id: 'pub_007', targetType: 'COACH', targetId: 'person_coach_002', targetName: '王志强', teamName: '成都七中育才学校', groupName: '初中男子组', cityName: '成都市', active: true, publishedAt: '2026-10-07T10:00:00+08:00', version: 1 },
   { id: 'pub_008', targetType: 'ATHLETE', targetId: 'person_team_cd_syxx_003', targetName: '王浩然', teamName: '成都市实验小学', groupName: '小学男子组', cityName: '成都市', active: false, publishedAt: '2026-10-01T10:00:00+08:00', cancelledAt: '2026-10-06T10:00:00+08:00', version: 2 },
@@ -1034,17 +931,6 @@ export const selectionRules: SelectionRule[] = [
       { key: 'fitness', label: '体能素质', maxScore: 100, weight: 0.3 },
       { key: 'awareness', label: '战术意识', maxScore: 100, weight: 0.2 },
       { key: 'attitude', label: '比赛作风', maxScore: 100, weight: 0.1 },
-    ],
-    topN: 10, tiePolicy: 'KEEP_TIES', confirmed: true, version: 1,
-  },
-  {
-    id: 'rule_university_pre_2026', eventId: 'event_university_2026', eventName: events[2].name,
-    groupId: 'group_university_men', groupName: '大学男子组', round: 'PRELIMINARY',
-    dimensions: [
-      { key: 'skill', label: '技术能力', maxScore: 100, weight: 0.35 },
-      { key: 'fitness', label: '体能素质', maxScore: 100, weight: 0.25 },
-      { key: 'awareness', label: '战术意识', maxScore: 100, weight: 0.25 },
-      { key: 'attitude', label: '比赛作风', maxScore: 100, weight: 0.15 },
     ],
     topN: 10, tiePolicy: 'KEEP_TIES', confirmed: true, version: 1,
   },
@@ -1088,7 +974,6 @@ function buildScores(rule: SelectionRule, teamIds: string[], start: number): Sel
 export const selectionScores: SelectionScore[] = [
   ...buildScores(selectionRules[0], ['team_cd_syxx', 'team_yb_rml', 'team_lz_sy'], 3),
   ...buildScores(selectionRules[1], ['team_cd_qz', 'team_my_ns', 'team_dy_wz'], 5),
-  ...buildScores(selectionRules[2], ['team_scu', 'team_uestc', 'team_swjtu'], 7),
 ]
 
 export const identityChecks: IdentityCheck[] = [
@@ -1145,17 +1030,17 @@ export const messages: Message[] = [
     version: 1, createdAt: '2026-10-12T09:00:00+08:00',
   },
   {
-    id: 'msg_005', title: '报名被退回，请补充材料', body: '「绵阳南山中学·高中男子组」报名单缺少近三个月体检证明，请在被退回后 3 日内补交并重新提交。',
+    id: 'msg_005', title: '报名被退回，请补充材料', body: '「绵阳南山中学·初中男子组」报名单缺少近三个月体检证明，请在被退回后 3 日内补交并重新提交。',
     businessType: 'REVIEW', businessId: 'enr_004', read: false, version: 1,
     createdAt: '2026-10-18T16:40:00+08:00',
   },
   {
-    id: 'msg_006', title: '报名审核通过', body: '您负责的「成都市第七中学·高中男子组」报名已通过市级初审，等待省级终审。',
+    id: 'msg_006', title: '报名审核通过', body: '您负责的「成都市第七中学·初中男子组」报名已通过市级初审，等待省级终审。',
     businessType: 'ENROLLMENT', businessId: 'enr_002', read: true, readAt: '2026-10-17T11:10:00+08:00',
     version: 1, createdAt: '2026-10-16T18:20:00+08:00',
   },
   {
-    id: 'msg_007', title: '比赛场地变更', body: '原定于成都体育学院进行的「成都市实验小学 vs 绵阳市实验小学」调整至高新区足球公园 2 号场，开球时间不变。',
+    id: 'msg_007', title: '比赛场地变更', body: '原定于青羊区体育中心进行的「成都市实验小学 vs 宜宾人民路小学」调整至高新区足球公园 2 号场，开球时间不变。',
     businessType: 'MATCH', businessId: 'match_001', read: false, version: 1,
     createdAt: '2026-10-18T08:15:00+08:00',
   },
@@ -1245,7 +1130,7 @@ export const affiliations: MyAffiliation[] = [
 ]
 
 export const orgOptions = organizations
-  .filter((o) => o.orgType === 'CITY' || o.orgType === 'UNIVERSITY' || o.orgType === 'SCHOOL')
+  .filter((o) => o.orgType === 'CITY' || o.orgType === 'SCHOOL')
   .map((o) => ({ value: o.id, label: o.name }))
 
 export { IMG }

@@ -14,7 +14,7 @@ const page = ref(1)
 const pageSize = ref(10)
 const allOrgs = ref<Organization[]>([])
 const teams = ref<Team[]>([])
-const activeType = ref<'SCHOOL' | 'UNIVERSITY' | 'TEAM'>('SCHOOL')
+const activeType = ref<'SCHOOL' | 'TEAM'>('SCHOOL')
 const keyword = ref('')
 
 const dialogVisible = ref(false)
@@ -28,15 +28,13 @@ const form = reactive({
   enabled: true,
 })
 
-const typeTabs: { value: 'SCHOOL' | 'UNIVERSITY' | 'TEAM'; label: string }[] = [
+const typeTabs: { value: 'SCHOOL' | 'TEAM'; label: string }[] = [
   { value: 'SCHOOL', label: '中小学校' },
-  { value: 'UNIVERSITY', label: '高等院校' },
   { value: 'TEAM', label: '独立球队' },
 ]
 
 const typeLabel: Record<string, string> = {
   SCHOOL: '中小学校',
-  UNIVERSITY: '高等院校',
   TEAM: '独立球队',
   CITY: '市州',
   PROVINCE: '省级',

@@ -8,6 +8,8 @@ import { useAppStore } from '../stores/app'
 import { ROLE_MENU_LABELS } from '../config/menus'
 import { meApi } from '../api'
 import { MOCK_ENABLED } from '../api/http'
+import { homeForRoles, workspaceLabelForRoles } from '../utils/roles'
+import { openLoginDialog } from '../composables/useLoginDialog'
 import { DEMO_ACCOUNTS } from '../mock/data'
 
 const route = useRoute()
@@ -37,6 +39,10 @@ const currentRoleLabel = computed(() => {
   const labels = auth.roles.map((role) => ROLE_MENU_LABELS[role])
   return labels.join(' / ') || '访客'
 })
+
+const pageTitle = computed(() =>
+  route.name === 'dashboard' ? workspaceLabelForRoles(auth.roles) : String(route.meta.title || ''),
+)
 
 const demoAccounts = computed(() =>
   DEMO_ACCOUNTS.map((demo) => ({
@@ -96,7 +102,8 @@ async function submitPassword() {
     ElMessage.success('密码已更新，请使用新密码登录')
     passwordVisible.value = false
     await auth.logout()
-    router.push('/login')
+    openLoginDialog()
+    router.push('/')
   } catch {
     // 拦截器提示
   } finally {
@@ -140,7 +147,7 @@ async function switchAccount(username: string) {
     await auth.logout()
     await auth.login(demo.username, demo.password)
     ElMessage.success(`已切换为${ROLE_MENU_LABELS[demo.role]}`)
-    await router.push('/console/dashboard')
+    await router.push(homeForRoles(auth.roles))
   } catch {
     // 取消或登录失败
   }
@@ -154,7 +161,8 @@ async function handleCommand(command: string) {
   if (command === 'logout') {
     await auth.logout()
     ElMessage.success('已安全退出')
-    router.push('/login')
+    openLoginDialog()
+    router.push('/')
     return
   }
   if (command === 'portal') {
@@ -166,7 +174,7 @@ async function handleCommand(command: string) {
     return
   }
   if (command === 'profile') {
-    router.push(auth.roles.includes('ATHLETE') || auth.roles.includes('COACH') ? '/console/profile' : '/console/dashboard')
+    router.push(auth.roles.includes('ATHLETE') || auth.roles.includes('COACH') ? '/console/profile' : homeForRoles(auth.roles))
   }
 }
 </script>
@@ -247,7 +255,7 @@ async function handleCommand(command: string) {
         <div class="crumb">
           <span>{{ sectionTitle }}</span>
           <el-icon :size="12"><ArrowRight /></el-icon>
-          <strong>{{ route.meta.title }}</strong>
+          <strong>{{ pageTitle }}</strong>
         </div>
 
         <div class="top-actions">
@@ -498,17 +506,6 @@ async function handleCommand(command: string) {
   color: #fff;
   background: rgba(255, 255, 255, 0.09);
   font-weight: 600;
-}
-
-.side-menu :deep(.el-menu-item.is-active)::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 9px;
-  bottom: 9px;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--lime);
 }
 
 .side-menu :deep(.el-menu-item.is-active .el-icon) {

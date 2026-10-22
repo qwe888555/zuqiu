@@ -1,18 +1,27 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { enrollmentApi, eventApi } from '../../api'
 import type { Enrollment, Event, EventGroup, PrecheckIssue } from '../../api/types'
-import { subjectTypeLabel } from '../../config/labels'
+import { useAuthStore } from '../../stores/auth'
+import { canEnroll } from '../../utils/roles'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const router = useRouter()
+const auth = useAuthStore()
+const canReport = computed(() => canEnroll(auth.roles))
+const description = computed(() => {
+  if (auth.roles.includes('UNIVERSITY')) return '本校报名（含分校区）。学校是报送主体，草稿即占用学校名额，提交后进入市州初审、省级终审。'
+  if (auth.roles.includes('TEAM')) return '报名由学校端统一提交，本页仅查看本队报名进度；名单与材料请在球队管理中维护。'
+  if (auth.roles.includes('CITY')) return '本市学校报名清单，仅做初审、统计与导出，不代学校填报。'
+  return '全部学校报名数据，管理员可审核与配置名额，但不代替学校报送。'
+})
 const loading = ref(false)
 const submitting = ref('')
 const rows = ref<Enrollment[]>([])
@@ -62,7 +71,8 @@ async function load() {
 
 async function loadEvents() {
   try {
-    const res = await eventApi.available({ page: 1, pageSize: 100 })
+    // 列表筛选需要覆盖已关闭报名的历史赛事，因此使用全量赛事而非“可报名赛事”。
+    const res = await eventApi.list({ page: 1, pageSize: 100 })
     events.value = res.items
   } catch {
     events.value = []
@@ -75,7 +85,7 @@ async function loadGroups(eventId: string) {
     return
   }
   try {
-    groups.value = await eventApi.availableGroups(eventId)
+    groups.value = (await eventApi.groups(eventId)).items
   } catch {
     groups.value = []
   }
@@ -111,7 +121,11 @@ function goDetail(row: Enrollment) {
 }
 
 function canEdit(row: Enrollment) {
-  return row.status === 'DRAFT' || row.status === 'REJECTED' || row.status === 'WITHDRAWN'
+  return canReport.value && (row.status === 'DRAFT' || row.status === 'REJECTED' || row.status === 'WITHDRAWN')
+}
+
+function schoolLine(row: Enrollment): string {
+  return `${row.schoolName || '—'} · ${row.campusName || '本部'}`
 }
 
 async function handleSubmit(row: Enrollment) {
@@ -164,11 +178,11 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="报名管理"
-      description="管理参赛报名单、球员名单与审核材料。提交前系统会自动预检，通过后进入审核流程。"
+      :description="description"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="goCreate">新建报名</el-button>
+        <el-button v-if="canReport" type="primary" :icon="Plus" @click="goCreate">新建报名</el-button>
       </template>
     </PageHeader>
 
@@ -208,7 +222,7 @@ onMounted(() => {
               <span class="team-cell__avatar">{{ row.teamName.slice(0, 1) }}</span>
               <div>
                 <strong>{{ row.teamName }}</strong>
-                <small>{{ subjectTypeLabel(row.subjectType) }}</small>
+                <small>{{ schoolLine(row) }}</small>
               </div>
             </div>
           </template>
@@ -255,7 +269,7 @@ onMounted(() => {
               提交
             </el-button>
             <el-button
-              v-if="row.status === 'PENDING_CITY_REVIEW' || row.status === 'PENDING_PROVINCE_REVIEW'"
+              v-if="canReport && (row.status === 'PENDING_CITY_REVIEW' || row.status === 'PENDING_PROVINCE_REVIEW')"
               link
               type="warning"
               @click="handleWithdraw(row)"
@@ -264,6 +278,12 @@ onMounted(() => {
             </el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="暂无报名记录">
+            <el-button v-if="canReport" type="primary" @click="goCreate">新建报名</el-button>
+            <span v-else class="muted">报名由学校端统一提交，本账号仅查看权限范围内的记录。</span>
+          </el-empty>
+        </template>
       </el-table>
 
       <PaginationBar

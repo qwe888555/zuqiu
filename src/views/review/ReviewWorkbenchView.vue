@@ -6,7 +6,6 @@ import { Check, Close, Download, Refresh, Search, Stamp } from '@element-plus/ic
 import { enrollmentApi, eventApi, fileApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
 import type { Enrollment, EnrollmentAttachment, Event, EventGroup, ReviewRecord } from '../../api/types'
-import { subjectTypeLabel } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -20,7 +19,11 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const counts = reactive({ city: 0, province: 0, approved: 0, rejected: 0 })
-const activeStatus = ref(auth.roles.includes('CITY') ? 'PENDING_CITY_REVIEW' : 'PENDING_PROVINCE_REVIEW')
+const isCity = computed(() => auth.roles.includes('CITY'))
+const isAdmin = computed(() => auth.roles.includes('ADMIN'))
+const activeStatus = ref(
+  auth.roles.includes('PROVINCE_REVIEWER') ? 'PENDING_PROVINCE_REVIEW' : 'PENDING_CITY_REVIEW',
+)
 const keyword = ref('')
 const events = ref<Event[]>([])
 const groups = ref<EventGroup[]>([])
@@ -31,15 +34,34 @@ const detailLoading = ref(false)
 const detail = ref<EnrollmentDetail | null>(null)
 const reviews = ref<ReviewRecord[]>([])
 const reviewing = ref(false)
+const selectedRows = ref<Enrollment[]>([])
+const batchLoading = ref(false)
+const tableRef = ref()
+
+// 只有待审核状态的页签支持批量操作
+const canBatch = computed(
+  () => activeStatus.value === 'PENDING_CITY_REVIEW' || activeStatus.value === 'PENDING_PROVINCE_REVIEW',
+)
 
 const stages = computed(() => {
-  if (auth.roles.includes('CITY')) {
-    return [{ value: 'PENDING_CITY_REVIEW', label: '待市州初审' }]
+  // 市州只做初审，省级只做终审；管理员可代为处理任一阶段。
+  if (isAdmin.value) {
+    return [
+      { value: 'PENDING_CITY_REVIEW', label: '待市州初审' },
+      { value: 'PENDING_PROVINCE_REVIEW', label: '待省级终审' },
+    ]
   }
-  return [
-    { value: 'PENDING_CITY_REVIEW', label: '待市州初审' },
-    { value: 'PENDING_PROVINCE_REVIEW', label: '待省级终审' },
-  ]
+  if (isCity.value) return [{ value: 'PENDING_CITY_REVIEW', label: '待市州初审' }]
+  return [{ value: 'PENDING_PROVINCE_REVIEW', label: '待省级终审' }]
+})
+
+const canActOnDetail = computed(() => {
+  if (!detail.value) return false
+  if (isAdmin.value) {
+    return detail.value.status === 'PENDING_CITY_REVIEW' || detail.value.status === 'PENDING_PROVINCE_REVIEW'
+  }
+  if (isCity.value) return detail.value.status === 'PENDING_CITY_REVIEW'
+  return detail.value.status === 'PENDING_PROVINCE_REVIEW'
 })
 
 const tabs = computed(() => [
@@ -125,7 +147,7 @@ async function approve() {
 async function reject() {
   if (!detail.value) return
   try {
-    const { value } = await ElMessageBox.prompt('请填写具体驳回原因，参赛单位将收到通知并可修改后重新提交。', '驳回报名', {
+    const { value } = await ElMessageBox.prompt('请填写具体驳回原因，报送学校将收到通知并可修改后重新提交。', '驳回报名', {
       confirmButtonText: '确认驳回',
       cancelButtonText: '取消',
       inputPlaceholder: '例如：盖章报名表缺少学校公章',
@@ -133,7 +155,7 @@ async function reject() {
     })
     reviewing.value = true
     await enrollmentApi.review(detail.value.id, { decision: 'REJECT', reason: value })
-    ElMessage.success('已驳回并通知参赛单位')
+    ElMessage.success('已驳回并通知报送学校')
     drawerVisible.value = false
     await Promise.all([load(), loadCounts()])
   } catch {
@@ -164,7 +186,8 @@ async function downloadPlayers() {
 
 async function loadEvents() {
   try {
-    const res = await eventApi.available({ page: 1, pageSize: 100 })
+    // 审核需覆盖历史赛事，不能只列当前开放报名的赛事。
+    const res = await eventApi.list({ page: 1, pageSize: 100 })
     events.value = res.items
   } catch {
     events.value = []
@@ -177,7 +200,7 @@ async function loadGroups(eventId: string) {
     return
   }
   try {
-    groups.value = await eventApi.availableGroups(eventId)
+    groups.value = (await eventApi.groups(eventId)).items
   } catch {
     groups.value = []
   }
@@ -192,7 +215,92 @@ function changeEvent(eventId: string) {
 function switchStatus(value: string) {
   activeStatus.value = value
   page.value = 1
+  selectedRows.value = []
+  tableRef.value?.clearSelection()
   load()
+}
+
+function handleSelectionChange(rows: Enrollment[]) {
+  selectedRows.value = rows
+}
+
+function clearSelection() {
+  selectedRows.value = []
+  tableRef.value?.clearSelection()
+}
+
+async function batchApprove() {
+  if (!selectedRows.value.length) return ElMessage.warning('请先勾选报名单')
+  const isCityStage = activeStatus.value === 'PENDING_CITY_REVIEW'
+  try {
+    await ElMessageBox.confirm(
+      `确认批量通过选中的 ${selectedRows.value.length} 条报名？${
+        isCityStage ? '通过后进入省级终审环节。' : '通过后报名状态将变为「已通过」。'
+      }`,
+      '批量通过',
+      { confirmButtonText: '确认通过', cancelButtonText: '取消', type: 'success' },
+    )
+    batchLoading.value = true
+    let successCount = 0
+    let failCount = 0
+    for (const row of selectedRows.value) {
+      try {
+        await enrollmentApi.review(row.id, { decision: 'APPROVE' })
+        successCount += 1
+      } catch {
+        failCount += 1
+      }
+    }
+    if (failCount) {
+      ElMessage.warning(`通过 ${successCount} 条，失败 ${failCount} 条`)
+    } else {
+      ElMessage.success(`已批量通过 ${successCount} 条报名`)
+    }
+    clearSelection()
+    await Promise.all([load(), loadCounts()])
+  } catch {
+    // 取消
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+async function batchReject() {
+  if (!selectedRows.value.length) return ElMessage.warning('请先勾选报名单')
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `将对选中的 ${selectedRows.value.length} 条报名使用相同的驳回原因，报送学校将收到通知。`,
+      '批量驳回',
+      {
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：盖章报名表缺少学校公章',
+        inputValidator: (val) => (val && val.trim().length >= 6 ? true : '请至少填写 6 个字符'),
+      },
+    )
+    batchLoading.value = true
+    let successCount = 0
+    let failCount = 0
+    for (const row of selectedRows.value) {
+      try {
+        await enrollmentApi.review(row.id, { decision: 'REJECT', reason: value })
+        successCount += 1
+      } catch {
+        failCount += 1
+      }
+    }
+    if (failCount) {
+      ElMessage.warning(`驳回 ${successCount} 条，失败 ${failCount} 条`)
+    } else {
+      ElMessage.success(`已批量驳回 ${successCount} 条报名`)
+    }
+    clearSelection()
+    await Promise.all([load(), loadCounts()])
+  } catch {
+    // 取消
+  } finally {
+    batchLoading.value = false
+  }
 }
 
 function search() {
@@ -219,10 +327,20 @@ onMounted(() => {
     </PageHeader>
 
     <div class="stat-grid">
-      <StatCard label="待市州初审" :value="counts.city" hint="学校球队报名" :icon="Stamp" tone="amber" />
-      <StatCard label="待省级终审" :value="counts.province" hint="已通过市州初审" :icon="Stamp" tone="green" />
+      <template v-if="isCity">
+        <StatCard label="待市州初审" :value="counts.city" hint="本市待处理报名" :icon="Stamp" tone="amber" />
+        <StatCard label="已转省级" :value="counts.province" hint="等待省级终审" :icon="Stamp" tone="green" />
+      </template>
+      <template v-else-if="isAdmin">
+        <StatCard label="待市州初审" :value="counts.city" hint="学校球队报名" :icon="Stamp" tone="amber" />
+        <StatCard label="待省级终审" :value="counts.province" hint="已通过市州初审" :icon="Stamp" tone="green" />
+      </template>
+      <template v-else>
+        <StatCard label="待省级终审" :value="counts.province" hint="已通过市州初审" :icon="Stamp" tone="green" />
+        <StatCard label="市州初审中" :value="counts.city" hint="尚未进入终审" :icon="Stamp" tone="amber" />
+      </template>
       <StatCard label="累计通过" :value="counts.approved" hint="当前范围内" :icon="Check" tone="lime" />
-      <StatCard label="累计驳回" :value="counts.rejected" hint="需参赛单位整改" :icon="Close" tone="blue" />
+      <StatCard label="累计驳回" :value="counts.rejected" hint="需报送学校整改" :icon="Close" tone="blue" />
     </div>
 
     <section class="page-card">
@@ -265,14 +383,26 @@ onMounted(() => {
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="rows" style="width: 100%">
-        <el-table-column label="参赛球队" min-width="210">
+      <div v-if="canBatch && selectedRows.length" class="batch-bar">
+        <span class="batch-bar__info">已选 <strong>{{ selectedRows.length }}</strong> 条</span>
+        <el-button size="small" type="success" :icon="Check" :loading="batchLoading" @click="batchApprove">
+          批量通过
+        </el-button>
+        <el-button size="small" type="danger" plain :icon="Close" :loading="batchLoading" @click="batchReject">
+          批量驳回
+        </el-button>
+        <el-button size="small" text @click="clearSelection">清空选择</el-button>
+      </div>
+
+      <el-table ref="tableRef" v-loading="loading" :data="rows" style="width: 100%" @selection-change="handleSelectionChange">
+        <el-table-column v-if="canBatch" type="selection" width="45" />
+        <el-table-column label="参赛球队 / 报送学校" min-width="250">
           <template #default="{ row }">
             <div class="team-cell">
               <span class="team-cell__avatar">{{ row.teamName.slice(0, 1) }}</span>
               <div>
                 <strong>{{ row.teamName }}</strong>
-                <small>提交 {{ row.submissionNo }} 次</small>
+                <small>{{ row.schoolName || '—' }} · {{ row.campusName || '本部' }} · 提交 {{ row.submissionNo }} 次</small>
               </div>
             </div>
           </template>
@@ -328,7 +458,10 @@ onMounted(() => {
             <div>
               <span class="drawer-head__eyebrow">审核 · {{ currentStageLabel }}</span>
               <h2>{{ detail.teamName }}</h2>
-              <p>{{ detail.eventName }} · {{ detail.groupName }} · {{ detail.cityName }}</p>
+              <p>
+                {{ detail.schoolName || detail.teamName }} · {{ detail.campusName || '本部' }} ·
+                {{ detail.eventName }} · {{ detail.groupName }} · {{ detail.cityName }}
+              </p>
             </div>
             <StatusTag :status="detail.status" kind="enrollment" size="default" />
           </header>
@@ -336,7 +469,9 @@ onMounted(() => {
           <section class="drawer-section">
             <h3>报名信息</h3>
             <div class="drawer-grid">
-              <div><span>参赛主体</span><strong>{{ subjectTypeLabel(detail.subjectType) }}</strong></div>
+              <div><span>报送主体</span><strong>学校报送</strong></div>
+              <div><span>参赛学校</span><strong>{{ detail.schoolName || '—' }}</strong></div>
+              <div><span>校区 / 分校</span><strong>{{ detail.campusName || '本部' }}</strong></div>
               <div><span>联系人</span><strong>{{ detail.contactName }}</strong></div>
               <div><span>联系电话</span><strong>{{ detail.maskedContactPhone || '—' }}</strong></div>
               <div><span>球员人数</span><strong class="num">{{ detail.playerCount }}</strong></div>
@@ -389,7 +524,7 @@ onMounted(() => {
             </div>
           </section>
 
-          <footer v-if="detail.status === 'PENDING_CITY_REVIEW' || detail.status === 'PENDING_PROVINCE_REVIEW'" class="drawer-foot">
+          <footer v-if="canActOnDetail" class="drawer-foot">
             <el-button :icon="Close" type="danger" plain :loading="reviewing" @click="reject">驳回</el-button>
             <el-button :icon="Check" type="success" :loading="reviewing" @click="approve">
               {{ detail.status === 'PENDING_CITY_REVIEW' ? '通过并提交终审' : '终审通过' }}
@@ -409,6 +544,29 @@ onMounted(() => {
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 16px;
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 9px 14px;
+  border-radius: 9px;
+  background: var(--brand-50);
+  border: 1px solid var(--brand-100, #d6e7dd);
+}
+
+.batch-bar__info {
+  font-size: 11.5px;
+  color: var(--ink-500);
+  margin-right: auto;
+}
+
+.batch-bar__info strong {
+  color: var(--brand-700);
+  font-weight: 700;
+  margin: 0 2px;
 }
 
 .tabs {

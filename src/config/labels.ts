@@ -2,8 +2,9 @@ import type { CoachCategory, GroupCategory, RoleCode, SubjectType } from '../api
 
 /** 各端完整名称：用于登录页、账号管理等需要说明角色归属的场景 */
 export const ROLE_LABELS: Record<RoleCode, string> = {
-  TEAM: '中小学球队端',
-  UNIVERSITY: '高校端',
+  TEAM: '球队端',
+  // 接口沿用 UNIVERSITY 编码；前端统一按“学校端”展示。
+  UNIVERSITY: '学校端',
   CITY: '市州审核端',
   PROVINCE_REVIEWER: '省级审核端',
   ATHLETE: '运动员',
@@ -14,8 +15,8 @@ export const ROLE_LABELS: Record<RoleCode, string> = {
 
 /** 控制台内的简称：用于顶栏身份、权限矩阵等空间有限的场景 */
 export const ROLE_MENU_LABELS: Record<RoleCode, string> = {
-  TEAM: '学校球队',
-  UNIVERSITY: '高校',
+  TEAM: '球队管理员',
+  UNIVERSITY: '学校管理员',
   CITY: '市州管理员',
   PROVINCE_REVIEWER: '省级审核员',
   ATHLETE: '运动员',
@@ -26,14 +27,12 @@ export const ROLE_MENU_LABELS: Record<RoleCode, string> = {
 
 export const CATEGORY_LABELS: Record<GroupCategory, string> = {
   PRIMARY: '小学',
-  MIDDLE: '初中',
-  UNIVERSITY: '大学',
+  MIDDLE: '中学',
 }
 
 export const CATEGORY_GROUP_LABELS: Record<GroupCategory, string> = {
   PRIMARY: '小学组',
-  MIDDLE: '初中组',
-  UNIVERSITY: '大学组',
+  MIDDLE: '中学组',
 }
 
 export const COACH_CATEGORY_LABELS: Record<CoachCategory, string> = {
@@ -49,9 +48,8 @@ export function coachCategoryLabel(category?: CoachCategory | string): string {
 }
 
 export const SUBJECT_TYPE_LABELS: Record<SubjectType, string> = {
-  SCHOOL_TEAM: '学校球队',
-  UNIVERSITY: '高校',
-  CITY: '市州代报',
+  SCHOOL_TEAM: '学校报送',
+  CITY: '历史市州代报',
 }
 
 export function roleLabel(role: RoleCode | string): string {

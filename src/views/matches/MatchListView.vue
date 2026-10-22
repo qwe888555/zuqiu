@@ -210,8 +210,12 @@ onMounted(() => {
 <template>
   <div class="page">
     <PageHeader
-      title="比赛管理"
-      description="查看赛程与赛果。记录员进入记录台提交进球、判罚、换人事件，并维护图文直播。"
+      :title="canManage ? '比赛管理' : '赛程与比分'"
+      :description="
+        canManage
+          ? '查看赛程与赛果。记录员进入记录台提交进球、判罚、换人事件，并维护图文直播。'
+          : '查看本赛季赛程、对阵与已发布赛果；比赛记录由赛事记录员现场完成。'
+      "
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -283,7 +287,13 @@ onMounted(() => {
               记录台
             </el-button>
             <el-button v-if="canManage" link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="primary" @click="router.push(`/matches/${row.id}`)">门户预览</el-button>
+            <el-button
+              link
+              type="primary"
+              @click="router.push({ name: 'portal-match-detail', params: { id: row.id }, query: { preview: '1' } })"
+            >
+              门户预览
+            </el-button>
             <el-button v-if="canPublish" link :type="row.published ? 'warning' : 'success'" @click="togglePublish(row)">
               {{ row.published ? '取消发布' : '发布' }}
             </el-button>
@@ -431,7 +441,6 @@ onMounted(() => {
   gap: 14px;
   padding: 16px 20px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--brand-700);
   border-radius: var(--radius-lg);
   background: #fff;
   color: var(--ink-900);

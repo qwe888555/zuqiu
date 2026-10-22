@@ -15,7 +15,7 @@ const exporting = ref<'xlsx' | 'zip' | ''>('')
 const events = ref<Event[]>([])
 const rows = ref<StatRow[]>([])
 const eventId = ref('')
-const dimension = ref<'city' | 'group' | 'subjectType'>('city')
+const dimension = ref<'city' | 'group' | 'school'>('city')
 const selectedCity = ref('')
 
 function cityKey(label: string) {
@@ -59,7 +59,7 @@ const totalApproved = computed(() => rows.value.reduce((sum, row) => sum + (row.
 const maxTeamCount = computed(() => Math.max(1, ...rows.value.map((row) => row.teamCount)))
 
 const dimensionLabel = computed(
-  () => ({ city: '市州', group: '组别', subjectType: '报送主体' })[dimension.value],
+  () => ({ city: '市州', group: '组别', school: '学校' })[dimension.value],
 )
 
 async function load() {
@@ -113,7 +113,7 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="报名统计"
-      description="按市州、组别或报送主体聚合报名数据，辅助审核排期与名额统筹。数据实时来源于报名主档。"
+      description="按市州、组别或报送学校聚合报名数据，辅助审核排期与名额统筹。数据实时来源于报名主档。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -141,14 +141,14 @@ onMounted(() => {
       <el-radio-group v-model="dimension" @change="changeDimension">
         <el-radio-button value="city">按市州</el-radio-button>
         <el-radio-button value="group">按组别</el-radio-button>
-        <el-radio-button value="subjectType">按主体</el-radio-button>
+        <el-radio-button value="school">按学校</el-radio-button>
       </el-radio-group>
       <span class="filter-card__spacer" />
       <span class="muted">统计口径：当前账号数据范围内</span>
     </section>
 
     <div class="stat-grid">
-      <StatCard label="参赛队伍" :value="totalTeams" hint="提交报名单的球队" :icon="Trophy" tone="green" />
+      <StatCard label="报名球队" :value="totalTeams" hint="学校报送的参赛球队" :icon="Trophy" tone="green" />
       <StatCard label="报名球员" :value="totalAthletes" hint="各报名单球员合计" :icon="User" tone="lime" />
       <StatCard label="待审核" :value="totalPending" hint="需尽快处理" :icon="Warning" tone="amber" />
       <StatCard label="已通过" :value="totalApproved" hint="完成终审" :icon="DataAnalysis" tone="blue" />

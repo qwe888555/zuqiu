@@ -17,7 +17,7 @@ export interface MatchSection {
 export const MATCH_SECTIONS: MatchSection[] = [
   { key: 'LIVE', label: '正在进行', tone: 'live' },
   { key: 'SCHEDULED', label: '即将开始', tone: 'upcoming' },
-  { key: 'STALE', label: '赛况待更新', tone: 'stale' },
+  { key: 'STALE', label: '比分待确认', tone: 'stale' },
   { key: 'FINISHED', label: '最近结束', tone: 'finished' },
   { key: 'CANCELLED', label: '已取消', tone: 'finished' },
 ]
@@ -33,7 +33,7 @@ export function isMatchStale(
 
 /**
  * 公开接口没有返回“赛况最后更新时间”，因此只能依据开球时间做保守判断。
- * 超时仍为 LIVE、或开球时间已过仍为 SCHEDULED 的场次改为“赛况待更新”，
+ * 超时仍为 LIVE、或开球时间已过仍为 SCHEDULED 的场次改为“比分待确认”，
  * 避免页面把旧数据当作实时比分或“即将开始”。
  */
 export function matchDisplayStatus(match: Pick<PublicMatch, 'status' | 'kickoffAt'>): MatchDisplayStatus {

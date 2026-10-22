@@ -41,6 +41,7 @@ const groupForm = reactive({
   category: 'PRIMARY' as GroupCategory,
   gender: 'MALE',
   quota: 16,
+  schoolQuota: 1,
   minAge: 6,
   maxAge: 12,
   maxPlayers: 18,
@@ -160,6 +161,7 @@ function openGroupCreate() {
     category: 'PRIMARY',
     gender: 'MALE',
     quota: 16,
+    schoolQuota: 1,
     minAge: 6,
     maxAge: 12,
     maxPlayers: 18,
@@ -174,7 +176,8 @@ function openGroupEdit(group: EventGroup) {
     name: group.name,
     category: group.category,
     gender: group.gender,
-    quota: group.quota || 16,
+    quota: group.quota ?? 16,
+    schoolQuota: group.schoolQuota ?? 1,
     minAge: group.minAge || 0,
     maxAge: group.maxAge || 60,
     maxPlayers: group.maxPlayers,
@@ -186,6 +189,10 @@ function openGroupEdit(group: EventGroup) {
 async function saveGroup() {
   if (!currentEvent.value) return
   if (!groupForm.name.trim()) return ElMessage.warning('请填写组别名称')
+  if (groupForm.schoolQuota < 0) return ElMessage.warning('每校名额不能为负数')
+  if (groupForm.quota > 0 && groupForm.schoolQuota > groupForm.quota) {
+    return ElMessage.warning('每校名额不能大于组别总名额')
+  }
   try {
     if (editingGroupId.value) {
       await eventApi.updateGroup(currentEvent.value.id, editingGroupId.value, { ...groupForm })
@@ -321,8 +328,9 @@ onMounted(load)
           <dl class="group-card__meta">
             <div><dt>年龄要求</dt><dd>{{ group.minAge }}-{{ group.maxAge }} 岁</dd></div>
             <div><dt>每队人数</dt><dd>最多 {{ group.maxPlayers }} 人</dd></div>
-            <div><dt>名额</dt><dd>{{ group.quota || '不限' }}</dd></div>
-            <div><dt>已报名</dt><dd>{{ group.teamCount || 0 }} 队</dd></div>
+            <div><dt>组别总名额</dt><dd>{{ (group.quota ?? 0) > 0 ? group.quota : '不限' }}</dd></div>
+            <div><dt>每校名额</dt><dd>{{ (group.schoolQuota ?? 1) > 0 ? `${group.schoolQuota ?? 1} 队` : '不限' }}</dd></div>
+            <div><dt>已报名</dt><dd>{{ group.teamCount ?? group.totalUsed ?? 0 }} 队</dd></div>
             <div class="full">
               <dt>必备材料</dt>
               <dd>
@@ -398,8 +406,7 @@ onMounted(load)
           <el-form-item label="学段">
             <el-select v-model="groupForm.category" style="width: 100%">
               <el-option label="小学" value="PRIMARY" />
-              <el-option label="初中" value="MIDDLE" />
-              <el-option label="大学" value="UNIVERSITY" />
+              <el-option label="中学" value="MIDDLE" />
             </el-select>
           </el-form-item>
           <el-form-item label="性别">
@@ -409,8 +416,12 @@ onMounted(load)
               <el-option label="混合" value="MIXED" />
             </el-select>
           </el-form-item>
-          <el-form-item label="参赛名额（队）">
+          <el-form-item label="组别总名额（队）">
             <el-input-number v-model="groupForm.quota" :min="0" :max="200" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="每校名额（队）">
+            <el-input-number v-model="groupForm.schoolQuota" :min="0" :max="20" style="width: 100%" />
+            <span class="field-hint">同一学校（含分校区）在该组别可报的球队数；0 表示不限，默认 1</span>
           </el-form-item>
           <el-form-item label="最小年龄">
             <el-input-number v-model="groupForm.minAge" :min="0" :max="60" style="width: 100%" />
@@ -569,6 +580,14 @@ onMounted(load)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ink-300);
 }
 
 @media (max-width: 760px) {

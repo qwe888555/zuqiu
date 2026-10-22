@@ -11,6 +11,7 @@ const route = useRoute()
 const loading = ref(false)
 const content = ref<PublicContent | null>(null)
 const related = ref<PublicContent[]>([])
+const relatedIsRelevant = ref(false)
 
 const isPolicy = computed(() => content.value?.contentType === 'POLICY')
 const categoryLabel = computed(() => {
@@ -20,6 +21,33 @@ const categoryLabel = computed(() => {
   if (type === 'BEST_LINEUP') return '最佳阵容'
   return '赛事资讯'
 })
+const relatedTitle = computed(() => (relatedIsRelevant.value ? '相关阅读' : '同类内容'))
+
+/** 标题二元组重合度：不求语义模型，只在前端做可解释的同主题判断。 */
+function titleBigrams(text: string): Set<string> {
+  const normalized = text.replace(/[\s，。、“”《》：:；;！!？?（）()·\-—]/g, '')
+  const result = new Set<string>()
+  for (let i = 0; i < normalized.length - 1; i += 1) {
+    result.add(normalized.slice(i, i + 2))
+  }
+  return result
+}
+
+function relevanceScore(candidate: PublicContent): number {
+  if (!content.value) return 0
+  let score = 0
+  if (content.value.eventId && candidate.eventId === content.value.eventId) score += 5
+  if (content.value.groupId && candidate.groupId === content.value.groupId) score += 4
+  const current = titleBigrams(content.value.title)
+  const target = titleBigrams(candidate.title)
+  let overlap = 0
+  target.forEach((gram) => {
+    if (current.has(gram)) overlap += 1
+  })
+  score += overlap * 1.5
+  if (overlap >= 3) score += 2
+  return score
+}
 
 async function load() {
   const id = String(route.params.id)
@@ -28,12 +56,20 @@ async function load() {
     content.value = await publicApi.content(id)
     const res = await publicApi.contents({
       page: 1,
-      pageSize: 5,
+      pageSize: 20,
       contentType: content.value.contentType,
     })
-    related.value = res.items.filter((item) => item.id !== id).slice(0, 4)
+    const scored = res.items
+      .filter((item) => item.id !== id)
+      .map((item) => ({ item, score: relevanceScore(item) }))
+      .sort((a, b) => b.score - a.score || (b.item.publishedAt || '').localeCompare(a.item.publishedAt || ''))
+    const relevant = scored.filter((entry) => entry.score >= 3).slice(0, 4)
+    relatedIsRelevant.value = relevant.length > 0
+    // 没有主题关联时不硬凑“相关阅读”，退回同栏目内容并如实标注。
+    related.value = (relevant.length ? relevant : scored.slice(0, 4)).map((entry) => entry.item)
   } catch {
     content.value = null
+    related.value = []
   } finally {
     loading.value = false
   }
@@ -80,10 +116,6 @@ watch(() => route.params.id, load)
               <span>第 {{ content.revision }} 版</span>
             </div>
             <p v-if="content.summary" class="article__summary">{{ content.summary }}</p>
-            <button v-if="isPolicy" type="button" class="ask-file" @click="askThisPolicy">
-              <el-icon><ChatDotRound /></el-icon>
-              问这份文件
-            </button>
           </header>
 
           <div v-if="content.publicCoverUrl" class="article__cover">
@@ -117,13 +149,20 @@ watch(() => route.params.id, load)
         <aside class="sidebar">
           <button v-if="isPolicy" type="button" class="assist-card" @click="askThisPolicy">
             <span class="assist-card__icon"><el-icon><ChatDotRound /></el-icon></span>
-            <h3>还有疑问？</h3>
-            <p>围绕这份文件提问，回答会附上政策原文出处。</p>
-            <span class="assist-card__hint">问这份文件 →</span>
+            <span class="assist-card__kicker">POLICY Q&amp;A</span>
+            <h3>没读懂某一条？</h3>
+            <p>围绕当前文件提问，回答会附上政策原文与版本出处。</p>
+            <span class="assist-card__hint">
+              围绕这份文件提问
+              <el-icon><ChatDotRound /></el-icon>
+            </span>
           </button>
 
           <div class="related-card">
-            <h3>相关阅读</h3>
+            <h3>{{ relatedTitle }}</h3>
+            <p v-if="!relatedIsRelevant && related.length" class="related-card__note">
+              当前没有找到同主题内容，以下为同栏目其他文件。
+            </p>
             <router-link
               v-for="item in related"
               :key="item.id"
@@ -219,32 +258,12 @@ watch(() => route.params.id, load)
 .article__summary {
   margin-top: 20px;
   padding: 14px 16px;
-  border-left: 3px solid var(--lime);
-  background: var(--brand-50);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border: 1px solid var(--brand-100);
+  background: #f5faf7;
+  border-radius: var(--radius-sm);
   font-size: 14.5px;
   line-height: 1.8;
   color: var(--ink-700);
-}
-
-.ask-file {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 14px;
-  padding: 7px 12px;
-  border: 1px solid var(--brand-500);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--brand-700);
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.16s;
-}
-
-.ask-file:hover {
-  background: var(--brand-50);
 }
 
 .article__cover {
@@ -322,8 +341,17 @@ watch(() => route.params.id, load)
   color: var(--lime);
 }
 
-.assist-card h3 {
+.assist-card__kicker {
   margin-top: 12px;
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--lime);
+}
+
+.assist-card h3 {
+  margin-top: 5px;
   font-size: 17px;
 }
 
@@ -335,12 +363,15 @@ watch(() => route.params.id, load)
 }
 
 .assist-card__hint {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--lime);
 }
@@ -355,6 +386,13 @@ watch(() => route.params.id, load)
 .related-card h3 {
   font-size: 16px;
   margin-bottom: 12px;
+}
+
+.related-card__note {
+  margin: -4px 0 8px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--ink-300);
 }
 
 .related-row {

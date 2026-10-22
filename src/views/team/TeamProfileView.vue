@@ -23,19 +23,32 @@ const removing = ref(false)
 const createForm = reactive({
   name: '',
   category: 'MIDDLE' as GroupCategory,
+  gender: 'MALE' as 'MALE' | 'FEMALE' | 'MIXED',
+  campusName: '',
   intro: '',
 })
 
 const categoryOptions = Object.entries(CATEGORY_GROUP_LABELS).map(([value, label]) => ({ value, label }))
+const genderOptions = [
+  { value: 'MALE', label: '男子' },
+  { value: 'FEMALE', label: '女子' },
+  { value: 'MIXED', label: '混合' },
+]
 
 const form = reactive({
   name: '',
   shortName: '',
   schoolName: '',
   cityName: '',
+  campusName: '',
+  gender: 'MALE' as 'MALE' | 'FEMALE' | 'MIXED',
   coachName: '',
   intro: '',
 })
+
+function genderLabel(value?: string) {
+  return value === 'FEMALE' ? '女子' : value === 'MIXED' ? '混合' : '男子'
+}
 
 const media = reactive({
   flagFileId: '',
@@ -49,6 +62,10 @@ const media = reactive({
 const uploadingMedia = ref('')
 
 const canEdit = computed(() => can('team.manage'))
+const isSchool = computed(() => auth.roles.includes('UNIVERSITY'))
+// 球队端只维护所属球队；新建、删除球队属于学校端的下级管理能力。
+const canCreateTeam = computed(() => isSchool.value && can('team.manage'))
+const canDeleteTeam = computed(() => isSchool.value && can('team.manage'))
 
 async function loadTeam() {
   if (!teamId.value) {
@@ -63,6 +80,8 @@ async function loadTeam() {
       shortName: team.value.shortName || '',
       schoolName: team.value.schoolName || '',
       cityName: team.value.cityName || '',
+      campusName: team.value.campusName || '',
+      gender: team.value.gender || 'MALE',
       coachName: team.value.coachName || '',
       intro: team.value.intro || '',
     })
@@ -98,6 +117,8 @@ function cancelEdit() {
       shortName: team.value.shortName || '',
       schoolName: team.value.schoolName || '',
       cityName: team.value.cityName || '',
+      campusName: team.value.campusName || '',
+      gender: team.value.gender || 'MALE',
       coachName: team.value.coachName || '',
       intro: team.value.intro || '',
     })
@@ -171,6 +192,8 @@ async function save() {
 function openCreate() {
   createForm.name = ''
   createForm.category = 'MIDDLE'
+  createForm.gender = 'MALE'
+  createForm.campusName = ''
   createForm.intro = ''
   createVisible.value = true
 }
@@ -184,6 +207,8 @@ async function createTeam() {
       name: createForm.name.trim(),
       schoolOrgId: auth.user.orgId,
       groupCategory: createForm.category,
+      gender: createForm.gender,
+      campusName: createForm.campusName.trim() || undefined,
       intro: createForm.intro || undefined,
     })
     ElMessage.success('球队已创建')
@@ -233,8 +258,12 @@ onMounted(async () => {
 <template>
   <div class="page">
     <PageHeader
-      title="球队资料"
-      description="维护球队名称、学校归属与简介。球队资料将在报名审核、门户公示与比赛介绍中展示。"
+      :title="isSchool ? '本校球队资料' : '我的球队'"
+      :description="
+        isSchool
+          ? '切换并维护本校各支球队；球队资料将在报名审核、门户公示与比赛介绍中展示。'
+          : '维护所属球队的名称、学校归属与简介；如需新增球队，请联系学校端账号。'
+      "
     >
       <template #actions>
         <el-select
@@ -246,7 +275,7 @@ onMounted(async () => {
           <el-option v-for="item in teams" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-button :icon="Refresh" @click="refresh">刷新</el-button>
-        <el-button v-if="canEdit" type="primary" plain :icon="Plus" @click="openCreate">新建球队</el-button>
+        <el-button v-if="canCreateTeam" type="primary" plain :icon="Plus" @click="openCreate">新建球队</el-button>
         <el-button v-if="canEdit && team && !editing" type="primary" :icon="Edit" @click="startEdit">编辑资料</el-button>
       </template>
     </PageHeader>
@@ -265,7 +294,10 @@ onMounted(async () => {
                 {{ team?.status === 'APPROVED' ? '已认证' : '待认证' }}
               </el-tag>
             </div>
-            <p>{{ team?.schoolName || '未绑定学校' }} · {{ team?.category ? categoryLabel(team.category) : '学段未设置' }}</p>
+            <p>
+              {{ team?.schoolName || '未绑定学校' }} · {{ team?.campusName || '本部' }} ·
+              {{ team?.category ? categoryLabel(team.category) : '学段未设置' }} · {{ genderLabel(team?.gender) }}
+            </p>
             <div class="team-hero__meta">
               <span><el-icon><Location /></el-icon>{{ team?.cityName || '未设置市州' }}</span>
               <span><el-icon><User /></el-icon>主教练 {{ team?.coachName || '未设置' }}</span>
@@ -301,8 +333,10 @@ onMounted(async () => {
             <div><span>球队全称</span><strong>{{ team?.name || '—' }}</strong></div>
             <div><span>球队简称</span><strong>{{ team?.shortName || '—' }}</strong></div>
             <div><span>所属学校</span><strong>{{ team?.schoolName || '—' }}</strong></div>
+            <div><span>校区 / 分校</span><strong>{{ team?.campusName || '本部' }}</strong></div>
             <div><span>所属市州</span><strong>{{ team?.cityName || '—' }}</strong></div>
             <div><span>学段</span><strong>{{ categoryLabel(team?.category) }}</strong></div>
+            <div><span>球队性别</span><strong>{{ genderLabel(team?.gender) }}</strong></div>
             <div><span>主教练</span><strong>{{ team?.coachName || '—' }}</strong></div>
           </div>
         </template>
@@ -316,10 +350,18 @@ onMounted(async () => {
               <el-input v-model="form.shortName" placeholder="用于赛程展示，建议 4-6 字" />
             </el-form-item>
             <el-form-item label="所属学校">
-              <el-input v-model="form.schoolName" placeholder="学校全称" />
+              <el-input v-model="form.schoolName" disabled placeholder="由账号归属学校自动带出" />
             </el-form-item>
             <el-form-item label="所属市州">
-              <el-input v-model="form.cityName" placeholder="如：成都市" />
+              <el-input v-model="form.cityName" disabled placeholder="由学校组织上级市州自动带出" />
+            </el-form-item>
+            <el-form-item label="校区 / 分校">
+              <el-input v-model="form.campusName" placeholder="如：水井坊校区；不填视为本部" />
+            </el-form-item>
+            <el-form-item label="球队性别">
+              <el-select v-model="form.gender" style="width: 100%">
+                <el-option v-for="item in genderOptions" :key="item.value" :label="item.label" :value="item.value" />
+              </el-select>
             </el-form-item>
             <el-form-item label="主教练">
               <el-input v-model="form.coachName" placeholder="主教练姓名" />
@@ -412,7 +454,7 @@ onMounted(async () => {
               <small>资质与荣誉</small>
             </button>
             <button
-              v-if="canEdit && team"
+              v-if="canDeleteTeam && team"
               type="button"
               class="side-link side-link--danger"
               :disabled="removing"
@@ -453,6 +495,14 @@ onMounted(async () => {
           <el-select v-model="createForm.category" style="width: 100%">
             <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="球队性别" required>
+          <el-select v-model="createForm.gender" style="width: 100%">
+            <el-option v-for="item in genderOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="校区 / 分校（选填）">
+          <el-input v-model="createForm.campusName" placeholder="如：汇源校区；不填视为本部" maxlength="30" />
         </el-form-item>
         <el-form-item label="球队简介">
           <el-input v-model="createForm.intro" type="textarea" :rows="3" placeholder="选填" />

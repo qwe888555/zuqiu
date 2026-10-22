@@ -125,6 +125,15 @@ function contains(value: unknown, keyword: string): boolean {
   return str(value).toLowerCase().includes(keyword.toLowerCase())
 }
 
+/** 只保留白名单字段，避免 PUT 请求篡改 id/归属/状态等系统字段。 */
+function pickFields(body: Record<string, unknown>, fields: readonly string[]): Record<string, any> {
+  const result: Record<string, any> = {}
+  fields.forEach((field) => {
+    if (body[field] !== undefined) result[field] = body[field]
+  })
+  return result
+}
+
 interface RouteContext {
   config: AxiosRequestConfig
   params: Record<string, string>
@@ -306,7 +315,16 @@ on('GET', '/me/profile-match', ({ config }) => {
 
 on('GET', '/me/teams', ({ config }) => {
   const account = requireAccount(config)
-  const teamIds = account.teamIds || []
+  // 学校端以学校组织为范围，自动覆盖本校全部分校/校区球队，不依赖 teamIds。
+  if (account.roles.includes('UNIVERSITY')) {
+    return teams.filter((t) => t.orgId === account.orgId)
+  }
+  const directIds = account.teamIds || []
+  // 合并“归属记录”中已通过核验且当前仍归属的球队，避免账号 teamIds 与归属数据脱节。
+  const affiliatedIds = affiliations
+    .filter((a) => a.personId === account.personId && a.current && a.verifyStatus === 'VERIFIED')
+    .map((a) => a.teamId)
+  const teamIds = Array.from(new Set([...directIds, ...affiliatedIds]))
   return teams.filter((t) => teamIds.includes(t.id))
 })
 
@@ -550,6 +568,8 @@ on('GET', '/files/:id', ({ params }) => ({
   version: 1,
 }))
 
+on('GET', '/files/:id/content', () => ({ success: true }))
+
 on('DELETE', '/files/:id', () => ({ success: true }))
 
 // ---------------------------------------------------------------------------
@@ -564,7 +584,10 @@ function scopePersons(config: AxiosRequestConfig, items: Person[]): Person[] {
     const citySchools = organizations.filter((o) => o.parentId === account.orgId).map((o) => o.id)
     return items.filter((p) => p.schoolOrgId && citySchools.includes(p.schoolOrgId))
   }
-  if (account.roles.includes('TEAM') || account.roles.includes('UNIVERSITY')) {
+  if (account.roles.includes('UNIVERSITY')) {
+    return items.filter((p) => p.schoolOrgId === account.orgId)
+  }
+  if (account.roles.includes('TEAM')) {
     const memberIds = teamMembers.filter((m) => (account.teamIds || []).includes(m.teamId)).map((m) => m.athleteId)
     return items.filter((p) => memberIds.includes(p.id))
   }
@@ -715,8 +738,12 @@ function scopeTeams(config: AxiosRequestConfig, items: Team[]): Team[] {
   if (!account) return items
   if (account.roles.includes('ADMIN') || account.roles.includes('PROVINCE_REVIEWER')) return items
   if (account.roles.includes('CITY')) return items.filter((t) => t.cityOrgId === account.orgId)
-  if (account.teamIds?.length) return items.filter((t) => account.teamIds?.includes(t.id))
-  return items
+  if (account.roles.includes('UNIVERSITY')) return items.filter((t) => t.orgId === account.orgId)
+  if (account.roles.includes('TEAM')) {
+    const teamIds = account.teamIds || []
+    return teamIds.length ? items.filter((t) => teamIds.includes(t.id)) : []
+  }
+  return []
 }
 
 on('GET', '/teams', ({ config, query }) => {
@@ -727,25 +754,46 @@ on('GET', '/teams', ({ config, query }) => {
   return pageOf(items, query)
 })
 
-on('POST', '/teams', ({ body }) => {
-  const schoolOrgId = body.schoolOrgId || body.orgId
+on('POST', '/teams', ({ body, config }) => {
+  const account = requireAccount(config)
+  const isUniversity = account.roles.includes('UNIVERSITY')
+  if (!isUniversity && !account.roles.includes('ADMIN')) {
+    throw new MockHttpError(403, 'FORBIDDEN', '仅学校端可新建球队')
+  }
+  if (!str(body.name).trim()) throw new MockHttpError(400, 'VALIDATION_ERROR', '请填写球队名称')
+  // 学校账号只能为自身学校建队，忽略前端传入的其他学校归属。
+  const schoolOrgId = isUniversity ? account.orgId : str(body.schoolOrgId || body.orgId)
+  const schoolOrg = organizations.find((o) => o.id === schoolOrgId && o.orgType === 'SCHOOL')
+  if (!schoolOrg) throw new MockHttpError(400, 'VALIDATION_ERROR', '学校组织不存在')
+  const gender = ['MALE', 'FEMALE', 'MIXED'].includes(str(body.gender)) ? str(body.gender) : 'MALE'
+  // 学校端新建球队时未传市州，优先沿用同校已有球队的市州，否则取学校组织的上级市州。
+  const sibling = teams.find((team) => team.orgId === schoolOrgId && team.cityOrgId)
+  const cityOrgId = body.cityOrgId || sibling?.cityOrgId || schoolOrg.parentId
+  const cityOrg = organizations.find((o) => o.id === cityOrgId)
   const team: Team = {
     id: nextId('team'),
-    name: str(body.name),
+    name: str(body.name).trim(),
     shortName: str(body.shortName),
     orgId: schoolOrgId,
-    cityOrgId: body.cityOrgId,
-    cityName: organizations.find((o) => o.id === body.cityOrgId)?.name,
+    cityOrgId,
+    cityName: sibling?.cityName || cityOrg?.name,
     category: body.groupCategory || body.category,
-    schoolName: organizations.find((o) => o.id === schoolOrgId)?.name,
+    schoolName: schoolOrg.name,
+    campusName: str(body.campusName) || undefined,
+    gender: gender as Team['gender'],
     coachName: body.coachName,
     intro: body.intro,
     memberCount: 0,
-    status: 'PENDING',
+    // 学校是报名责任主体，新建球队直接认证，避免因缺少球队审核流程而无法报名。
+    status: 'APPROVED',
     version: 1,
     createdAt: now(),
   }
   teams.unshift(team)
+  // 学校端新建的球队自动纳入本校账号的数据范围；球队端不持有新建权限。
+  if (isUniversity && schoolOrgId === account.orgId) {
+    account.teamIds = [...(account.teamIds || []), team.id]
+  }
   return team
 })
 
@@ -755,10 +803,18 @@ on('GET', '/teams/:id', ({ params }) => {
   return team
 })
 
-on('PUT', '/teams/:id', ({ params, body }) => {
+on('PUT', '/teams/:id', ({ params, body, config }) => {
+  const account = requireAccount(config)
   const team = teams.find((t) => t.id === params.id)
   if (!team) throw new MockHttpError(404, 'NOT_FOUND', '球队不存在')
-  Object.assign(team, body, { version: team.version + 1 })
+  if (!account.roles.includes('ADMIN')) {
+    if (!account.roles.includes('UNIVERSITY') || team.orgId !== account.orgId) {
+      throw new MockHttpError(403, 'FORBIDDEN', '仅可维护本校球队')
+    }
+  }
+  const patch = pickFields(body, ['name', 'shortName', 'category', 'campusName', 'gender', 'coachName', 'intro', 'flagUrl', 'emblemUrl', 'groupPhotoUrl'])
+  if (patch.gender && !['MALE', 'FEMALE', 'MIXED'].includes(str(patch.gender))) delete patch.gender
+  Object.assign(team, patch, { version: team.version + 1 })
   return team
 })
 
@@ -923,8 +979,237 @@ on('GET', '/events', ({ query }) => {
   return pageOf(items, query)
 })
 
+// ---------------------------------------------------------------------------
+// 报名合规规则（学校为报送主体，分校共享学校名额）
+// ---------------------------------------------------------------------------
+
+const QUOTA_OCCUPYING_STATUSES: Enrollment['status'][] = ['DRAFT', 'PENDING_CITY_REVIEW', 'PENDING_PROVINCE_REVIEW', 'APPROVED']
+const MIN_ENROLLMENT_PLAYERS = 11
+const MATERIAL_LABELS: Record<string, string> = {
+  STAMPED_FORM: '加盖学校公章的报名表',
+  STUDENT_STATUS: '学籍验证材料',
+}
+
+function isQuotaOccupying(e: Enrollment): boolean {
+  return QUOTA_OCCUPYING_STATUSES.includes(e.status)
+}
+
+function schoolOrgIdOfTeam(team?: Team): string | undefined {
+  return team?.orgId
+}
+
+function schoolOrgIdOfEnrollment(e: Enrollment): string | undefined {
+  return e.schoolOrgId || schoolOrgIdOfTeam(teams.find((t) => t.id === e.teamId))
+}
+
+function attachmentsOf(enrollmentId: string) {
+  return enrollmentAttachments.filter((a) => a.id.startsWith(`att_${enrollmentId}_`))
+}
+
+function rosterOf(enrollmentId: string) {
+  return rosterItems.filter((r) => r.id.startsWith(`roster_${enrollmentId}_`))
+}
+
+function syncPlayerCount(enrollment: Enrollment) {
+  enrollment.playerCount = rosterOf(enrollment.id).length
+}
+
+function isRegistrationOpen(event?: { status?: string; registrationOpensAt?: string; registrationClosesAt?: string }): boolean {
+  if (!event || event.status !== 'REGISTRATION_OPEN') return false
+  const current = Date.now()
+  const opens = event.registrationOpensAt ? Date.parse(event.registrationOpensAt) : NaN
+  const closes = event.registrationClosesAt ? Date.parse(event.registrationClosesAt) : NaN
+  if (!Number.isNaN(opens) && current < opens) return false
+  if (!Number.isNaN(closes) && current > closes) return false
+  return true
+}
+
+function assertRegistrationOpen(event: { status?: string; registrationOpensAt?: string; registrationClosesAt?: string }) {
+  if (!isRegistrationOpen(event)) {
+    throw new MockHttpError(409, 'REGISTRATION_CLOSED', '当前不在赛事报名时间内，无法新建或提交报名')
+  }
+}
+
+function assertGroupBelongsToEvent(groupId: string, eventId: string) {
+  const group = eventGroups.find((g) => g.id === groupId)
+  if (!group) throw new MockHttpError(400, 'GROUP_NOT_FOUND', '组别不存在')
+  if (group.eventId !== eventId) throw new MockHttpError(400, 'GROUP_MISMATCH', '所选组别不属于该赛事')
+  return group
+}
+
+function assertTeamEligibleForGroup(team: Team | undefined, group: typeof eventGroups[number]) {
+  if (!team) throw new MockHttpError(400, 'TEAM_NOT_FOUND', '参赛球队不存在')
+  if (team.status === 'PENDING') throw new MockHttpError(409, 'TEAM_PENDING', '球队尚未完成认证，暂不能报名')
+  if (team.category && team.category !== group.category) {
+    throw new MockHttpError(409, 'CATEGORY_MISMATCH', `球队学段与「${group.name}」不一致`)
+  }
+  if (group.gender !== 'MIXED' && team.gender && team.gender !== group.gender) {
+    throw new MockHttpError(409, 'GENDER_MISMATCH', `球队性别与「${group.name}」不一致`)
+  }
+}
+
+function quotaUsage(groupId: string, schoolOrgId?: string, excludeId?: string) {
+  const active = enrollments.filter((e) => e.groupId === groupId && e.id !== excludeId && isQuotaOccupying(e))
+  return {
+    total: active.length,
+    school: schoolOrgId ? active.filter((e) => schoolOrgIdOfEnrollment(e) === schoolOrgId).length : 0,
+  }
+}
+
+function assertQuotaAvailable(group: typeof eventGroups[number], schoolOrgId: string, excludeId?: string) {
+  const usage = quotaUsage(group.id, schoolOrgId, excludeId)
+  if (group.quota && group.quota > 0 && usage.total + 1 > group.quota) {
+    throw new MockHttpError(409, 'GROUP_QUOTA_FULL', `「${group.name}」总名额已满，无法继续报名`)
+  }
+  const schoolLimit = group.schoolQuota ?? 1
+  if (schoolLimit > 0 && usage.school + 1 > schoolLimit) {
+    throw new MockHttpError(409, 'SCHOOL_QUOTA_FULL', `本校在「${group.name}」最多可报 ${schoolLimit} 支球队，名额已用完`)
+  }
+  return usage
+}
+
+function assertNoDuplicateEnrollment(teamId: string, groupId: string, excludeId?: string) {
+  const duplicate = enrollments.find(
+    (e) => e.teamId === teamId && e.groupId === groupId && e.id !== excludeId && e.status !== 'WITHDRAWN',
+  )
+  if (duplicate) {
+    throw new MockHttpError(409, 'DUPLICATE_ENROLLMENT', `该球队在「${duplicate.groupName}」已有报名单，请编辑原报名单后提交`)
+  }
+}
+
+function groupView(group: typeof eventGroups[number], config: AxiosRequestConfig) {
+  const account = accountFrom(config)
+  const schoolOrgId = account?.roles.includes('UNIVERSITY') ? account.orgId : undefined
+  const usage = quotaUsage(group.id, schoolOrgId)
+  return {
+    ...group,
+    schoolQuota: group.schoolQuota ?? 1,
+    totalUsed: usage.total,
+    schoolUsed: usage.school,
+    teamCount: usage.total,
+  }
+}
+
+function collectEnrollmentIssues(enrollment: Enrollment) {
+  const issues: Array<{ code: string; field?: string; message: string; severity: 'ERROR' | 'WARNING' }> = []
+  const event = events.find((item) => item.id === enrollment.eventId)
+  const group = eventGroups.find((item) => item.id === enrollment.groupId)
+  const team = teams.find((item) => item.id === enrollment.teamId)
+
+  if (!event) {
+    issues.push({ code: 'EVENT_NOT_FOUND', field: 'eventId', message: '赛事不存在', severity: 'ERROR' })
+  } else if (!isRegistrationOpen(event)) {
+    issues.push({ code: 'REGISTRATION_CLOSED', field: 'eventId', message: '当前不在赛事报名时间内', severity: 'ERROR' })
+  }
+  if (!group) {
+    issues.push({ code: 'GROUP_NOT_FOUND', field: 'groupId', message: '组别不存在', severity: 'ERROR' })
+  } else if (group.eventId !== enrollment.eventId) {
+    issues.push({ code: 'GROUP_MISMATCH', field: 'groupId', message: '组别不属于该赛事', severity: 'ERROR' })
+  }
+  if (!team) {
+    issues.push({ code: 'TEAM_NOT_FOUND', field: 'teamId', message: '参赛球队不存在', severity: 'ERROR' })
+  } else {
+    if (team.status === 'PENDING') {
+      issues.push({ code: 'TEAM_PENDING', field: 'teamId', message: '球队尚未完成认证', severity: 'ERROR' })
+    }
+    if (group && team.category && team.category !== group.category) {
+      issues.push({ code: 'CATEGORY_MISMATCH', field: 'teamId', message: `球队学段与「${group.name}」不一致`, severity: 'ERROR' })
+    }
+    if (group && group.gender !== 'MIXED' && team.gender && team.gender !== group.gender) {
+      issues.push({ code: 'GENDER_MISMATCH', field: 'teamId', message: `球队性别与「${group.name}」不一致`, severity: 'ERROR' })
+    }
+  }
+
+  const duplicate = enrollments.find(
+    (e) => e.teamId === enrollment.teamId && e.groupId === enrollment.groupId && e.id !== enrollment.id && e.status !== 'WITHDRAWN',
+  )
+  if (duplicate) {
+    issues.push({ code: 'DUPLICATE_ENROLLMENT', field: 'teamId', message: '该球队在此组别已有报名单，请编辑原单', severity: 'ERROR' })
+  }
+
+  if (group) {
+    const usage = quotaUsage(group.id, schoolOrgIdOfEnrollment(enrollment), enrollment.id)
+    if (group.quota && group.quota > 0 && usage.total + 1 > group.quota) {
+      issues.push({ code: 'GROUP_QUOTA_FULL', field: 'groupId', message: `「${group.name}」总名额已满`, severity: 'ERROR' })
+    }
+    const schoolLimit = group.schoolQuota ?? 1
+    if (schoolLimit > 0 && usage.school + 1 > schoolLimit) {
+      issues.push({ code: 'SCHOOL_QUOTA_FULL', field: 'groupId', message: `本校在「${group.name}」最多可报 ${schoolLimit} 支球队`, severity: 'ERROR' })
+    }
+    const attachments = attachmentsOf(enrollment.id)
+    group.requiredMaterialTypes.forEach((type) => {
+      if (!attachments.some((a) => a.materialType === type)) {
+        issues.push({
+          code: 'MISSING_MATERIAL',
+          field: type,
+          message: `缺少必备材料：${MATERIAL_LABELS[type] || type}`,
+          severity: 'ERROR',
+        })
+      }
+    })
+    if (enrollment.playerCount > group.maxPlayers) {
+      issues.push({ code: 'PLAYER_LIMIT', field: 'players', message: `名单人数超过组别上限 ${group.maxPlayers} 人`, severity: 'ERROR' })
+    }
+  }
+  if (enrollment.playerCount < MIN_ENROLLMENT_PLAYERS) {
+    issues.push({
+      code: 'PLAYER_LIMIT',
+      field: 'players',
+      message: `当前仅报送 ${enrollment.playerCount} 名球员，低于最低 ${MIN_ENROLLMENT_PLAYERS} 人`,
+      severity: 'ERROR',
+    })
+  }
+  if (!enrollment.contactName) {
+    issues.push({ code: 'CONTACT_REQUIRED', field: 'contactName', message: '请填写领队/联系人', severity: 'ERROR' })
+  }
+  if (!enrollment.maskedContactPhone) {
+    issues.push({ code: 'CONTACT_REQUIRED', field: 'contactPhone', message: '请填写联系电话', severity: 'ERROR' })
+  }
+  return issues
+}
+
+function canViewEnrollment(account: Account, enrollment: Enrollment): boolean {
+  if (account.roles.includes('ADMIN') || account.roles.includes('PROVINCE_REVIEWER')) return true
+  if (account.roles.includes('CITY')) return enrollment.cityOrgId === account.orgId
+  if (account.roles.includes('UNIVERSITY')) return schoolOrgIdOfEnrollment(enrollment) === account.orgId
+  if (account.roles.includes('TEAM')) return Boolean(account.teamIds?.includes(enrollment.teamId))
+  return false
+}
+
+function assertEnrollmentVisible(config: AxiosRequestConfig, enrollment: Enrollment) {
+  const account = requireAccount(config)
+  if (!canViewEnrollment(account, enrollment)) {
+    throw new MockHttpError(403, 'FORBIDDEN', '无权查看该报名单')
+  }
+  return account
+}
+
+function assertEnrollmentEditable(config: AxiosRequestConfig, enrollment: Enrollment) {
+  const account = requireUniversity(config)
+  if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
+    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可维护该报名单')
+  }
+  if (!enrollment.editable) {
+    throw new MockHttpError(409, 'ENROLLMENT_LOCKED', '当前报名单已提交审核，不能修改')
+  }
+  return account
+}
+
+function requireUniversity(config: AxiosRequestConfig): Account {
+  const account = requireAccount(config)
+  if (!account.roles.includes('UNIVERSITY')) {
+    throw new MockHttpError(403, 'FORBIDDEN', '报名由学校端统一报送，当前账号无报送权限')
+  }
+  return account
+}
+
+function maskPhone(phone: string): string {
+  return phone ? `${phone.slice(0, 3)}****${phone.slice(-4)}` : ''
+}
+
 on('GET', '/available-events', ({ query }) => {
-  const items = events.filter((e) => e.status !== 'DRAFT')
+  let items = events.filter((e) => e.status !== 'DRAFT')
+  if (str(query.registrationOpen) === 'true') items = items.filter((e) => isRegistrationOpen(e))
   return pageOf(items, query)
 })
 
@@ -966,21 +1251,30 @@ on('DELETE', '/events/:id', ({ params }) => {
   return { success: true }
 })
 
-on('GET', '/events/:id/groups', ({ params, query }) => {
-  const items = eventGroups.filter((g) => g.eventId === params.id)
+on('GET', '/events/:id/groups', ({ params, query, config }) => {
+  const items = eventGroups.filter((g) => g.eventId === params.id).map((g) => groupView(g, config))
   return pageOf(items, query)
 })
 
-on('GET', '/available-events/:id/groups', ({ params }) => eventGroups.filter((g) => g.eventId === params.id))
+on('GET', '/available-events/:id/groups', ({ params, config }) =>
+  eventGroups.filter((g) => g.eventId === params.id).map((g) => groupView(g, config)),
+)
 
 on('POST', '/events/:id/groups', ({ params, body }) => {
+  const quota = body.quota == null ? 0 : Number(body.quota)
+  const schoolQuota = body.schoolQuota == null ? 1 : Number(body.schoolQuota)
+  if (schoolQuota < 0) throw new MockHttpError(400, 'VALIDATION_ERROR', '每校名额不能为负数')
+  if (quota > 0 && schoolQuota > quota) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '每校名额不能大于组别总名额')
+  }
   const group = {
     id: nextId('group'),
     eventId: params.id,
     name: str(body.name),
     category: body.category || 'PRIMARY',
     gender: body.gender || 'MALE',
-    quota: Number(body.quota) || 0,
+    quota,
+    schoolQuota,
     minAge: Number(body.minAge) || 0,
     maxAge: Number(body.maxAge) || 60,
     maxPlayers: Number(body.maxPlayers) || 18,
@@ -995,7 +1289,24 @@ on('POST', '/events/:id/groups', ({ params, body }) => {
 on('PUT', '/events/:id/groups/:groupId', ({ params, body }) => {
   const group = eventGroups.find((g) => g.id === params.groupId)
   if (!group) throw new MockHttpError(404, 'NOT_FOUND', '组别不存在')
-  Object.assign(group, body, { version: group.version + 1 })
+  const patch = pickFields(body, [
+    'name',
+    'category',
+    'gender',
+    'quota',
+    'schoolQuota',
+    'minAge',
+    'maxAge',
+    'maxPlayers',
+    'requiredMaterialTypes',
+  ])
+  const quota = patch.quota === undefined ? group.quota ?? 0 : Number(patch.quota)
+  const schoolQuota = patch.schoolQuota === undefined ? group.schoolQuota ?? 1 : Number(patch.schoolQuota)
+  if (schoolQuota < 0) throw new MockHttpError(400, 'VALIDATION_ERROR', '每校名额不能为负数')
+  if (quota > 0 && schoolQuota > quota) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '每校名额不能大于组别总名额')
+  }
+  Object.assign(group, patch, { quota, schoolQuota, version: group.version + 1 })
   return group
 })
 
@@ -1018,10 +1329,7 @@ on('GET', '/enrollment-form-config', ({ query }) => {
       { key: 'remarks', label: '备注说明', required: false, component: 'TEXT' },
     ],
     requiredMaterialTypes: group?.requiredMaterialTypes || ['STAMPED_FORM', 'STUDENT_STATUS'],
-    submissionRoute:
-      str(query.subjectType) === 'SCHOOL_TEAM'
-        ? ['球队提交', '市州审核', '省级终审']
-        : ['学校/高校提交', '省级终审'],
+    submissionRoute: ['学校填报', '市州初审', '省级终审'],
   }
 })
 
@@ -1031,11 +1339,15 @@ on('GET', '/enrollment-form-config', ({ query }) => {
 
 function scopeEnrollments(config: AxiosRequestConfig, items: Enrollment[]): Enrollment[] {
   const account = accountFrom(config)
-  if (!account) return items
+  if (!account) return []
   if (account.roles.includes('ADMIN') || account.roles.includes('PROVINCE_REVIEWER')) return items
   if (account.roles.includes('CITY')) return items.filter((e) => e.cityOrgId === account.orgId)
-  if (account.teamIds?.length) return items.filter((e) => account.teamIds?.includes(e.teamId))
-  return items
+  if (account.roles.includes('UNIVERSITY')) return items.filter((e) => schoolOrgIdOfEnrollment(e) === account.orgId)
+  if (account.roles.includes('TEAM')) {
+    const teamIds = account.teamIds || []
+    return teamIds.length ? items.filter((e) => teamIds.includes(e.teamId)) : []
+  }
+  return []
 }
 
 on('GET', '/enrollments', ({ config, query }) => {
@@ -1045,29 +1357,45 @@ on('GET', '/enrollments', ({ config, query }) => {
   if (query.status) items = items.filter((e) => e.status === query.status)
   if (query.subjectType) items = items.filter((e) => e.subjectType === query.subjectType)
   if (query.cityOrgId) items = items.filter((e) => e.cityOrgId === query.cityOrgId)
+  if (query.schoolOrgId) items = items.filter((e) => schoolOrgIdOfEnrollment(e) === query.schoolOrgId)
   if (query.teamName) items = items.filter((e) => contains(e.teamName, str(query.teamName)))
   return pageOf(items, query)
 })
 
-on('POST', '/enrollments', ({ body }) => {
-  const event = events.find((e) => e.id === body.eventId)
-  const group = eventGroups.find((g) => g.id === body.groupId)
-  const team = teams.find((t) => t.id === body.teamId)
+on('POST', '/enrollments', ({ body, config }) => {
+  const account = requireUniversity(config)
+  const event = events.find((e) => e.id === str(body.eventId))
+  if (!event) throw new MockHttpError(404, 'NOT_FOUND', '赛事不存在')
+  assertRegistrationOpen(event)
+  const group = assertGroupBelongsToEvent(str(body.groupId), event.id)
+  const team = teams.find((t) => t.id === str(body.teamId))
+  if (!team) throw new MockHttpError(400, 'TEAM_NOT_FOUND', '参赛球队不存在')
+  if (schoolOrgIdOfTeam(team) !== account.orgId) {
+    throw new MockHttpError(403, 'FORBIDDEN', '只能为本校球队报名')
+  }
+  assertTeamEligibleForGroup(team, group)
+  assertNoDuplicateEnrollment(team.id, group.id)
+  assertQuotaAvailable(group, account.orgId)
+
   const enrollment: Enrollment = {
     id: nextId('enr'),
-    eventId: str(body.eventId),
-    eventName: event?.name || '',
-    groupId: str(body.groupId),
-    groupName: group?.name || '',
-    teamId: str(body.teamId),
-    teamName: team?.name || str(body.teamName),
-    subjectType: body.subjectType || 'SCHOOL_TEAM',
-    cityOrgId: team?.cityOrgId,
-    cityName: team?.cityName,
+    eventId: event.id,
+    eventName: event.name,
+    groupId: group.id,
+    groupName: group.name,
+    teamId: team.id,
+    teamName: team.name,
+    subjectType: 'SCHOOL_TEAM',
+    schoolOrgId: account.orgId,
+    schoolName: team.schoolName,
+    campusName: team.campusName,
+    cityOrgId: team.cityOrgId,
+    cityName: team.cityName,
     status: 'DRAFT',
     submissionNo: 0,
     contactName: str(body.contactName),
-    maskedContactPhone: body.contactPhone ? `${str(body.contactPhone).slice(0, 3)}****${str(body.contactPhone).slice(-4)}` : '',
+    maskedContactPhone: maskPhone(str(body.contactPhone)),
+    remarks: str(body.remarks) || undefined,
     editable: true,
     playerCount: 0,
     version: 1,
@@ -1078,91 +1406,150 @@ on('POST', '/enrollments', ({ body }) => {
   return enrollment
 })
 
-on('GET', '/enrollments/:id', ({ params }) => {
+on('GET', '/enrollments/:id', ({ params, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentVisible(config, enrollment)
   return {
     ...enrollment,
     players: rosterItems.filter((r) => r.id.startsWith(`roster_${enrollment.id}_`)),
-    attachments: enrollmentAttachments.filter((a) => a.id.includes(`_${enrollment.id}_`)),
+    attachments: attachmentsOf(enrollment.id),
   }
 })
 
-on('PUT', '/enrollments/:id', ({ params, body }) => {
+on('PUT', '/enrollments/:id', ({ params, body, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
-  Object.assign(enrollment, body, { version: enrollment.version + 1, updatedAt: now() })
+  assertEnrollmentEditable(config, enrollment)
+  const patch = pickFields(body, ['groupId', 'contactName', 'remarks'])
+  if (patch.groupId && patch.groupId !== enrollment.groupId) {
+    const group = assertGroupBelongsToEvent(str(patch.groupId), enrollment.eventId)
+    const team = teams.find((t) => t.id === enrollment.teamId)
+    assertTeamEligibleForGroup(team, group)
+    assertNoDuplicateEnrollment(enrollment.teamId, group.id, enrollment.id)
+    assertQuotaAvailable(group, schoolOrgIdOfEnrollment(enrollment) || '', enrollment.id)
+    enrollment.groupId = group.id
+    enrollment.groupName = group.name
+  }
+  if (patch.contactName !== undefined) enrollment.contactName = str(patch.contactName)
+  if (patch.remarks !== undefined) enrollment.remarks = str(patch.remarks)
+  if (body.contactPhone !== undefined) enrollment.maskedContactPhone = maskPhone(str(body.contactPhone))
+  enrollment.version += 1
+  enrollment.updatedAt = now()
   return enrollment
 })
 
-on('DELETE', '/enrollments/:id', ({ params }) => {
-  const idx = enrollments.findIndex((e) => e.id === params.id)
-  if (idx < 0) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+on('DELETE', '/enrollments/:id', ({ params, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  const account = requireUniversity(config)
+  if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
+    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可删除该报名单')
+  }
+  if (!['DRAFT', 'REJECTED', 'WITHDRAWN'].includes(enrollment.status)) {
+    throw new MockHttpError(409, 'ENROLLMENT_LOCKED', '仅草稿、被驳回或已撤回的报名单可删除')
+  }
+  const idx = enrollments.indexOf(enrollment)
   enrollments.splice(idx, 1)
   return { success: true }
 })
 
-on('GET', '/enrollments/:id/players', ({ params, query }) => {
-  const items = rosterItems.filter((r) => r.id.startsWith(`roster_${params.id}_`))
-  return pageOf(items, query)
+on('GET', '/enrollments/:id/players', ({ params, query, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentVisible(config, enrollment)
+  return pageOf(rosterOf(enrollment.id), query)
 })
 
-on('POST', '/enrollments/:id/players', ({ params, body }) => {
-  const person = persons.find((p) => p.id === body.athleteId)
+on('POST', '/enrollments/:id/players', ({ params, body, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentEditable(config, enrollment)
+  const person = persons.find((p) => p.id === str(body.athleteId))
+  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '运动员不存在')
+  const schoolOrgId = schoolOrgIdOfEnrollment(enrollment)
+  if (person.schoolOrgId && person.schoolOrgId !== schoolOrgId) {
+    throw new MockHttpError(403, 'FORBIDDEN', '只能添加本校在籍运动员')
+  }
+  const roster = rosterOf(enrollment.id)
+  if (roster.some((r) => r.athleteId === person.id)) {
+    throw new MockHttpError(409, 'DUPLICATE_PLAYER', '该运动员已在报名名单中')
+  }
+  const group = eventGroups.find((g) => g.id === enrollment.groupId)
+  if (group && roster.length >= group.maxPlayers) {
+    throw new MockHttpError(409, 'PLAYER_LIMIT', `名单人数已达组别上限 ${group.maxPlayers} 人`)
+  }
   const item = {
-    id: nextId('roster'),
-    athleteId: str(body.athleteId),
-    athleteName: person?.realName || str(body.athleteName),
-    maskedIdNumber: person?.maskedIdNumber,
+    id: `roster_${params.id}_${nextId('player')}`,
+    athleteId: person.id,
+    athleteName: person.realName || str(body.athleteName),
+    maskedIdNumber: person.maskedIdNumber,
     jerseyNumber: Number(body.jerseyNumber) || undefined,
     position: body.position,
     photoUrl: '',
-    gender: person?.gender,
-    schoolName: person?.schoolName,
+    gender: person.gender,
+    schoolName: person.schoolName,
     version: 1,
   }
   rosterItems.push(item)
-  const enrollment = enrollments.find((e) => e.id === params.id)
-  if (enrollment) enrollment.playerCount += 1
+  syncPlayerCount(enrollment)
   return item
 })
 
-on('PUT', '/enrollments/:id/players/:rid', ({ params, body }) => {
-  const item = rosterItems.find((r) => r.id === params.rid)
+on('PUT', '/enrollments/:id/players/:rid', ({ params, body, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentEditable(config, enrollment)
+  const item = rosterOf(enrollment.id).find((r) => r.id === params.rid)
   if (!item) throw new MockHttpError(404, 'NOT_FOUND', '名单条目不存在')
-  Object.assign(item, body, { version: item.version + 1 })
+  Object.assign(item, pickFields(body, ['jerseyNumber', 'position']), { version: item.version + 1 })
   return item
 })
 
-on('DELETE', '/enrollments/:id/players/:rid', ({ params }) => {
-  const idx = rosterItems.findIndex((r) => r.id === params.rid)
-  if (idx < 0) throw new MockHttpError(404, 'NOT_FOUND', '名单条目不存在')
-  rosterItems.splice(idx, 1)
+on('DELETE', '/enrollments/:id/players/:rid', ({ params, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
-  if (enrollment && enrollment.playerCount > 0) enrollment.playerCount -= 1
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentEditable(config, enrollment)
+  const item = rosterOf(enrollment.id).find((r) => r.id === params.rid)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '名单条目不存在')
+  rosterItems.splice(rosterItems.indexOf(item), 1)
+  syncPlayerCount(enrollment)
   return { success: true }
 })
 
-on('POST', '/enrollments/:id/precheck', ({ params }) => {
+on('POST', '/enrollments/:id/precheck', ({ params, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
-  const issues = []
-  if (!enrollmentAttachments.some((a) => a.id.includes(`_${params.id}_01`))) {
-    issues.push({ code: 'MISSING_MATERIAL', field: 'STAMPED_FORM', message: '缺少加盖学校公章的报名表扫描件', severity: 'ERROR' })
-  }
-  if ((enrollment?.playerCount || 0) < 11) {
-    issues.push({ code: 'PLAYER_LIMIT', field: 'players', message: `当前仅报送 ${enrollment?.playerCount || 0} 名球员，低于最低 11 人`, severity: 'ERROR' })
-  }
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentEditable(config, enrollment)
+  const issues = collectEnrollmentIssues(enrollment)
   return {
-    passed: issues.length === 0,
-    checkedVersion: enrollment?.version || 1,
+    passed: issues.every((issue) => issue.severity !== 'ERROR'),
+    checkedVersion: enrollment.version,
     issues,
   }
 })
 
-on('POST', '/enrollments/:id/submit', ({ params }) => {
+on('POST', '/enrollments/:id/submit', ({ params, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
-  enrollment.status = enrollment.subjectType === 'SCHOOL_TEAM' ? 'PENDING_CITY_REVIEW' : 'PENDING_PROVINCE_REVIEW'
+  const account = requireUniversity(config)
+  if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
+    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可提交该报名单')
+  }
+  if (!['DRAFT', 'REJECTED', 'WITHDRAWN'].includes(enrollment.status)) {
+    throw new MockHttpError(409, 'INVALID_STATUS', '当前状态不可提交审核')
+  }
+  const issues = collectEnrollmentIssues(enrollment).filter((issue) => issue.severity === 'ERROR')
+  if (issues.length) {
+    throw new MockHttpError(
+      422,
+      'PRECHECK_FAILED',
+      '报名预检未通过，请先处理问题项',
+      issues.map((issue) => ({ field: issue.field, reason: issue.message })),
+    )
+  }
+  const from = enrollment.status
+  enrollment.status = 'PENDING_CITY_REVIEW'
   enrollment.submissionNo += 1
   enrollment.editable = false
   enrollment.snapshotId = nextId('snap')
@@ -1174,43 +1561,72 @@ on('POST', '/enrollments/:id/submit', ({ params }) => {
     submissionNo: enrollment.submissionNo,
     stage: 'SUBMISSION',
     action: 'SUBMIT',
-    fromStatus: 'DRAFT',
+    fromStatus: from,
     toStatus: enrollment.status,
-    operatorName: '当前用户',
+    operatorName: account.displayName,
     createdAt: now(),
   })
   return enrollment
 })
 
-on('POST', '/enrollments/:id/withdraw', ({ params, body }) => {
+on('POST', '/enrollments/:id/withdraw', ({ params, body, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  const account = requireUniversity(config)
+  if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
+    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可撤回该报名单')
+  }
+  if (!['PENDING_CITY_REVIEW', 'PENDING_PROVINCE_REVIEW'].includes(enrollment.status)) {
+    throw new MockHttpError(409, 'INVALID_STATUS', '仅审核中的报名单可撤回')
+  }
+  const from = enrollment.status
   enrollment.status = 'WITHDRAWN'
   enrollment.editable = true
   enrollment.version += 1
+  enrollment.updatedAt = now()
   reviewRecords.push({
     id: nextId('rev'),
     enrollmentId: enrollment.id,
     submissionNo: enrollment.submissionNo,
     stage: 'SUBMISSION',
     action: 'WITHDRAW',
+    fromStatus: from,
+    toStatus: enrollment.status,
     reason: body.reason,
-    operatorName: '当前用户',
+    operatorName: account.displayName,
     createdAt: now(),
   })
   return enrollment
 })
 
-on('POST', '/enrollments/:id/reviews', ({ params, body }) => {
+on('POST', '/enrollments/:id/reviews', ({ params, body, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  const account = assertEnrollmentVisible(config, enrollment)
   const from = enrollment.status
+  if (from === 'PENDING_CITY_REVIEW') {
+    if (!account.roles.includes('CITY') && !account.roles.includes('ADMIN')) {
+      throw new MockHttpError(403, 'FORBIDDEN', '市州初审仅限本市审核账号')
+    }
+  } else if (from === 'PENDING_PROVINCE_REVIEW') {
+    if (!account.roles.includes('PROVINCE_REVIEWER') && !account.roles.includes('ADMIN')) {
+      throw new MockHttpError(403, 'FORBIDDEN', '省级终审仅限省级审核账号')
+    }
+  } else {
+    throw new MockHttpError(409, 'INVALID_STATUS', '当前报名单不在审核流程中')
+  }
+  if (!['APPROVE', 'REJECT'].includes(str(body.decision))) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '审核结论无效')
+  }
+  if (body.decision === 'REJECT' && !str(body.reason).trim()) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '驳回时必须填写原因')
+  }
   if (body.decision === 'APPROVE') {
     enrollment.status = from === 'PENDING_CITY_REVIEW' ? 'PENDING_PROVINCE_REVIEW' : 'APPROVED'
   } else {
     enrollment.status = 'REJECTED'
     enrollment.editable = true
-    enrollment.latestReviewReason = body.reason
+    enrollment.latestReviewReason = str(body.reason)
   }
   enrollment.version += 1
   enrollment.updatedAt = now()
@@ -1223,57 +1639,81 @@ on('POST', '/enrollments/:id/reviews', ({ params, body }) => {
     fromStatus: from,
     toStatus: enrollment.status,
     reason: body.reason,
-    operatorName: '当前用户',
+    operatorName: account.displayName,
     createdAt: now(),
   })
   return enrollment
 })
 
-on('GET', '/enrollments/:id/reviews', ({ params }) =>
-  reviewRecords.filter((r) => r.enrollmentId === params.id).sort((a, b) => str(a.createdAt).localeCompare(str(b.createdAt))),
-)
-
-on('GET', '/enrollments/:id/snapshots/:sid', ({ params }) => {
+on('GET', '/enrollments/:id/reviews', ({ params, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
-  const team = teams.find((t) => t.id === enrollment?.teamId)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentVisible(config, enrollment)
+  return reviewRecords
+    .filter((r) => r.enrollmentId === params.id)
+    .sort((a, b) => str(a.createdAt).localeCompare(str(b.createdAt)))
+})
+
+on('GET', '/enrollments/:id/snapshots/:sid', ({ params, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentVisible(config, enrollment)
+  const team = teams.find((t) => t.id === enrollment.teamId)
   return {
     id: params.sid,
     enrollmentId: params.id,
-    submissionNo: enrollment?.submissionNo || 1,
-    submittedAt: enrollment?.updatedAt,
+    submissionNo: enrollment.submissionNo || 1,
+    submittedAt: enrollment.updatedAt,
     enrollment,
     team,
-    players: rosterItems.filter((r) => r.id.startsWith(`roster_${params.id}_`)),
-    coachIds: teamCoaches.filter((c) => c.teamId === enrollment?.teamId).map((c) => c.coachId),
-    attachments: enrollmentAttachments.filter((a) => a.id.includes(`_${params.id}_`)),
+    players: rosterOf(enrollment.id),
+    coachIds: teamCoaches.filter((c) => c.teamId === enrollment.teamId).map((c) => c.coachId),
+    attachments: attachmentsOf(enrollment.id),
   }
 })
 
-on('GET', '/enrollments/:id/attachments', ({ params }) =>
-  enrollmentAttachments.filter((a) => a.id.includes(`_${params.id}_`)),
-)
+on('GET', '/enrollments/:id/attachments', ({ params, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentVisible(config, enrollment)
+  return attachmentsOf(enrollment.id)
+})
 
-on('POST', '/enrollments/:id/attachments', ({ body }) => {
+on('POST', '/enrollments/:id/attachments', ({ params, body, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentEditable(config, enrollment)
+  const materialType = str(body.materialType)
+  if (materialType && !['STAMPED_FORM', 'STUDENT_STATUS'].includes(materialType)) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '材料类型无效')
+  }
   const att = {
-    id: nextId('att'),
-    materialType: body.materialType || 'STAMPED_FORM',
+    // 关联到报名的 id 必须带上报名单编号，详情接口按 `att_${enrollmentId}_` 过滤材料。
+    id: `att_${enrollment.id}_${nextId('att')}`,
+    materialType: (materialType || 'STAMPED_FORM') as 'STAMPED_FORM' | 'STUDENT_STATUS',
     fileId: str(body.fileId) || nextId('file'),
     fileName: str(body.fileName) || '盖章报名表.pdf',
     athleteId: body.athleteId,
     version: 1,
   }
-  enrollmentAttachments.push(att as never)
+  enrollmentAttachments.push(att)
   return att
 })
 
-on('DELETE', '/enrollments/:id/attachments/:aid', ({ params }) => {
-  const idx = enrollmentAttachments.findIndex((a) => a.id === params.aid)
-  if (idx < 0) throw new MockHttpError(404, 'NOT_FOUND', '材料关联不存在')
-  enrollmentAttachments.splice(idx, 1)
+on('DELETE', '/enrollments/:id/attachments/:aid', ({ params, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentEditable(config, enrollment)
+  const att = attachmentsOf(enrollment.id).find((a) => a.id === params.aid)
+  if (!att) throw new MockHttpError(404, 'NOT_FOUND', '材料关联不存在')
+  enrollmentAttachments.splice(enrollmentAttachments.indexOf(att), 1)
   return { success: true }
 })
 
-on('POST', '/enrollments/:id/imports/players', ({ body }) => {
+on('POST', '/enrollments/:id/imports/players', ({ params, body, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentEditable(config, enrollment)
   const mode = str(body.mode) || 'VALIDATE_ONLY'
   return {
     batchId: nextId('batch'),
@@ -1289,28 +1729,48 @@ on('POST', '/enrollments/:id/imports/players', ({ body }) => {
   }
 })
 
-on('POST', '/enrollments/:id/imports/photos', () => ({
-  batchId: nextId('batch'),
-  mode: 'PHOTO_IMPORT',
-  total: 24,
-  successCount: 21,
-  failureCount: 3,
-  enrollmentVersion: 5,
-  errors: [
-    { fileName: '5101**********1201.jpg', code: 'NOT_IN_ROSTER', message: '照片未匹配到报名名单' },
-    { fileName: '5101**********1312.jpg', code: 'INVALID_IMAGE', message: '文件不是有效图片' },
-    { fileName: '5101**********1444.jpg', code: 'NOT_IN_ROSTER', message: '照片未匹配到报名名单' },
-  ],
-}))
+on('POST', '/enrollments/:id/imports/photos', ({ params, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  assertEnrollmentEditable(config, enrollment)
+  return {
+    batchId: nextId('batch'),
+    mode: 'PHOTO_IMPORT',
+    total: 24,
+    successCount: 21,
+    failureCount: 3,
+    enrollmentVersion: enrollment.version,
+    errors: [
+      { fileName: '5101**********1201.jpg', code: 'NOT_IN_ROSTER', message: '照片未匹配到报名名单' },
+      { fileName: '5101**********1312.jpg', code: 'INVALID_IMAGE', message: '文件不是有效图片' },
+      { fileName: '5101**********1444.jpg', code: 'NOT_IN_ROSTER', message: '照片未匹配到报名名单' },
+    ],
+  }
+})
 
-on('GET', '/enrollment-statistics', ({ query }) => {
+on('GET', '/enrollment-statistics', ({ query, config }) => {
   const eventId = str(query.eventId)
   const dimension = str(query.dimension) || 'city'
-  const scoped = eventId ? enrollments.filter((e) => e.eventId === eventId) : enrollments
+  const source = scopeEnrollments(config, enrollments)
+  const scoped = eventId ? source.filter((e) => e.eventId === eventId) : source
   const groups = new Map<string, { label: string; teamCount: number; athleteCount: number; pendingCount: number; approvedCount: number; rejectedCount: number }>()
   scoped.forEach((e) => {
-    const key = dimension === 'group' ? e.groupId : dimension === 'subjectType' ? e.subjectType : e.cityName || '未分组'
-    const label = dimension === 'group' ? e.groupName : dimension === 'subjectType' ? (e.subjectType === 'SCHOOL_TEAM' ? '中小学球队' : e.subjectType === 'UNIVERSITY' ? '高校' : '市州代报') : e.cityName || '未分组'
+    const key =
+      dimension === 'group'
+        ? e.groupId
+        : dimension === 'school'
+          ? schoolOrgIdOfEnrollment(e) || '未分组'
+          : dimension === 'subjectType'
+            ? e.subjectType
+            : e.cityName || '未分组'
+    const label =
+      dimension === 'group'
+        ? e.groupName
+        : dimension === 'school'
+          ? e.schoolName || '未分组'
+          : dimension === 'subjectType'
+            ? (e.subjectType === 'SCHOOL_TEAM' ? '学校报送' : '历史市州代报')
+            : e.cityName || '未分组'
     const row = groups.get(key) || { label, teamCount: 0, athleteCount: 0, pendingCount: 0, approvedCount: 0, rejectedCount: 0 }
     row.teamCount += 1
     row.athleteCount += e.playerCount

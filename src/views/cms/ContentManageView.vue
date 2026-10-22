@@ -328,46 +328,66 @@ onMounted(() => {
     </PageHeader>
 
     <section class="page-card">
-      <FilterBar :summary="'已发布 ' + publishedCount + ' · 草稿 ' + draftCount">
-        <el-select v-model="filters.contentType" placeholder="全部类型" clearable @change="search">
-          <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-        <el-select v-model="filters.eventCategory" placeholder="全部赛事类别" clearable @change="search">
-          <el-option v-for="item in eventCategories" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-        <el-select
-          v-model="filters.eventId"
-          placeholder="全部赛事"
-          clearable
-          filterable
-          @change="changeFilterEvent"
-        >
-          <el-option v-for="item in events" :key="item.id" :label="item.name" :value="item.id" />
-        </el-select>
-        <el-select
-          v-model="filters.groupId"
-          placeholder="全部组别"
-          clearable
-          :disabled="!filters.eventId"
-          @change="search"
-        >
-          <el-option v-for="item in filterGroups" :key="item.id" :label="item.name" :value="item.id" />
-        </el-select>
-        <el-select v-model="filters.status" placeholder="全部状态" clearable @change="search">
-          <el-option label="草稿" value="DRAFT" />
-          <el-option label="已发布" value="PUBLISHED" />
-          <el-option label="已下线" value="OFFLINE" />
-        </el-select>
-        <el-input
-          v-model="filters.keyword"
-          placeholder="搜索标题"
-          :prefix-icon="Search"
-          clearable
-          @keyup.enter="search"
-          @clear="search"
-        />
-        <el-button type="primary" plain @click="search">查询</el-button>
-        <el-button @click="resetFilters">重置</el-button>
+      <FilterBar class="content-filter-bar" :summary="'已发布 ' + publishedCount + ' · 草稿 ' + draftCount">
+        <div class="filter-field filter-field--type">
+          <span class="filter-field__label">内容类型</span>
+          <el-select v-model="filters.contentType" placeholder="全部" clearable @change="search">
+            <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </div>
+        <div class="filter-field">
+          <span class="filter-field__label">赛事类别</span>
+          <el-select v-model="filters.eventCategory" placeholder="全部" clearable @change="search">
+            <el-option v-for="item in eventCategories" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </div>
+        <div class="filter-field filter-field--event">
+          <span class="filter-field__label">所属赛事</span>
+          <el-select
+            v-model="filters.eventId"
+            placeholder="全部赛事"
+            clearable
+            filterable
+            @change="changeFilterEvent"
+          >
+            <el-option v-for="item in events" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </div>
+        <div class="filter-field filter-field--group">
+          <span class="filter-field__label">比赛组别</span>
+          <el-select
+            v-model="filters.groupId"
+            :placeholder="filters.eventId ? '全部组别' : '请先选赛事'"
+            clearable
+            :disabled="!filters.eventId"
+            @change="search"
+          >
+            <el-option v-for="item in filterGroups" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </div>
+        <div class="filter-field filter-field--status">
+          <span class="filter-field__label">发布状态</span>
+          <el-select v-model="filters.status" placeholder="全部" clearable @change="search">
+            <el-option label="草稿" value="DRAFT" />
+            <el-option label="已发布" value="PUBLISHED" />
+            <el-option label="已下线" value="OFFLINE" />
+          </el-select>
+        </div>
+        <div class="filter-field filter-field--keyword">
+          <span class="filter-field__label">标题关键词</span>
+          <el-input
+            v-model="filters.keyword"
+            placeholder="输入后回车搜索"
+            :prefix-icon="Search"
+            clearable
+            @keyup.enter="search"
+            @clear="search"
+          />
+        </div>
+        <div class="filter-actions">
+          <el-button type="primary" plain @click="search">查询</el-button>
+          <el-button @click="resetFilters">重置</el-button>
+        </div>
       </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
@@ -548,6 +568,71 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 筛选区保持单行：每个控件带独立标签，空间不足时整行横向滚动，不再换行。 */
+.content-filter-bar {
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.content-filter-bar :deep(.el-select),
+.content-filter-bar :deep(.el-input) {
+  width: 100%;
+}
+
+.content-filter-bar :deep(.muted) {
+  flex-shrink: 0;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.filter-field {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 96px;
+  max-width: 150px;
+}
+
+.filter-field--type,
+.filter-field--status {
+  min-width: 88px;
+}
+
+.filter-field--event {
+  min-width: 130px;
+  max-width: 190px;
+}
+
+.filter-field--keyword {
+  min-width: 140px;
+  max-width: 200px;
+}
+
+.filter-field__label {
+  padding-left: 2px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: var(--ink-500);
+  white-space: nowrap;
+}
+
+.filter-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.filter-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
 .content-cell {
   display: flex;
   align-items: center;
@@ -699,11 +784,28 @@ onMounted(() => {
 .preview__summary {
   margin-top: 16px;
   padding: 12px 14px;
-  border-left: 3px solid var(--brand-700);
+  border-radius: 8px;
   background: var(--paper);
   font-size: 12px;
   line-height: 1.8;
   color: var(--ink-500);
+}
+
+@media (max-width: 900px) {
+  .content-filter-bar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .filter-field {
+    flex: 1 1 140px;
+    max-width: none;
+  }
+
+  .filter-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
 }
 
 @media (max-width: 640px) {

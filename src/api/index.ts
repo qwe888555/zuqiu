@@ -340,7 +340,7 @@ export const publicApi = {
   goals: (params: Query) =>
     http.get<{ rows: GoalRankingRow[]; generatedAt: string }>('/public/statistics/goals', params),
   publications: (params: Query) =>
-    http.get<PageResult<{ publicationId: string; targetType: string; displayName: string; teamName?: string; cityName?: string; groupName?: string; publicPhotoUrl?: string }>>(
+    http.get<PageResult<{ publicationId: string; targetType: 'ATHLETE' | 'COACH' | 'ENROLLMENT'; displayName: string; teamName?: string; cityName?: string; groupName?: string; publicPhotoUrl?: string }>>(
       '/public/publications',
       params,
     ),

@@ -30,13 +30,15 @@ import type {
   ReviewRecord,
   RosterItem,
 } from '../../api/types'
-import { subjectTypeLabel } from '../../config/labels'
 import { usePermission } from '../../composables/usePermission'
+import { useAuthStore } from '../../stores/auth'
+import { canEnroll } from '../../utils/roles'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const { can } = usePermission()
 const loading = ref(false)
 const detail = ref<EnrollmentDetail | null>(null)
@@ -67,6 +69,8 @@ const playerForm = reactive({
   position: '',
 })
 
+const selectedPersons = ref<Person[]>([])
+
 const rosterEditForm = reactive({
   jerseyNumber: undefined as number | undefined,
   position: '',
@@ -74,14 +78,32 @@ const rosterEditForm = reactive({
 
 const enrollmentId = computed(() => String(route.params.id))
 const isReviewer = computed(() => can(['enrollment.review.city', 'enrollment.review.province']))
-const isOwner = computed(() => can('enrollment.edit'))
-const canSubmit = computed(() => can('enrollment.submit'))
-const canEdit = computed(() => isOwner.value && !!detail.value?.editable)
-const canReview = computed(
+const isSchoolOwner = computed(
   () =>
-    isReviewer.value &&
-    (detail.value?.status === 'PENDING_CITY_REVIEW' || detail.value?.status === 'PENDING_PROVINCE_REVIEW'),
+    canEnroll(auth.roles) &&
+    Boolean(detail.value) &&
+    detail.value?.schoolOrgId === auth.user?.orgId,
 )
+// 报送、修改、提交、撤回、删除只属于报送学校，管理员不代替学校操作。
+const canSubmit = computed(() => isSchoolOwner.value)
+const canEdit = computed(() => isSchoolOwner.value && !!detail.value?.editable)
+const canDelete = computed(
+  () =>
+    isSchoolOwner.value &&
+    Boolean(detail.value) &&
+    ['DRAFT', 'REJECTED', 'WITHDRAWN'].includes(detail.value?.status || ''),
+)
+const isTeamViewer = computed(() => auth.roles.includes('TEAM') && !canEnroll(auth.roles))
+const canReview = computed(() => {
+  const status = detail.value?.status
+  if (auth.roles.includes('ADMIN')) {
+    return status === 'PENDING_CITY_REVIEW' || status === 'PENDING_PROVINCE_REVIEW'
+  }
+  if (!isReviewer.value) return false
+  // 市州只审初审阶段，省级只审终审阶段，避免越级处理。
+  if (auth.roles.includes('CITY')) return status === 'PENDING_CITY_REVIEW'
+  return status === 'PENDING_PROVINCE_REVIEW'
+})
 
 const timeline = computed<ReviewRecord[]>(() => {
   if (reviews.value.length) return reviews.value
@@ -221,6 +243,7 @@ function openAddPlayer() {
   playerForm.athleteId = ''
   playerForm.jerseyNumber = undefined
   playerForm.position = ''
+  selectedPersons.value = []
   searchPersons()
 }
 
@@ -235,19 +258,29 @@ async function searchPersons() {
   }
 }
 
-function selectPerson(row?: Person) {
-  playerForm.athleteId = row?.id || ''
+function handleSelectionChange(rows: Person[]) {
+  selectedPersons.value = rows
 }
 
 async function addPlayer() {
-  if (!playerForm.athleteId) return ElMessage.warning('请先选择球员')
+  if (!selectedPersons.value.length) return ElMessage.warning('请先选择球员')
+  savingPlayer.value = true
   try {
-    await enrollmentApi.addPlayer(enrollmentId.value, { ...playerForm })
-    ElMessage.success('球员已加入名单')
+    // 批量添加选中的球员
+    for (const person of selectedPersons.value) {
+      await enrollmentApi.addPlayer(enrollmentId.value, {
+        athleteId: person.id,
+        jerseyNumber: playerForm.jerseyNumber,
+        position: playerForm.position,
+      })
+    }
+    ElMessage.success(`已添加 ${selectedPersons.value.length} 名球员`)
     addPlayerVisible.value = false
     await load()
   } catch {
     // 拦截器提示
+  } finally {
+    savingPlayer.value = false
   }
 }
 
@@ -297,7 +330,7 @@ async function removeEnrollment() {
   if (!detail.value) return
   try {
     await ElMessageBox.confirm(
-      `确认删除报名「${detail.value.teamName} · ${detail.value.groupName}」？仅草稿状态可删除。`,
+      `确认删除报名「${detail.value.teamName} · ${detail.value.groupName}」？仅草稿、被驳回或已撤回的报名单可删除。`,
       '删除报名',
       { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
     )
@@ -380,6 +413,7 @@ async function uploadAttachment(options: UploadRequestOptions) {
     await enrollmentApi.addAttachment(enrollmentId.value, {
       materialType: attachmentType.value,
       fileId: record.id,
+      fileName: record.originalName,
     })
     ElMessage.success('材料上传成功')
     attachmentVisible.value = false
@@ -458,7 +492,7 @@ onMounted(load)
           撤回
         </el-button>
         <el-button
-          v-if="canEdit && detail?.status === 'DRAFT'"
+          v-if="canDelete"
           type="danger"
           plain
           :icon="Delete"
@@ -474,6 +508,15 @@ onMounted(load)
     </PageHeader>
 
     <template v-if="detail">
+      <el-alert
+        v-if="isTeamViewer"
+        class="readonly-alert"
+        type="info"
+        :closable="false"
+        show-icon
+        title="报名由学校端统一提交"
+        description="球队端仅查看本队报名进度。球员名单、球队资料与材料请在球队管理中维护，如需调整报名请联系学校管理员。"
+      />
       <section class="enrollment-hero">
         <div class="enrollment-hero__team">
           <span class="team-badge">{{ detail.teamName.slice(0, 1) }}</span>
@@ -482,7 +525,7 @@ onMounted(load)
               <h2>{{ detail.teamName }}</h2>
               <StatusTag :status="detail.status" kind="enrollment" size="default" />
             </div>
-            <p>{{ detail.eventName }} · {{ detail.groupName }} · {{ detail.cityName }}</p>
+            <p>{{ detail.eventName }} · {{ detail.groupName }} · {{ detail.schoolName || '—' }} · {{ detail.campusName || '本部' }}</p>
           </div>
         </div>
         <div class="enrollment-hero__meta">
@@ -510,12 +553,17 @@ onMounted(load)
           <section class="page-card">
             <div class="section-title">报名信息 <small>由参赛单位填写</small></div>
             <div class="info-grid">
-              <div class="info-item"><span>参赛主体</span><strong>{{ subjectTypeLabel(detail.subjectType) }}</strong></div>
-              <div class="info-item"><span>所属市州</span><strong>{{ detail.cityName || '—' }}</strong></div>
-              <div class="info-item"><span>领队 / 联系人</span><strong>{{ detail.contactName }}</strong></div>
-              <div class="info-item"><span>联系电话</span><strong>{{ detail.maskedContactPhone || '—' }}</strong></div>
-              <div class="info-item"><span>创建时间</span><strong>{{ formatDate(detail.createdAt) }}</strong></div>
-              <div class="info-item"><span>当前状态</span><StatusTag :status="detail.status" kind="enrollment" /></div>
+              <div class="info-item"><span class="info-item__label">报送主体</span><strong>学校报送</strong></div>
+              <div class="info-item"><span class="info-item__label">参赛学校</span><strong>{{ detail.schoolName || '—' }}</strong></div>
+              <div class="info-item"><span class="info-item__label">校区</span><strong>{{ detail.campusName || '本部' }}</strong></div>
+              <div class="info-item"><span class="info-item__label">所属市州</span><strong>{{ detail.cityName || '—' }}</strong></div>
+              <div class="info-item"><span class="info-item__label">领队 / 联系人</span><strong>{{ detail.contactName }}</strong></div>
+              <div class="info-item"><span class="info-item__label">联系电话</span><strong>{{ detail.maskedContactPhone || '—' }}</strong></div>
+              <div class="info-item"><span class="info-item__label">创建时间</span><strong>{{ formatDate(detail.createdAt) }}</strong></div>
+              <div class="info-item info-item--status">
+                <span class="info-item__label">当前状态</span>
+                <StatusTag :status="detail.status" kind="enrollment" />
+              </div>
             </div>
             <el-alert
               v-if="detail.latestReviewReason"
@@ -663,7 +711,7 @@ onMounted(load)
               >
                 <span>3</span>
                 <div>
-                  <strong>{{ detail.subjectType === 'SCHOOL_TEAM' ? '市州初审 / 省级终审' : '省级终审' }}</strong>
+                  <strong>市州初审 / 省级终审</strong>
                   <small>{{ detail.status === 'PENDING_CITY_REVIEW' ? '等待市州审核' : detail.status === 'PENDING_PROVINCE_REVIEW' ? '等待省级终审' : detail.status === 'APPROVED' ? '已通过' : '未开始' }}</small>
                 </div>
               </div>
@@ -722,9 +770,9 @@ onMounted(load)
         v-loading="searchLoading"
         :data="personResults"
         height="240"
-        highlight-current-row
-        @current-change="selectPerson"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="45" />
         <el-table-column prop="realName" label="姓名" width="110" />
         <el-table-column prop="maskedIdNumber" label="身份证号" min-width="170" />
         <el-table-column prop="schoolName" label="学校" min-width="150" />
@@ -736,10 +784,13 @@ onMounted(load)
       <div class="player-form">
         <el-input v-model.number="playerForm.jerseyNumber" placeholder="球衣号码" style="width: 130px" />
         <el-input v-model="playerForm.position" placeholder="场上位置，如：前锋" style="width: 200px" />
+        <span v-if="selectedPersons.length" class="selected-count">
+          已选 {{ selectedPersons.length }} 人
+        </span>
       </div>
       <template #footer>
         <el-button @click="addPlayerVisible = false">取消</el-button>
-        <el-button type="primary" @click="addPlayer">加入名单</el-button>
+        <el-button type="primary" :loading="savingPlayer" @click="addPlayer">加入名单</el-button>
       </template>
     </el-dialog>
 
@@ -870,7 +921,6 @@ onMounted(load)
   flex-wrap: wrap;
   padding: 20px 22px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--brand-700);
   border-radius: var(--radius-lg);
   background: #fff;
   color: var(--ink-900);
@@ -952,10 +1002,14 @@ onMounted(load)
   background: var(--paper);
 }
 
-.info-item span {
+.info-item__label {
   display: block;
   font-size: 10px;
   color: var(--ink-300);
+}
+
+.info-item--status :deep(.status-tag) {
+  margin-top: 4px;
 }
 
 .info-item strong {
@@ -1299,8 +1353,16 @@ onMounted(load)
 
 .player-form {
   display: flex;
+  align-items: center;
   gap: 10px;
   margin-top: 14px;
+}
+
+.selected-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--brand-700);
+  font-weight: 600;
 }
 
 .import-actions {
@@ -1369,6 +1431,10 @@ onMounted(load)
 .import-report__stats span {
   font-size: 9.5px;
   color: var(--ink-300);
+}
+
+.readonly-alert {
+  margin-bottom: 14px;
 }
 
 @media (max-width: 900px) {

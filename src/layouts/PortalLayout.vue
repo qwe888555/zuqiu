@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Close, Menu as MenuIcon, UserFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
+import { useConsoleEntry } from '../composables/useConsoleEntry'
+import LoginDialog from '../components/auth/LoginDialog.vue'
 import PolicyAssistant from '../components/portal/PolicyAssistant.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const mobileOpen = ref(false)
+
+const {
+  consoleLabel,
+  goConsole: enterConsole,
+  startEnrollment: enterEnrollment,
+} = useConsoleEntry()
 
 const navItems = [
   { label: '首页', path: '/' },
@@ -24,8 +32,6 @@ const isActive = (path: string) => {
   return route.path.startsWith(path)
 }
 
-const consoleLabel = computed(() => (auth.user ? '进入控制台' : '管理登录'))
-
 onMounted(async () => {
   if (auth.token && !auth.user) {
     try {
@@ -38,7 +44,12 @@ onMounted(async () => {
 
 function goConsole() {
   mobileOpen.value = false
-  router.push(auth.token ? '/console/dashboard' : '/login')
+  enterConsole()
+}
+
+function startEnrollment() {
+  mobileOpen.value = false
+  enterEnrollment()
 }
 
 function navigate(path: string) {
@@ -83,6 +94,7 @@ function navigate(path: string) {
         </nav>
 
         <div class="header-actions">
+          <span class="header-season"><i class="header-season__dot" />2026 赛季 · 四川</span>
           <span v-if="auth.user" class="welcome">
             <el-icon><UserFilled /></el-icon>
             {{ auth.displayName }}
@@ -116,34 +128,32 @@ function navigate(path: string) {
               <small>省级中小学足球联赛</small>
             </span>
           </div>
-          <p>
-            面向全省中小学与高校的青少年足球赛事服务平台，连接报名、审核、比赛与人才遴选。
-          </p>
+          <p>面向全省学校与球队的青少年足球赛事服务平台。</p>
+          <span class="footer-badge">演示环境 · 数据均为模拟数据</span>
         </div>
 
         <div class="footer-col">
-          <h4>快捷入口</h4>
+          <h4>赛事服务</h4>
+          <router-link to="/news">赛事资讯</router-link>
           <router-link to="/matches">赛程与比分</router-link>
           <router-link to="/rankings">射手榜</router-link>
           <router-link to="/publications">公示查询</router-link>
-          <router-link to="/login">管理登录</router-link>
         </div>
 
         <div class="footer-col">
-          <h4>政策服务</h4>
-          <router-link to="/policies">竞赛规程</router-link>
-          <router-link to="/policies">报名办法</router-link>
-          <router-link to="/policies">资格审查</router-link>
-          <button type="button" class="footer-link" @click="navigate('/policies')">政策问答</button>
+          <h4>政策与报名</h4>
+          <router-link to="/policies">政策公告</router-link>
+          <button type="button" class="footer-link" @click="startEnrollment">报名入口</button>
         </div>
 
         <div class="footer-col footer-contact">
           <h4>联系组委会</h4>
           <p>竞赛办公室：省教育厅体卫艺处</p>
           <p>服务时间：工作日 9:00 - 17:30</p>
-          <p class="footer-note">平台演示版本 · 数据均为模拟数据</p>
+          <p class="footer-note">赛况与公示以组委会确认结果为准</p>
         </div>
       </div>
+
       <div class="footer-bottom">
         <div class="container">
           <span>© 2026 省级中小学足球联赛组委会</span>
@@ -152,6 +162,7 @@ function navigate(path: string) {
       </div>
     </footer>
 
+    <LoginDialog />
     <PolicyAssistant />
 
     <el-drawer
@@ -205,8 +216,8 @@ function navigate(path: string) {
 .header-inner {
   display: flex;
   align-items: center;
-  height: 68px;
-  gap: 32px;
+  height: 72px;
+  gap: 44px;
 }
 
 .brand {
@@ -250,7 +261,7 @@ function navigate(path: string) {
 .nav {
   display: flex;
   align-items: center;
-  gap: 26px;
+  gap: 34px;
   height: 100%;
 }
 
@@ -259,9 +270,10 @@ function navigate(path: string) {
   display: flex;
   align-items: center;
   height: 100%;
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 400;
   color: var(--ink-700);
+  white-space: nowrap;
   transition: color 0.15s;
 }
 
@@ -289,6 +301,26 @@ function navigate(path: string) {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+.header-season {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 11px;
+  color: var(--ink-500);
+  white-space: nowrap;
+}
+
+.header-season__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--brand-500);
 }
 
 .console-btn {
@@ -325,15 +357,30 @@ function navigate(path: string) {
 }
 
 .portal-footer {
+  position: relative;
+  overflow: hidden;
   background: var(--brand-900);
-  color: rgba(255, 255, 255, 0.68);
+  color: var(--on-dark-2);
+}
+
+.portal-footer::before {
+  content: '';
+  position: absolute;
+  right: -140px;
+  top: -190px;
+  width: 520px;
+  height: 520px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 50%;
+  pointer-events: none;
 }
 
 .footer-grid {
+  position: relative;
   display: grid;
   grid-template-columns: 1.6fr 0.8fr 0.8fr 1.1fr;
-  gap: 40px;
-  padding: 54px 0 42px;
+  gap: 34px;
+  padding: 44px 0 36px;
 }
 
 .brand__mark--footer {
@@ -345,15 +392,25 @@ function navigate(path: string) {
 }
 
 .brand__text--footer small {
-  color: rgba(255, 255, 255, 0.56);
+  color: var(--on-dark-3);
 }
 
 .footer-brand p {
   max-width: 320px;
-  margin-top: 18px;
-  font-size: 13.5px;
-  line-height: 1.9;
-  color: rgba(255, 255, 255, 0.6);
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--on-dark-3);
+}
+
+.footer-badge {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--on-dark-3);
 }
 
 .footer-col {
@@ -376,7 +433,7 @@ function navigate(path: string) {
   background: none;
   padding: 0;
   font-size: 13.5px;
-  color: rgba(255, 255, 255, 0.68);
+  color: var(--on-dark-2);
   cursor: pointer;
   transition: color 0.15s;
 }
@@ -393,7 +450,7 @@ function navigate(path: string) {
 
 .footer-note {
   margin-top: 6px;
-  color: rgba(255, 255, 255, 0.46);
+  color: var(--on-dark-3);
 }
 
 .footer-bottom {
@@ -402,10 +459,12 @@ function navigate(path: string) {
 
 .footer-bottom .container {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  padding: 18px 0;
+  gap: 16px;
+  padding: 16px 0;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.46);
+  color: var(--on-dark-3);
 }
 
 .mobile-panel {
@@ -460,9 +519,23 @@ function navigate(path: string) {
   margin-top: 18px;
 }
 
-@media (max-width: 960px) {
-  .nav,
+@media (max-width: 1180px) {
+  .header-season,
   .welcome {
+    display: none;
+  }
+
+  .header-inner {
+    gap: 26px;
+  }
+
+  .nav {
+    gap: 24px;
+  }
+}
+
+@media (max-width: 960px) {
+  .nav {
     display: none;
   }
 
@@ -480,9 +553,9 @@ function navigate(path: string) {
   }
 
   .footer-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 30px;
-    padding: 38px 0 30px;
+    padding: 34px 0 28px;
   }
 
   .footer-brand {
@@ -497,6 +570,12 @@ function navigate(path: string) {
 
   .footer-grid {
     grid-template-columns: 1fr;
+  }
+
+  .footer-bottom .container {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 }
 </style>

@@ -10,7 +10,7 @@ import PaginationBar from '../../components/common/PaginationBar.vue'
 const loading = ref(false)
 const allItems = ref<PublicContent[]>([])
 const page = ref(1)
-const pageSize = 9
+const pageSize = 10
 const keyword = ref('')
 const activeType = ref('')
 
@@ -74,13 +74,14 @@ onMounted(load)
   <div class="news-page">
     <section class="page-hero">
       <div class="container hero-grid">
-        <div>
-          <h1>赛事资讯</h1>
-          <p>发布赛事动态、球队风采与赛场图集，记录全省校园足球赛事进展。</p>
+        <div class="hero-copy">
+          <span class="hero-kicker">MATCH REPORT · 赛事资讯</span>
+          <h1>赛场内外</h1>
+          <p>赛事动态、球队故事与赛场图集。记录每一个比赛日，也记录绿茵场外的成长。</p>
         </div>
         <div v-if="!loading" class="hero-stat">
           <strong class="num">{{ allItems.length }}</strong>
-          <span>条已发布资讯</span>
+          <span>篇已发布内容</span>
         </div>
       </div>
     </section>
@@ -100,7 +101,7 @@ onMounted(load)
           </button>
         </div>
         <div class="toolbar__right">
-          <span class="sort-note">按发布时间倒序</span>
+          <span class="sort-note">共 {{ total }} 条 · 按发布时间倒序</span>
           <el-input
             v-model="keyword"
             size="large"
@@ -110,6 +111,7 @@ onMounted(load)
             class="search"
             @keyup.enter="search"
             @clear="search"
+            @input="page = 1"
           />
         </div>
       </div>
@@ -120,12 +122,13 @@ onMounted(load)
           :to="`/news/${featured.id}`"
           class="featured-card"
         >
-          <div class="featured-card__cover">
-            <img :src="featured.publicCoverUrl || IMG.training" :alt="featured.title" />
+          <img :src="featured.publicCoverUrl || IMG.training" :alt="featured.title" />
+          <span class="featured-card__shade" />
+          <div class="featured-card__top">
+            <span class="featured-card__label">最新发布</span>
             <span class="news-type-badge">{{ typeLabel(featured.contentType) }}</span>
           </div>
           <div class="featured-card__body">
-            <span class="featured-card__label">最新发布</span>
             <h2>{{ featured.title }}</h2>
             <p>{{ featured.summary }}</p>
             <div class="featured-card__meta">
@@ -146,12 +149,19 @@ onMounted(load)
           >
             <div class="news-card__cover">
               <img :src="item.publicCoverUrl || IMG.training" :alt="item.title" />
-              <span class="news-type-badge">{{ typeLabel(item.contentType) }}</span>
+              <span class="news-type-badge news-type-badge--light">{{ typeLabel(item.contentType) }}</span>
             </div>
             <div class="news-card__body">
-              <span class="news-card__date">{{ dayjs(item.publishedAt).format('YYYY.MM.DD') }}</span>
+              <div class="news-card__meta">
+                <span>{{ dayjs(item.publishedAt).format('YYYY.MM.DD') }}</span>
+                <span>第 {{ item.revision }} 版</span>
+              </div>
               <h3>{{ item.title }}</h3>
               <p>{{ item.summary }}</p>
+              <span class="news-card__more">
+                阅读全文
+                <el-icon><ArrowRight /></el-icon>
+              </span>
             </div>
           </router-link>
         </div>
@@ -176,51 +186,70 @@ onMounted(load)
 
 <style scoped>
 .news-page {
-  background: var(--paper);
   min-height: 70vh;
-  padding-bottom: 60px;
+  padding-bottom: 62px;
+  background: var(--paper);
 }
 
 .page-hero {
-  padding: 28px 0 26px;
+  padding: 20px 0 34px;
   background: var(--brand-900);
   color: #fff;
 }
 
 .hero-grid {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
+  gap: 30px;
+}
+
+.hero-copy {
+  min-width: 0;
+}
+
+.hero-kicker {
+  display: block;
+  margin-bottom: 9px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--lime);
 }
 
 .page-hero h1 {
-  font-size: 27px;
-  font-weight: 600;
+  font-size: clamp(30px, 3.4vw, 42px);
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .page-hero p {
-  margin-top: 7px;
+  max-width: 660px;
+  margin-top: 11px;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.66);
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .hero-stat {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   flex-shrink: 0;
+  padding-bottom: 4px;
 }
 
 .hero-stat strong {
-  font-size: 26px;
+  font-size: 32px;
+  font-weight: 800;
   line-height: 1;
   color: var(--lime);
 }
 
 .hero-stat span {
-  font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.62);
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.48);
 }
 
 .news-body {
@@ -238,7 +267,7 @@ onMounted(load)
 
 .tabs {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   padding: 3px;
   border-radius: 8px;
   background: #fff;
@@ -246,22 +275,24 @@ onMounted(load)
 }
 
 .tab {
-  min-height: 40px;
-  padding: 8px 14px;
+  min-height: 38px;
+  padding: 0 14px;
   border: none;
   border-radius: 5px;
   background: transparent;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--ink-500);
   cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
 }
 
 .tab:hover {
   background: var(--paper);
+  color: var(--ink-900);
 }
 
 .tab.is-active {
-  background: var(--brand-700);
+  background: var(--brand-900);
   color: #fff;
   font-weight: 600;
 }
@@ -273,8 +304,8 @@ onMounted(load)
 }
 
 .sort-note {
-  font-size: 12.5px;
-  color: var(--ink-500);
+  font-size: 11.5px;
+  color: var(--ink-300);
   white-space: nowrap;
 }
 
@@ -287,54 +318,62 @@ onMounted(load)
 }
 
 .featured-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-  gap: 0;
-  margin-bottom: 20px;
-  overflow: hidden;
-  border-radius: 10px;
-  background: #fff;
-  border: 1px solid var(--line);
-  transition: border-color 0.18s ease;
-}
-
-.featured-card:hover {
-  border-color: var(--brand-500);
-}
-
-.featured-card__cover {
   position: relative;
-  min-height: 280px;
+  display: block;
+  height: clamp(340px, 34vw, 430px);
+  margin-bottom: 18px;
   overflow: hidden;
-  background: var(--brand-50);
+  border-radius: 12px;
+  background: var(--brand-900);
 }
 
-.featured-card__cover img {
+.featured-card > img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.35s ease;
+  transition: transform 0.5s ease;
 }
 
-.featured-card:hover .featured-card__cover img {
-  transform: scale(1.03);
+.featured-card:hover > img {
+  transform: scale(1.025);
 }
 
-.featured-card__body {
+.featured-card__shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(0deg, rgba(4, 33, 24, 0.94) 0%, rgba(4, 33, 24, 0.48) 46%, rgba(4, 33, 24, 0.06) 76%),
+    linear-gradient(90deg, rgba(4, 33, 24, 0.38), transparent 62%);
+}
+
+.featured-card__top {
+  position: absolute;
+  left: 30px;
+  right: 30px;
+  top: 26px;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 30px 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .featured-card__label {
-  align-self: flex-start;
-  padding: 3px 8px;
-  border-radius: 3px;
-  background: var(--lime-soft);
-  color: #4f6808;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 4px;
+  background: var(--lime);
+  color: var(--brand-900);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.featured-card__body {
+  position: absolute;
+  left: 30px;
+  right: 30px;
+  bottom: 28px;
+  color: #fff;
 }
 
 .featured-card__body h2 {
@@ -342,10 +381,11 @@ onMounted(load)
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-top: 12px;
-  font-size: clamp(23px, 2.2vw, 29px);
-  line-height: 1.4;
-  color: var(--ink-900);
+  max-width: 880px;
+  font-size: clamp(24px, 2.7vw, 36px);
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
 }
 
 .featured-card__body p {
@@ -353,10 +393,11 @@ onMounted(load)
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-top: 12px;
-  font-size: 15px;
-  line-height: 1.8;
-  color: var(--ink-500);
+  max-width: 760px;
+  margin-top: 10px;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: rgba(255, 255, 255, 0.66);
 }
 
 .featured-card__meta {
@@ -364,9 +405,9 @@ onMounted(load)
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 20px;
-  font-size: 13px;
-  color: var(--ink-500);
+  margin-top: 16px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .featured-card__meta .dot {
@@ -380,29 +421,33 @@ onMounted(load)
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
+  margin-left: 8px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
   font-weight: 600;
-  color: var(--brand-700);
+  color: var(--lime);
 }
 
 .news-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 16px;
 }
 
 .news-card {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 9px;
   background: #fff;
   border: 1px solid var(--line);
-  transition: border-color 0.18s ease;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .news-card:hover {
   border-color: var(--brand-500);
+  box-shadow: 0 8px 24px rgba(24, 53, 43, 0.06);
+  transform: translateY(-2px);
 }
 
 .news-card__cover {
@@ -420,7 +465,11 @@ onMounted(load)
 }
 
 .news-card:hover .news-card__cover img {
-  transform: scale(1.05);
+  transform: scale(1.04);
+}
+
+.featured-card__top .news-type-badge {
+  position: static;
 }
 
 .news-type-badge {
@@ -429,18 +478,31 @@ onMounted(load)
   top: 12px;
   padding: 3px 8px;
   border-radius: 3px;
-  background: rgba(6, 60, 43, 0.82);
+  background: rgba(6, 60, 43, 0.84);
   color: #fff;
-  font-size: 12px;
+  font-size: 10.5px;
+}
+
+.news-type-badge--light {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--brand-800);
+  font-weight: 600;
 }
 
 .news-card__body {
-  padding: 16px 18px 19px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 14px 16px 16px;
 }
 
-.news-card__date {
-  font-size: 13px;
-  color: var(--ink-500);
+.news-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--ink-300);
 }
 
 .news-card__body h3 {
@@ -449,7 +511,8 @@ onMounted(load)
   -webkit-box-orient: vertical;
   overflow: hidden;
   margin-top: 7px;
-  font-size: 19px;
+  font-size: 17px;
+  font-weight: 600;
   line-height: 1.5;
   color: var(--ink-900);
 }
@@ -459,10 +522,29 @@ onMounted(load)
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin-top: 7px;
-  font-size: 14.5px;
+  margin-top: 6px;
+  font-size: 12.5px;
   line-height: 1.7;
   color: var(--ink-500);
+}
+
+.news-card__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: auto;
+  padding-top: 13px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--brand-700);
+}
+
+.news-card__more .el-icon {
+  transition: transform 0.16s;
+}
+
+.news-card:hover .news-card__more .el-icon {
+  transform: translateX(3px);
 }
 
 .empty {
@@ -471,16 +553,7 @@ onMounted(load)
 
 @media (max-width: 900px) {
   .featured-card {
-    grid-template-columns: 1fr;
-  }
-
-  .featured-card__cover {
-    min-height: 230px;
-    aspect-ratio: 16 / 9;
-  }
-
-  .featured-card__body {
-    padding: 22px;
+    height: 340px;
   }
 
   .news-grid {
@@ -488,32 +561,85 @@ onMounted(load)
   }
 }
 
-@media (max-width: 620px) {
-  .page-hero {
-    padding: 22px 0 20px;
-  }
-
-  .page-hero h1 {
-    font-size: 23px;
-  }
-
+@media (max-width: 720px) {
   .hero-grid {
     align-items: flex-start;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
   }
 
-  .toolbar__right,
-  .search {
+  .hero-stat {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 7px;
+    padding-bottom: 0;
+  }
+
+  .hero-stat strong {
+    font-size: 25px;
+  }
+
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .tabs {
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .toolbar__right {
     width: 100%;
   }
 
-  .news-grid {
-    grid-template-columns: 1fr;
+  .sort-note {
+    display: none;
+  }
+
+  .search {
+    width: 100%;
+  }
+}
+
+@media (max-width: 620px) {
+  .page-hero {
+    padding: 18px 0 26px;
+  }
+
+  .featured-card {
+    height: 320px;
+  }
+
+  .featured-card__top {
+    left: 18px;
+    right: 18px;
+    top: 18px;
+  }
+
+  .featured-card__body {
+    left: 18px;
+    right: 18px;
+    bottom: 18px;
   }
 
   .featured-card__body h2 {
-    font-size: 21px;
+    font-size: 22px;
+  }
+
+  .featured-card__body p {
+    display: none;
+  }
+
+  .featured-card__more {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .news-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
