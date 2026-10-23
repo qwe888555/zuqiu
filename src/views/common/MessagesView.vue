@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import { ArrowDown, ArrowRight, Refresh } from '@element-plus/icons-vue'
+import { ArrowRight, Refresh } from '@element-plus/icons-vue'
 import { meApi } from '../../api'
 import type { Message as MessageItem } from '../../api/types'
 import { useAppStore } from '../../stores/app'
@@ -12,20 +12,20 @@ import PageHeader from '../../components/common/PageHeader.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 
 type CategoryKey = 'ALL' | 'REVIEW' | 'MATERIAL' | 'MATCH' | 'PUBLICATION' | 'SYSTEM'
+type ViewKey = 'PENDING' | 'UNREAD' | 'ALL'
 
 interface Category {
   key: CategoryKey
   label: string
-  hint: string
 }
 
 const categories: Category[] = [
-  { key: 'ALL', label: '全部', hint: '所有业务通知' },
-  { key: 'REVIEW', label: '审核结果', hint: '报名审核、终审结论与退回原因' },
-  { key: 'MATERIAL', label: '材料提醒', hint: '材料缺失、补交与退回提醒' },
-  { key: 'MATCH', label: '赛程变更', hint: '比赛时间、场地与开赛状态调整' },
-  { key: 'PUBLICATION', label: '公示通知', hint: '公示发布、异议与结果提醒' },
-  { key: 'SYSTEM', label: '系统', hint: '身份核验、遴选及平台通知' },
+  { key: 'ALL', label: '全部分类' },
+  { key: 'REVIEW', label: '审核结果' },
+  { key: 'MATERIAL', label: '材料提醒' },
+  { key: 'MATCH', label: '赛程变更' },
+  { key: 'PUBLICATION', label: '公示通知' },
+  { key: 'SYSTEM', label: '系统' },
 ]
 
 const router = useRouter()
@@ -35,10 +35,9 @@ const { linkFor } = useMessageLink()
 const loading = ref(false)
 const rows = ref<MessageItem[]>([])
 const activeCategory = ref<CategoryKey>('ALL')
-const unreadOnly = ref(false)
+const activeView = ref<ViewKey>('PENDING')
 const page = ref(1)
 const pageSize = 12
-const expandedId = ref('')
 
 function categoryOf(type?: string): CategoryKey {
   switch ((type || 'SYSTEM').toUpperCase()) {
@@ -67,26 +66,15 @@ const typeLabel: Record<string, string> = {
   SYSTEM: '系统',
 }
 
-const activeCategoryMeta = computed(
-  () => categories.find((item) => item.key === activeCategory.value) || categories[0],
-)
+/** 当前视图下一条消息是否应出现；分类计数和列表共用同一口径。 */
+function matchesActiveView(item: MessageItem) {
+  if (activeView.value === 'PENDING') return Boolean(linkFor(item))
+  if (activeView.value === 'UNREAD') return !item.read
+  return true
+}
 
+// 分类计数跟随当前视图，避免在“未读”里看到“全部”的数量。
 const categoryCounts = computed(() => {
-  const counts: Record<CategoryKey, number> = {
-    ALL: rows.value.length,
-    REVIEW: 0,
-    MATERIAL: 0,
-    MATCH: 0,
-    PUBLICATION: 0,
-    SYSTEM: 0,
-  }
-  rows.value.forEach((item) => {
-    counts[categoryOf(item.businessType)] += 1
-  })
-  return counts
-})
-
-const categoryUnread = computed(() => {
   const counts: Record<CategoryKey, number> = {
     ALL: 0,
     REVIEW: 0,
@@ -96,7 +84,7 @@ const categoryUnread = computed(() => {
     SYSTEM: 0,
   }
   rows.value.forEach((item) => {
-    if (item.read) return
+    if (!matchesActiveView(item)) return
     counts.ALL += 1
     counts[categoryOf(item.businessType)] += 1
   })
@@ -104,22 +92,66 @@ const categoryUnread = computed(() => {
 })
 
 const unreadCount = computed(() => rows.value.filter((item) => !item.read).length)
-const actionableUnread = computed(
-  () => rows.value.filter((item) => !item.read && Boolean(linkFor(item))).length,
-)
+const pendingCount = computed(() => rows.value.filter((item) => Boolean(linkFor(item))).length)
 
-const filteredRows = computed(() =>
-  rows.value.filter(
-    (item) =>
-      (activeCategory.value === 'ALL' || categoryOf(item.businessType) === activeCategory.value) &&
-      // 展开中的消息即使刚刚标为已读也保留在“仅看未读”列表里，收起后才移除。
-      (!unreadOnly.value || !item.read || item.id === expandedId.value),
-  ),
-)
+const views = computed(() => [
+  { key: 'PENDING' as ViewKey, label: '待处理', count: pendingCount.value },
+  { key: 'UNREAD' as ViewKey, label: '未读', count: unreadCount.value },
+  { key: 'ALL' as ViewKey, label: '全部', count: rows.value.length },
+])
+
+function inCategory(item: MessageItem) {
+  return activeCategory.value === 'ALL' || categoryOf(item.businessType) === activeCategory.value
+}
+
+function dueAtOf(item: MessageItem) {
+  return item.dueAt && Boolean(linkFor(item)) ? dayjs(item.dueAt) : null
+}
+
+function dueInfo(item: MessageItem) {
+  const due = dueAtOf(item)
+  if (!due) return null
+  const diffDays = due.startOf('day').diff(dayjs().startOf('day'), 'day')
+  const overdue = diffDays < 0
+  return {
+    overdue,
+    urgent: overdue || diffDays <= 1,
+    text: overdue
+      ? `已逾期 ${Math.abs(diffDays)} 天`
+      : diffDays === 0
+        ? '今日截止'
+        : `剩余 ${diffDays} 天`,
+    date: due.format('MM-DD HH:mm'),
+  }
+}
+
+const filteredRows = computed(() => {
+  const list = rows.value.filter((item) => {
+    if (!inCategory(item)) return false
+    return matchesActiveView(item)
+  })
+
+  // 待处理按截止时间升序，未设截止时间的排在后面；其余视图按时间倒序。
+  if (activeView.value === 'PENDING') {
+    return [...list].sort((a, b) => {
+      const aDue = a.dueAt ? dayjs(a.dueAt).valueOf() : Number.MAX_SAFE_INTEGER
+      const bDue = b.dueAt ? dayjs(b.dueAt).valueOf() : Number.MAX_SAFE_INTEGER
+      if (aDue !== bDue) return aDue - bDue
+      return (b.createdAt || '').localeCompare(a.createdAt || '')
+    })
+  }
+  return [...list].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+})
 
 const pagedRows = computed(() =>
   filteredRows.value.slice((page.value - 1) * pageSize, page.value * pageSize),
 )
+
+const emptyText = computed(() => {
+  if (activeView.value === 'UNREAD') return '没有未读消息'
+  if (activeView.value === 'PENDING') return '当前没有需要处理的消息'
+  return activeCategory.value === 'ALL' ? '暂无消息' : '该分类暂无消息'
+})
 
 async function load() {
   loading.value = true
@@ -136,14 +168,9 @@ async function load() {
       if (!res.items.length) break
     } while (collected.length < total && currentPage <= 5)
 
-    rows.value = collected.sort((a, b) =>
-      (b.createdAt || '').localeCompare(a.createdAt || ''),
-    )
+    rows.value = collected
     app.unreadCount = rows.value.filter((item) => !item.read).length
 
-    if (expandedId.value && !rows.value.some((item) => item.id === expandedId.value)) {
-      expandedId.value = ''
-    }
     if (page.value > 1 && !pagedRows.value.length) page.value = 1
   } catch {
     rows.value = []
@@ -160,7 +187,6 @@ async function markRead(item: MessageItem) {
     item.readAt = new Date().toISOString()
     app.unreadCount = Math.max(0, app.unreadCount - 1)
 
-    // 读完后当前消息可能从“仅未读”列表消失，但详情保持打开，避免阅读被打断。
     const maxPage = Math.max(1, Math.ceil(filteredRows.value.length / pageSize))
     if (page.value > maxPage) page.value = maxPage
   } catch {
@@ -168,25 +194,15 @@ async function markRead(item: MessageItem) {
   }
 }
 
-async function toggleMessage(item: MessageItem) {
-  if (expandedId.value === item.id) {
-    expandedId.value = ''
-    return
-  }
-  expandedId.value = item.id
-  await markRead(item)
-}
-
 function selectCategory(key: CategoryKey) {
   activeCategory.value = key
   page.value = 1
-  expandedId.value = ''
 }
 
-function toggleUnreadOnly(value: boolean) {
-  unreadOnly.value = value
+function selectView(key: ViewKey) {
+  if (activeView.value === key) return
+  activeView.value = key
   page.value = 1
-  expandedId.value = ''
 }
 
 async function refresh() {
@@ -208,7 +224,7 @@ onMounted(load)
   <div class="page message-page">
     <PageHeader
       title="消息中心"
-      description="审核结果、材料退回、赛程变更与公示通知统一汇总。点击消息查看详情，可直接进入对应业务页面处理。"
+      description="审核结果、材料提醒、赛程变更与公示通知统一汇总。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="refresh">刷新</el-button>
@@ -217,40 +233,39 @@ onMounted(load)
 
     <section class="page-card mailbox">
       <header class="mailbox-head">
-        <div class="mailbox-toolbar">
-          <div class="filter-field">
-            <span class="filter-field__label">消息分类</span>
-            <el-select
-              v-model="activeCategory"
-              size="large"
-              class="category-select"
-              aria-label="消息分类"
-              @change="selectCategory"
-            >
-              <el-option
-                v-for="category in categories"
-                :key="category.key"
-                :label="`${category.label}（${categoryCounts[category.key]} 条${
-                  categoryUnread[category.key] ? ` · ${categoryUnread[category.key]} 未读` : ''
-                }）`"
-                :value="category.key"
-              />
-            </el-select>
-          </div>
-          <span class="category-hint">{{ activeCategoryMeta.hint }}</span>
-
-          <div class="mailbox-head__filters">
-            <span class="mailbox-summary">
-              共 {{ rows.length }} 条 · <em>{{ unreadCount }}</em> 条未读
-              <template v-if="actionableUnread"> · {{ actionableUnread }} 条可处理</template>
-            </span>
-            <el-switch
-              :model-value="unreadOnly"
-              active-text="仅看未读"
-              @update:model-value="(value: string | number | boolean) => toggleUnreadOnly(Boolean(value))"
-            />
-          </div>
+        <div class="view-tabs" role="tablist" aria-label="消息视图">
+          <button
+            v-for="view in views"
+            :key="view.key"
+            type="button"
+            role="tab"
+            class="view-tab"
+            :class="{ 'is-active': activeView === view.key }"
+            :aria-selected="activeView === view.key"
+            @click="selectView(view.key)"
+          >
+            {{ view.label }}
+            <span class="view-tab__count num">{{ view.count }}</span>
+          </button>
         </div>
+
+        <nav class="category-nav" aria-label="消息分类">
+          <button
+            v-for="category in categories"
+            :key="category.key"
+            type="button"
+            class="category-link"
+            :class="{
+              'is-active': activeCategory === category.key,
+              'is-empty': categoryCounts[category.key] === 0,
+            }"
+            :aria-pressed="activeCategory === category.key"
+            @click="selectCategory(category.key)"
+          >
+            {{ category.label }}
+            <span class="category-link__count num">{{ categoryCounts[category.key] }}</span>
+          </button>
+        </nav>
       </header>
 
       <div class="mailbox-body">
@@ -259,10 +274,18 @@ onMounted(load)
             v-for="item in pagedRows"
             :key="item.id"
             class="message-item"
-            :class="{ 'is-expanded': expandedId === item.id, 'is-unread': !item.read }"
+            :class="{ 'is-unread': !item.read }"
           >
-            <button type="button" class="message-item__main" @click="toggleMessage(item)">
-              <span class="message-item__dot" :class="{ 'is-unread': !item.read }" />
+            <div
+              class="message-item__main"
+              :role="item.read ? undefined : 'button'"
+              :tabindex="item.read ? undefined : 0"
+              :aria-label="item.read ? undefined : `标记为已读：${item.title}`"
+              @click="item.read ? undefined : markRead(item)"
+              @keydown.enter.prevent="item.read ? undefined : markRead(item)"
+              @keydown.space.prevent="item.read ? undefined : markRead(item)"
+            >
+              <span class="message-item__dot" :class="{ 'is-unread': !item.read }" aria-hidden="true" />
               <span class="message-item__body">
                 <span class="message-item__top">
                   <span
@@ -271,38 +294,38 @@ onMounted(load)
                   >
                     {{ typeLabel[(item.businessType || 'SYSTEM').toUpperCase()] || '系统' }}
                   </span>
-                  <small>{{ dayjs(item.createdAt).format('YYYY-MM-DD HH:mm') }}</small>
+                  <small class="message-item__time">
+                    {{ dayjs(item.createdAt).format('MM-DD HH:mm') }}
+                  </small>
                 </span>
                 <strong class="message-item__title">{{ item.title }}</strong>
-                <span class="message-item__preview">{{ item.body || '无详细内容' }}</span>
-                <span v-if="!item.read || linkFor(item)" class="message-item__meta">
-                  <span v-if="!item.read" class="message-item__unread">未读</span>
-                  <span v-if="linkFor(item)" class="message-item__jump">
-                    可处理
-                    <el-icon><ArrowRight /></el-icon>
-                  </span>
+                <span class="message-item__text">{{ item.body || '无详细内容' }}</span>
+                <span
+                  v-if="dueInfo(item)"
+                  class="message-item__due"
+                  :class="{ 'is-urgent': dueInfo(item)?.urgent }"
+                >
+                  <span v-if="dueInfo(item)?.overdue" class="message-item__due-flag">已逾期</span>
+                  截止 {{ dueInfo(item)?.date }} · {{ dueInfo(item)?.text }}
                 </span>
               </span>
-              <el-icon class="message-item__chevron"><ArrowDown /></el-icon>
-            </button>
+            </div>
 
-            <div v-if="expandedId === item.id" class="message-item__detail">
-              <p>{{ item.body || '该消息暂无详细内容。' }}</p>
-              <footer v-if="linkFor(item)" class="message-item__actions">
-                <el-button type="primary" @click="openBusiness(item)">
-                  {{ linkFor(item)?.label }}
-                  <el-icon class="el-icon--right"><ArrowRight /></el-icon>
-                </el-button>
-              </footer>
+            <div v-if="linkFor(item)" class="message-item__side">
+              <button
+                type="button"
+                class="message-item__action"
+                :class="{ 'is-primary': Boolean(dueAtOf(item)) }"
+                @click.stop="openBusiness(item)"
+              >
+                {{ linkFor(item)?.label }}
+                <el-icon><ArrowRight /></el-icon>
+              </button>
             </div>
           </article>
 
-          <el-empty
-            v-if="!loading && !pagedRows.length"
-            :description="unreadOnly ? '没有未读消息' : '该分类暂无消息'"
-            :image-size="70"
-          >
-            <el-button v-if="unreadOnly" plain size="small" @click="toggleUnreadOnly(false)">
+          <el-empty v-if="!loading && !pagedRows.length" :description="emptyText" :image-size="70">
+            <el-button v-if="activeView !== 'ALL'" plain size="small" @click="selectView('ALL')">
               查看全部消息
             </el-button>
             <el-button
@@ -311,7 +334,7 @@ onMounted(load)
               size="small"
               @click="selectCategory('ALL')"
             >
-              查看全部消息
+              查看全部分类
             </el-button>
           </el-empty>
         </div>
@@ -338,62 +361,116 @@ onMounted(load)
 }
 
 .mailbox-head {
-  padding: 14px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 20px 12px;
   border-bottom: 1px solid var(--line);
   background: #fff;
 }
 
-.mailbox-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+.view-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--paper);
 }
 
-.filter-field {
-  display: flex;
+.view-tab {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-500);
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
-.filter-field__label {
-  font-size: 12px;
-  font-weight: 600;
+.view-tab:hover {
   color: var(--ink-700);
-  white-space: nowrap;
 }
 
-.category-select {
-  width: 210px;
+.view-tab.is-active {
+  background: #fff;
+  color: var(--brand-800);
+  box-shadow: 0 1px 3px rgba(20, 42, 30, 0.1);
 }
 
-.category-hint {
-  font-size: 11px;
-  color: var(--ink-300);
-}
-
-.mailbox-head__filters {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-left: auto;
-  flex-wrap: wrap;
-}
-
-.mailbox-summary {
-  font-size: 11.5px;
+.view-tab__count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(20, 42, 30, 0.06);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
   color: var(--ink-500);
 }
 
-.mailbox-summary em {
-  font-style: normal;
-  font-weight: 700;
-  color: var(--live);
+.view-tab.is-active .view-tab__count {
+  background: var(--brand-50);
+  color: var(--brand-800);
+}
+
+.category-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.category-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--ink-500);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.category-link:hover {
+  background: var(--paper);
+  color: var(--ink-900);
+}
+
+.category-link.is-active {
+  background: var(--brand-50);
+  color: var(--brand-800);
+  font-weight: 600;
+}
+
+.category-link.is-empty {
+  color: var(--ink-300);
+}
+
+.category-link__count {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--ink-300);
+}
+
+.category-link.is-active .category-link__count {
+  color: var(--brand-600);
 }
 
 .mailbox-body {
-  padding: 16px 20px 18px;
+  padding: 12px 20px 18px;
 }
 
 .message-list {
@@ -403,10 +480,12 @@ onMounted(load)
 }
 
 .message-item {
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 13px 12px;
   border-bottom: 1px solid var(--line);
   border-radius: 8px;
-  background: transparent;
   transition: background 0.15s;
 }
 
@@ -420,33 +499,26 @@ onMounted(load)
 
 .message-item__main {
   display: flex;
-  align-items: flex-start;
+  flex: 1;
   gap: 10px;
-  width: 100%;
-  padding: 15px 12px;
-  border: none;
-  background: transparent;
-  text-align: left;
+  min-width: 0;
+}
+
+.message-item.is-unread .message-item__main {
   cursor: pointer;
 }
 
-.message-item__chevron {
-  flex-shrink: 0;
-  align-self: center;
-  margin-left: 4px;
-  color: var(--ink-300);
-  transition: transform 0.16s;
-}
-
-.message-item.is-expanded .message-item__chevron {
-  transform: rotate(180deg);
+.message-item__main:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 3px;
+  border-radius: 6px;
 }
 
 .message-item__dot {
   width: 7px;
   height: 7px;
   flex-shrink: 0;
-  margin-top: 7px;
+  margin-top: 8px;
   border-radius: 50%;
   background: transparent;
 }
@@ -460,7 +532,7 @@ onMounted(load)
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -472,10 +544,10 @@ onMounted(load)
 }
 
 .message-item__tag {
-  padding: 2px 6px;
-  border-radius: 3px;
+  padding: 2px 7px;
+  border-radius: 4px;
   background: var(--paper);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--ink-500);
 }
@@ -500,9 +572,9 @@ onMounted(load)
   color: #3f6fce;
 }
 
-.message-item__top small {
+.message-item__time {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--ink-300);
 }
 
@@ -511,94 +583,109 @@ onMounted(load)
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
   line-height: 1.5;
   color: var(--ink-700);
 }
 
 .message-item.is-unread .message-item__title {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--ink-900);
 }
 
-.message-item__preview {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: var(--ink-300);
+.message-item__text {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ink-500);
+  overflow-wrap: anywhere;
 }
 
-.message-item__meta {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 2px;
-}
-
-.message-item__unread {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--live);
-}
-
-.message-item__jump {
+.message-item__due {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  margin-left: auto;
-  font-size: 9.5px;
-  color: var(--brand-600);
+  gap: 6px;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--ink-500);
 }
 
-.message-item.is-expanded .message-item__preview {
-  display: none;
+.message-item__due.is-urgent {
+  color: #a94f34;
+  font-weight: 600;
 }
 
-.message-item__detail {
-  padding: 0 12px 16px 29px;
+.message-item__due-flag {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(169, 79, 52, 0.1);
+  font-size: 10px;
+  line-height: 16px;
 }
 
-.message-item__detail p {
-  padding: 14px 16px;
-  border-radius: 8px;
-  background: var(--paper);
-  font-size: 14px;
-  line-height: 1.9;
-  color: var(--ink-700);
-  white-space: pre-wrap;
-}
-
-.message-item__actions {
+.message-item__side {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
+  align-items: center;
+  flex-shrink: 0;
 }
 
-@media (max-width: 640px) {
+.message-item__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--brand-700);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.message-item__action:hover {
+  background: var(--brand-50);
+  color: var(--brand-800);
+}
+
+/* 有截止时间的待办才使用实心按钮，纯通知保持文字链接的轻量层级 */
+.message-item__action.is-primary {
+  padding: 5px 12px;
+  border-color: var(--brand-100);
+  background: var(--brand-50);
+  color: var(--brand-800);
+}
+
+.message-item__action.is-primary:hover {
+  border-color: var(--brand-500);
+  background: #fff;
+}
+
+@media (max-width: 760px) {
   .mailbox-head {
-    padding: 14px;
+    padding: 12px 14px 10px;
   }
 
-  .category-hint {
-    display: none;
+  .mailbox-body {
+    padding: 10px 14px 16px;
   }
 
-  .filter-field {
+  .message-item {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 10px;
+  }
+
+  .message-item__side {
     width: 100%;
+    padding-left: 17px;
+    justify-content: flex-end;
   }
 
-  .category-select {
-    flex: 1;
-    width: auto;
-  }
-
-  .mailbox-head__filters {
-    width: 100%;
-    justify-content: space-between;
+  .message-item__action {
+    min-height: 30px;
   }
 }
 </style>

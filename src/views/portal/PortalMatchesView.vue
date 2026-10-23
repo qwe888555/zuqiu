@@ -65,7 +65,6 @@ function statusCount(value: string) {
 const statusTabs = computed(() => [
   { label: '全部', value: '', count: statusCount('') },
   { label: '进行中', value: 'LIVE', count: statusCount('LIVE') },
-  { label: '待更新', value: 'STALE', count: statusCount('STALE') },
   { label: '未开赛', value: 'SCHEDULED', count: statusCount('SCHEDULED') },
   { label: '已结束', value: 'FINISHED', count: statusCount('FINISHED') },
 ])
@@ -131,13 +130,12 @@ const monthMatchCount = computed(() =>
 )
 
 const monthStats = computed(() => {
-  const stats = { live: 0, scheduled: 0, stale: 0, finished: 0 }
+  const stats = { live: 0, scheduled: 0, finished: 0 }
   calendarCells.value.forEach((cell) => {
     cell?.matches.forEach((match) => {
       const value = matchDisplayStatus(match)
       if (value === 'LIVE') stats.live += 1
       else if (value === 'SCHEDULED') stats.scheduled += 1
-      else if (value === 'STALE') stats.stale += 1
       else if (value === 'FINISHED') stats.finished += 1
     })
   })
@@ -221,7 +219,7 @@ function formatTime(value?: string) {
 function agendaScore(match: PublicMatch) {
   const display = matchDisplayStatus(match)
   if (display === 'SCHEDULED') return 'VS'
-  if (display === 'STALE' && match.status === 'SCHEDULED') return '—'
+  if (display === 'CANCELLED') return '—'
   return `${match.homeScore} : ${match.awayScore}`
 }
 
@@ -406,7 +404,6 @@ onMounted(load)
             <span><i class="is-live" />进行中 {{ monthStats.live }}</span>
             <span><i class="is-scheduled" />未开赛 {{ monthStats.scheduled }}</span>
             <span><i class="is-finished" />已结束 {{ monthStats.finished }}</span>
-            <span v-if="monthStats.stale"><i class="is-stale" />待更新 {{ monthStats.stale }}</span>
           </footer>
         </section>
 
@@ -536,25 +533,25 @@ onMounted(load)
 
 .hero-stats {
   display: flex;
-  gap: 32px;
+  gap: 26px;
   flex-shrink: 0;
 }
 
 .hero-stats div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .hero-stats strong {
-  font-size: 29px;
-  font-weight: 800;
+  font-size: 21px;
+  font-weight: 700;
   line-height: 1;
   color: var(--lime);
 }
 
 .hero-stats span {
-  font-size: 11px;
+  font-size: 10.5px;
   color: rgba(255, 255, 255, 0.48);
 }
 
@@ -916,10 +913,6 @@ onMounted(load)
   background: var(--ink-300);
 }
 
-.calendar-cell__marks .is-stale {
-  background: #c9a227;
-}
-
 .calendar-cell__hint {
   margin-top: auto;
   padding-top: 5px;
@@ -961,10 +954,6 @@ onMounted(load)
 
 .calendar-legend i.is-finished {
   background: var(--ink-300);
-}
-
-.calendar-legend i.is-stale {
-  background: #c9a227;
 }
 
 .day-panel {
@@ -1190,7 +1179,7 @@ onMounted(load)
   }
 
   .hero-stats strong {
-    font-size: 24px;
+    font-size: 19px;
   }
 
   .date-picker,

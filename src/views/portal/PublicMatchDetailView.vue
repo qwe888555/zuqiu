@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
+import { ElMessage } from 'element-plus'
 import { Back, Calendar, Football, Location, Switch, VideoCamera, View, Warning } from '@element-plus/icons-vue'
 import { matchApi, publicApi } from '../../api'
 import type { LiveLink, LivePost, MatchEvent, PublicLivePost, PublicMatch } from '../../api/types'
@@ -25,9 +26,23 @@ let timer: number | undefined
 /** 管理端「门户预览」携带 preview=1，可查看尚未发布的比赛。 */
 const previewMode = computed(() => route.query.preview === '1')
 const published = ref(true)
+/** 主动退出预览时跳过离开确认，避免「返回」按钮再次弹窗。 */
+let bypassLeaveGuard = false
+
+/**
+ * 预览模式只能回到进入预览前的页面，不能在门户栏目之间跳转。
+ * 返回控制台、登录页等门户之外的页面视为退出预览；浏览器后退也能正常使用。
+ */
+onBeforeRouteLeave((to) => {
+  if (!previewMode.value || bypassLeaveGuard) return true
+  if (to.matched[0]?.path !== '/') return true
+  ElMessage.warning('预览模式仅支持返回上一页，请点击「退出预览」返回')
+  return false
+})
 
 /** 预览结束返回来源页；直接打开预览链接时退回比赛管理。 */
 function leavePreview() {
+  bypassLeaveGuard = true
   if (router.options.history.state.back) {
     router.back()
   } else {
@@ -56,9 +71,6 @@ const briefText = computed(() => {
   if (status === 'CANCELLED') {
     return '本场比赛已取消，后续安排以组委会通知为准。'
   }
-  if (status === 'STALE' && current.status === 'SCHEDULED') {
-    return `本场原定于 ${dayjs(current.kickoffAt).format('MM月DD日 HH:mm')} 在 ${current.venue || '待定场地'} 开球，目前尚未收到赛况更新，请以组委会通知为准。`
-  }
 
   const score = `${current.homeTeamName} ${current.homeScore} : ${current.awayScore} ${current.awayTeamName}`
   const goals = sortedEvents.value
@@ -69,9 +81,6 @@ const briefText = computed(() => {
     .map((event) => `${event.minute} 分钟 ${event.scorerName || '球员'}${event.teamName ? `（${event.teamName}）` : ''}`)
     .join('；')
 
-  if (status === 'STALE') {
-    return `该场次开球已超过 4 小时，赛况尚未确认更新，当前保留最后一次记录的比分：${score}。`
-  }
   if (status === 'LIVE') {
     return `比赛进行中，当前比分 ${score}。${goals ? `已记录进球：${goals}。` : ''}`
   }
@@ -192,7 +201,7 @@ watch(() => route.params.id, load)
         <el-icon><View /></el-icon>
         {{ published ? '内部预览模式，页面效果与门户展示一致。' : '内部预览模式：该场比赛尚未发布到门户，访客暂时看不到。' }}
       </span>
-      <el-button size="small" type="primary" plain :icon="Back" @click="leavePreview">返回</el-button>
+      <el-button size="small" type="primary" plain :icon="Back" @click="leavePreview">退出预览</el-button>
     </div>
     <template v-if="match">
       <section class="scoreboard">
@@ -220,9 +229,9 @@ watch(() => route.params.id, load)
 
             <div class="score">
               <div class="score__nums">
-                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' || (displayStatus === 'STALE' && match.status === 'SCHEDULED') ? '-' : match.homeScore }}</span>
+                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' ? '-' : match.homeScore }}</span>
                 <i>:</i>
-                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' || (displayStatus === 'STALE' && match.status === 'SCHEDULED') ? '-' : match.awayScore }}</span>
+                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' ? '-' : match.awayScore }}</span>
               </div>
               <span class="score__state">
                 {{
@@ -230,11 +239,9 @@ watch(() => route.params.id, load)
                     ? dayjs(match.kickoffAt).format('MM月DD日 HH:mm')
                     : displayStatus === 'LIVE'
                       ? '比赛进行中'
-                      : displayStatus === 'STALE'
-                        ? '比分待组委会确认'
-                        : displayStatus === 'CANCELLED'
-                          ? '比赛已取消'
-                          : '全场结束'
+                      : displayStatus === 'CANCELLED'
+                        ? '比赛已取消'
+                        : '全场结束'
                 }}
               </span>
               <span v-if="match.scoreRevision" class="score__revision">数据版本 {{ match.scoreRevision }}</span>
@@ -251,7 +258,6 @@ watch(() => route.params.id, load)
             <span><el-icon><Calendar /></el-icon>{{ dayjs(match.kickoffAt).format('YYYY年MM月DD日 HH:mm') }}</span>
             <span><el-icon><Location /></el-icon>{{ match.venue }}</span>
             <span v-if="isLive" class="live-refresh">每 20 秒自动刷新</span>
-            <span v-else-if="displayStatus === 'STALE'" class="live-refresh">赛况以组委会确认结果为准</span>
           </div>
         </div>
       </section>

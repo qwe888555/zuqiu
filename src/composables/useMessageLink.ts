@@ -27,7 +27,7 @@ export function useMessageLink() {
     switch (type) {
       case 'ENROLLMENT':
         if (id && auth.hasRole(ENROLLMENT_ROLES)) {
-          return { label: '打开报名单', path: `/console/enrollments/${id}` }
+          return { label: '查看报名单', path: `/console/enrollments/${id}` }
         }
         if (auth.hasRole(['TEAM', 'UNIVERSITY', 'CITY', 'ADMIN'])) {
           return { label: '前往报名单', path: '/console/enrollments' }
@@ -36,7 +36,7 @@ export function useMessageLink() {
 
       case 'REVIEW':
         if (id && auth.hasRole(ENROLLMENT_ROLES)) {
-          return { label: '查看报名单', path: `/console/enrollments/${id}` }
+          return { label: '查看审核结果', path: `/console/enrollments/${id}` }
         }
         if (auth.hasRole(REVIEW_ROLES)) {
           return { label: '前往审核工作台', path: '/console/review' }
@@ -45,10 +45,10 @@ export function useMessageLink() {
 
       case 'MATERIAL':
         if (id && auth.hasRole(ENROLLMENT_ROLES)) {
-          return { label: '查看报名材料', path: `/console/enrollments/${id}` }
+          return { label: '补充材料', path: `/console/enrollments/${id}` }
         }
         if (auth.hasRole(['TEAM', 'UNIVERSITY'])) {
-          return { label: '前往球队材料', path: '/console/team/materials' }
+          return { label: '前往球队材料', path: '/console/team/profile?tab=materials' }
         }
         if (auth.hasRole(['ATHLETE', 'COACH'])) {
           return { label: '前往履历材料', path: '/console/materials' }
@@ -60,19 +60,19 @@ export function useMessageLink() {
           return { label: '进入比赛记录台', path: `/console/matches/${id}/console` }
         }
         if (auth.hasRole(MATCH_VIEW_ROLES)) {
-          return { label: '前往比赛管理', path: '/console/matches' }
+          return { label: '查看新赛程', path: '/console/matches' }
         }
         if (id) return { label: '查看比赛详情', path: `/matches/${id}` }
         return { label: '前往赛程与比分', path: '/matches' }
 
       case 'PUBLICATION':
         if (auth.hasRole(PUBLICATION_ROLES)) {
-          return { label: '前往公示管理', path: '/console/publications' }
+          return { label: '查看公示', path: '/console/publications' }
         }
         if (auth.hasRole(['ATHLETE', 'COACH'])) {
           return { label: '查看我的公示', path: '/console/my-publications' }
         }
-        return { label: '查看门户公示', path: '/publications' }
+        return { label: '查看公示', path: '/publications' }
 
       case 'IDENTITY':
         if (auth.hasRole(RECORDER_ROLES)) {

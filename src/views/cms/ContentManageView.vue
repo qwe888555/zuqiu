@@ -377,7 +377,7 @@ onMounted(() => {
           <span class="filter-field__label">标题关键词</span>
           <el-input
             v-model="filters.keyword"
-            placeholder="输入后回车搜索"
+            placeholder="搜索标题关键词"
             :prefix-icon="Search"
             clearable
             @keyup.enter="search"

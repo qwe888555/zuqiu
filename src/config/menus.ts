@@ -174,13 +174,6 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: Management,
         roles: ['TEAM', 'UNIVERSITY'],
       },
-      {
-        key: 'team-materials',
-        title: '球队材料',
-        path: '/console/team/materials',
-        icon: FolderOpened,
-        roles: ['TEAM', 'UNIVERSITY'],
-      },
     ],
   },
   {

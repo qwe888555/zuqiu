@@ -276,29 +276,28 @@ onMounted(async () => {
 .hero-stats {
   display: flex;
   flex-shrink: 0;
-  gap: 32px;
+  gap: 26px;
 }
 
 .hero-stats div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .hero-stats strong {
-  font-size: 29px;
-  font-weight: 800;
+  font-size: 21px;
+  font-weight: 700;
   line-height: 1;
   color: var(--lime);
 }
 
 .hero-stats__date {
-  font-size: 18px !important;
-  padding-top: 6px;
+  letter-spacing: -0.02em;
 }
 
 .hero-stats span {
-  font-size: 11px;
+  font-size: 10.5px;
   color: rgba(255, 255, 255, 0.48);
 }
 
@@ -614,7 +613,7 @@ onMounted(async () => {
   }
 
   .hero-stats strong {
-    font-size: 24px;
+    font-size: 19px;
   }
 
   .policy-toolbar {

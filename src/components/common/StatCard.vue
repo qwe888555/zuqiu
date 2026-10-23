@@ -6,6 +6,7 @@ withDefaults(
     label: string
     value: string | number
     hint?: string
+    /** 保留入参以兼容现有页面；统计卡右上角不再展示图标。 */
     icon?: Component
     tone?: 'green' | 'lime' | 'amber' | 'blue'
     trend?: string
@@ -18,9 +19,6 @@ withDefaults(
   <div class="stat-card" :class="`tone-${tone}`">
     <div class="stat-card__top">
       <span class="stat-card__label">{{ label }}</span>
-      <span v-if="icon" class="stat-card__icon">
-        <el-icon :size="16"><component :is="icon" /></el-icon>
-      </span>
     </div>
     <div class="stat-card__value num">{{ value }}</div>
     <div class="stat-card__foot">
@@ -50,14 +48,6 @@ withDefaults(
   color: var(--ink-500);
 }
 
-.stat-card__icon {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  color: var(--ink-300);
-}
-
 .stat-card__value {
   margin-top: 10px;
   font-size: 30px;
@@ -84,17 +74,5 @@ withDefaults(
 
 .stat-card__hint {
   color: var(--ink-300);
-}
-
-.tone-lime .stat-card__icon {
-  color: #6d8a17;
-}
-
-.tone-amber .stat-card__icon {
-  color: #b26a00;
-}
-
-.tone-blue .stat-card__icon {
-  color: #2563a8;
 }
 </style>

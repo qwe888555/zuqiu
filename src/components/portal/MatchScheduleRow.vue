@@ -10,10 +10,7 @@ const props = defineProps<{ match: PublicMatch; followedTeam?: string }>()
 
 const displayStatus = computed(() => matchDisplayStatus(props.match))
 const isScheduled = computed(() => displayStatus.value === 'SCHEDULED')
-// 开球时间已过但仍未转为进行中的场次，没有可信比分，不展示 0 : 0。
-const hasNoConfirmedScore = computed(
-  () => displayStatus.value === 'STALE' && props.match.status === 'SCHEDULED',
-)
+const isCancelled = computed(() => displayStatus.value === 'CANCELLED')
 const followedSide = computed(() => {
   if (!props.followedTeam) return ''
   if (props.match.homeTeamName === props.followedTeam) return 'home'
@@ -39,7 +36,6 @@ function formatTime(value?: string) {
     class="match-row"
     :class="{
       'is-live': displayStatus === 'LIVE',
-      'is-stale': displayStatus === 'STALE',
       'is-followed': followedSide,
     }"
   >
@@ -56,7 +52,7 @@ function formatTime(value?: string) {
       <span class="team team--home">{{ match.homeTeamName }}</span>
       <span class="score num" :class="{ 'is-upcoming': isScheduled }">
         <template v-if="isScheduled">VS</template>
-        <template v-else-if="hasNoConfirmedScore">—</template>
+        <template v-else-if="isCancelled">—</template>
         <template v-else>{{ match.homeScore }} : {{ match.awayScore }}</template>
       </span>
       <span class="team team--away">{{ match.awayTeamName }}</span>
@@ -93,10 +89,6 @@ function formatTime(value?: string) {
 .match-row.is-live {
   border-color: rgba(181, 71, 8, 0.28);
   background: var(--live-soft);
-}
-
-.match-row.is-stale {
-  background: var(--paper);
 }
 
 .match-row.is-followed {
@@ -185,10 +177,6 @@ function formatTime(value?: string) {
   font-size: 15px;
   font-weight: 600;
   color: var(--ink-300);
-}
-
-.match-row.is-stale .score {
-  color: var(--ink-500);
 }
 
 .match-row__venue {

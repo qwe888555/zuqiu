@@ -256,25 +256,25 @@ onMounted(async () => {
 .hero-stats {
   display: flex;
   flex-shrink: 0;
-  gap: 34px;
+  gap: 28px;
   padding-bottom: 4px;
 }
 
 .hero-stats div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .hero-stats strong {
-  font-size: 30px;
-  font-weight: 800;
+  font-size: 21px;
+  font-weight: 700;
   line-height: 1;
   color: var(--lime);
 }
 
 .hero-stats span {
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: rgba(255, 255, 255, 0.5);
 }
 
@@ -579,7 +579,7 @@ onMounted(async () => {
   }
 
   .hero-stats strong {
-    font-size: 25px;
+    font-size: 19px;
   }
 }
 

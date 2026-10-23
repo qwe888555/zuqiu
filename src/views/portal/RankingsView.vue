@@ -346,8 +346,8 @@ onMounted(load)
 .hero-stats div {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 0 26px;
+  gap: 3px;
+  padding: 0 22px;
   border-left: 1px solid rgba(255, 255, 255, 0.12);
 }
 
@@ -361,14 +361,14 @@ onMounted(load)
 }
 
 .hero-stats strong {
-  font-size: 27px;
-  font-weight: 800;
+  font-size: 21px;
+  font-weight: 700;
   line-height: 1;
   color: var(--lime);
 }
 
 .hero-stats span {
-  font-size: 11px;
+  font-size: 10.5px;
   color: rgba(255, 255, 255, 0.5);
 }
 
@@ -1010,7 +1010,7 @@ onMounted(load)
   }
 
   .hero-stats strong {
-    font-size: 26px;
+    font-size: 21px;
   }
 }
 
@@ -1116,7 +1116,7 @@ onMounted(load)
   }
 
   .hero-stats strong {
-    font-size: 23px;
+    font-size: 18px;
   }
 
   .hero-stats span {

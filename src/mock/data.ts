@@ -637,8 +637,8 @@ export const matches: Match[] = [
     homeTeamId: 'team_cd_syxx', awayTeamId: 'team_yb_rml',
     homeTeamName: '成都市实验小学', awayTeamName: '宜宾人民路小学',
     kickoffAt: '2026-10-19T10:00:00+08:00', venue: '成都市青羊区体育中心 1 号场',
-    stage: '小组赛第 1 轮', status: 'LIVE', homeScore: 2, awayScore: 1,
-    published: true, resultPublished: false, scoreRevision: 5,
+    stage: '小组赛第 1 轮', status: 'FINISHED', homeScore: 2, awayScore: 1,
+    published: true, resultPublished: true, scoreRevision: 5,
     referees: [
       { name: '王建军', role: 'REFEREE', level: '一级' },
       { name: '刘鹏', role: 'ASSISTANT', level: '二级' },
@@ -652,8 +652,8 @@ export const matches: Match[] = [
     homeTeamId: 'team_yb_rml', awayTeamId: 'team_lz_sy',
     homeTeamName: '宜宾人民路小学', awayTeamName: '泸州实验小学',
     kickoffAt: '2026-10-19T15:30:00+08:00', venue: '成都市青羊区体育中心 2 号场',
-    stage: '小组赛第 1 轮', status: 'SCHEDULED', homeScore: 0, awayScore: 0,
-    published: true, resultPublished: false, scoreRevision: 0,
+    stage: '小组赛第 1 轮', status: 'FINISHED', homeScore: 0, awayScore: 2,
+    published: true, resultPublished: true, scoreRevision: 3,
     referees: [{ name: '赵明', role: 'REFEREE', level: '一级' }],
     version: 2,
   },
@@ -663,8 +663,8 @@ export const matches: Match[] = [
     homeTeamId: 'team_lz_sy', awayTeamId: 'team_cd_syxx',
     homeTeamName: '泸州实验小学', awayTeamName: '成都市实验小学',
     kickoffAt: '2026-10-20T09:00:00+08:00', venue: '成都市青羊区体育中心 1 号场',
-    stage: '小组赛第 1 轮', status: 'SCHEDULED', homeScore: 0, awayScore: 0,
-    published: false, resultPublished: false, scoreRevision: 0,
+    stage: '小组赛第 1 轮', status: 'FINISHED', homeScore: 1, awayScore: 1,
+    published: false, resultPublished: true, scoreRevision: 2,
     referees: [], version: 1,
   },
   {
@@ -684,8 +684,8 @@ export const matches: Match[] = [
     homeTeamId: 'team_dy_wz', awayTeamId: 'team_cd_qz',
     homeTeamName: '德阳五中', awayTeamName: '成都七中育才学校',
     kickoffAt: '2026-10-21T14:00:00+08:00', venue: '德阳市体育公园',
-    stage: '小组赛第 3 轮', status: 'SCHEDULED', homeScore: 0, awayScore: 0,
-    published: true, resultPublished: false, scoreRevision: 0,
+    stage: '小组赛第 3 轮', status: 'FINISHED', homeScore: 2, awayScore: 2,
+    published: true, resultPublished: true, scoreRevision: 6,
     referees: [], version: 1,
   },
 ]
@@ -1017,6 +1017,7 @@ export const messages: Message[] = [
   {
     id: 'msg_002', title: '材料补充提醒', body: '您提交的报名缺少加盖学校公章的报名表扫描件，请在报名截止前补充。',
     businessType: 'MATERIAL', businessId: 'enr_004', read: false, version: 1,
+    dueAt: '2026-10-24T18:00:00+08:00',
     createdAt: '2026-10-17T14:20:00+08:00',
   },
   {
@@ -1032,6 +1033,7 @@ export const messages: Message[] = [
   {
     id: 'msg_005', title: '报名被退回，请补充材料', body: '「绵阳南山中学·初中男子组」报名单缺少近三个月体检证明，请在被退回后 3 日内补交并重新提交。',
     businessType: 'REVIEW', businessId: 'enr_004', read: false, version: 1,
+    dueAt: '2026-10-21T18:00:00+08:00',
     createdAt: '2026-10-18T16:40:00+08:00',
   },
   {
@@ -1047,6 +1049,7 @@ export const messages: Message[] = [
   {
     id: 'msg_008', title: '公示期即将结束', body: '「2026 年省级最佳阵容遴选名单」公示将于 10 月 22 日 18:00 结束，如无异议将进入正式发布。',
     businessType: 'PUBLICATION', businessId: 'pub_003', read: false, version: 1,
+    dueAt: '2026-10-22T18:00:00+08:00',
     createdAt: '2026-10-19T09:05:00+08:00',
   },
   {

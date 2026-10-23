@@ -282,11 +282,13 @@ onMounted(load)
         <el-table-column label="状态" width="120">
           <template #default="{ row }"><StatusTag :status="row.status" kind="event" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right" align="right" class-name="col-actions">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="Setting" @click="openGroups(row)">组别配置</el-button>
-            <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" :icon="Delete" @click="removeEvent(row)">删除</el-button>
+            <div class="row-actions">
+              <el-button link type="primary" :icon="Setting" @click="openGroups(row)">组别配置</el-button>
+              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <el-button link type="danger" :icon="Delete" @click="removeEvent(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -453,6 +455,26 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 11px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  white-space: nowrap;
+}
+
+.row-actions :deep(.el-button) {
+  margin-left: 0;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+:deep(.col-actions .cell) {
+  overflow: visible;
+  white-space: nowrap;
 }
 
 .event-cell__mark {
