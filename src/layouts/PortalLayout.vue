@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { Close, Menu as MenuIcon, UserFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import { useConsoleEntry } from '../composables/useConsoleEntry'
@@ -32,6 +33,11 @@ const isActive = (path: string) => {
   return route.path.startsWith(path)
 }
 
+/** 内部预览页只能返回来源页，顶栏与页脚的其他入口需显示为不可用。 */
+const inPreview = computed(
+  () => route.name === 'portal-match-detail' && route.query.preview === '1',
+)
+
 onMounted(async () => {
   if (auth.token && !auth.user) {
     try {
@@ -42,13 +48,20 @@ onMounted(async () => {
   }
 })
 
+function previewBlocked() {
+  mobileOpen.value = false
+  ElMessage.warning('预览模式仅支持返回上一页，请点击「退出预览」返回')
+}
+
 function goConsole() {
   mobileOpen.value = false
+  if (inPreview.value) return previewBlocked()
   enterConsole()
 }
 
 function startEnrollment() {
   mobileOpen.value = false
+  if (inPreview.value) return previewBlocked()
   enterEnrollment()
 }
 
@@ -59,7 +72,7 @@ function navigate(path: string) {
 </script>
 
 <template>
-  <div class="portal">
+  <div class="portal" :class="{ 'is-preview': inPreview }">
     <header class="portal-header">
       <div class="container header-inner">
         <router-link to="/" class="brand">
@@ -577,5 +590,43 @@ function navigate(path: string) {
     flex-direction: column;
     gap: 8px;
   }
+}
+
+/* 内部预览：除「退出预览」外，门户内其他入口都不可跳转。 */
+.portal.is-preview :where(.nav__link, a.brand, .console-btn, .footer-col a, .footer-link) {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.portal.is-preview .nav__link.is-active {
+  opacity: 1;
+}
+
+.portal.is-preview .nav__link:hover {
+  color: var(--ink-700);
+}
+
+.portal.is-preview .nav__link.is-active:hover {
+  color: var(--brand-800);
+}
+
+.portal.is-preview .console-btn:hover,
+.portal.is-preview .console-btn:focus {
+  border-color: var(--brand-700);
+  color: var(--brand-700);
+  background: #fff;
+}
+
+.portal.is-preview .footer-col a:hover,
+.portal.is-preview .footer-link:hover {
+  color: var(--on-dark-2);
+}
+
+.portal.is-preview :deep(.crumbs a) {
+  cursor: not-allowed;
+}
+
+.portal.is-preview :deep(.crumbs a:hover) {
+  color: rgba(255, 255, 255, 0.42);
 }
 </style>

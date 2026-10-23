@@ -134,6 +134,8 @@ export interface Message {
   body?: string
   businessType?: string
   businessId?: string
+  /** 需要处理的事项截止时间；普通通知不填。 */
+  dueAt?: string
   read: boolean
   readAt?: string
   version: number

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Edit, Location, Plus, Refresh, UploadFilled, User, UserFilled } from '@element-plus/icons-vue'
 import { fileApi, teamApi } from '../../api'
@@ -9,10 +9,13 @@ import { useTeamScope } from '../../composables/useTeamScope'
 import { usePermission } from '../../composables/usePermission'
 import { CATEGORY_GROUP_LABELS, categoryLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
+import TeamMaterialsPanel from './TeamMaterialsPanel.vue'
 
+const route = useRoute()
 const router = useRouter()
 const { can } = usePermission()
 const { auth, teams, teamId, loading, loadTeams } = useTeamScope()
+const activeTab = ref<'profile' | 'materials'>(route.query.tab === 'materials' ? 'materials' : 'profile')
 const team = ref<Team | null>(null)
 const detailLoading = ref(false)
 const editing = ref(false)
@@ -46,6 +49,19 @@ const form = reactive({
   intro: '',
 })
 
+const imagePreview = reactive({
+  visible: false,
+  url: '',
+  title: '',
+})
+
+function openImagePreview(url: string, title: string) {
+  if (!url) return
+  imagePreview.url = url
+  imagePreview.title = title
+  imagePreview.visible = true
+}
+
 function genderLabel(value?: string) {
   return value === 'FEMALE' ? '女子' : value === 'MIXED' ? '混合' : '男子'
 }
@@ -66,6 +82,22 @@ const isSchool = computed(() => auth.roles.includes('UNIVERSITY'))
 // 球队端只维护所属球队；新建、删除球队属于学校端的下级管理能力。
 const canCreateTeam = computed(() => isSchool.value && can('team.manage'))
 const canDeleteTeam = computed(() => isSchool.value && can('team.manage'))
+
+/** 资料清单只列仍缺失的项；全部补齐后整张「资料完善度」卡片不再出现。 */
+const profileChecklist = computed(() => [
+  { key: 'school', label: '绑定所属学校', done: Boolean(team.value?.schoolName?.trim()) },
+  { key: 'city', label: '设置所属市州', done: Boolean(team.value?.cityName?.trim()) },
+  { key: 'coach', label: '登记主教练', done: Boolean(team.value?.coachName?.trim()) },
+  { key: 'intro', label: '填写球队简介', done: Boolean(team.value?.intro?.trim()) },
+])
+const missingProfileItems = computed(() => profileChecklist.value.filter((item) => !item.done))
+const profileCompletion = computed(() =>
+  Math.round(
+    ((profileChecklist.value.length - missingProfileItems.value.length) /
+      profileChecklist.value.length) *
+      100,
+  ),
+)
 
 async function loadTeam() {
   if (!teamId.value) {
@@ -170,7 +202,7 @@ async function save() {
   if (!form.name.trim()) return ElMessage.warning('请填写球队名称')
   saving.value = true
   try {
-    team.value = await teamApi.update(team.value.id, {
+    const updated = await teamApi.update(team.value.id, {
       ...form,
       schoolOrgId: team.value.orgId,
       groupCategory: team.value.category,
@@ -179,6 +211,8 @@ async function save() {
       groupPhotoFileId: media.groupPhotoFileId || undefined,
       version: team.value.version,
     })
+    // 演示环境的 mock 会原地修改并返回同一对象，复制一份才能让资料清单重新计算。
+    team.value = { ...updated }
     ElMessage.success('球队资料已保存')
     editing.value = false
     await loadTeams(team.value.id)
@@ -261,8 +295,8 @@ onMounted(async () => {
       :title="isSchool ? '本校球队资料' : '我的球队'"
       :description="
         isSchool
-          ? '切换并维护本校各支球队；球队资料将在报名审核、门户公示与比赛介绍中展示。'
-          : '维护所属球队的名称、学校归属与简介；如需新增球队，请联系学校端账号。'
+          ? '切换并维护本校各支球队的基本信息、球队形象与档案材料；资料将在报名审核、门户公示与比赛介绍中展示。'
+          : '维护所属球队的基本信息、球队形象与档案材料；如需新增球队，请联系学校端账号。'
       "
     >
       <template #actions>
@@ -276,14 +310,45 @@ onMounted(async () => {
         </el-select>
         <el-button :icon="Refresh" @click="refresh">刷新</el-button>
         <el-button v-if="canCreateTeam" type="primary" plain :icon="Plus" @click="openCreate">新建球队</el-button>
-        <el-button v-if="canEdit && team && !editing" type="primary" :icon="Edit" @click="startEdit">编辑资料</el-button>
+        <el-button
+          v-if="canEdit && team && !editing && activeTab === 'profile'"
+          type="primary"
+          :icon="Edit"
+          @click="startEdit"
+        >
+          编辑资料
+        </el-button>
       </template>
     </PageHeader>
 
-    <div v-loading="detailLoading || loading" class="profile-grid">
+    <div class="page-tabs">
+      <button
+        type="button"
+        class="page-tab"
+        :class="{ 'is-active': activeTab === 'profile' }"
+        @click="activeTab = 'profile'"
+      >
+        基本信息
+      </button>
+      <button
+        type="button"
+        class="page-tab"
+        :class="{ 'is-active': activeTab === 'materials' }"
+        @click="activeTab = 'materials'"
+      >
+        档案材料
+      </button>
+    </div>
+
+    <div v-if="activeTab === 'profile'" v-loading="detailLoading || loading" class="profile-grid">
       <section class="page-card profile-main">
         <div class="team-hero">
-          <span class="team-hero__badge">
+          <span
+            class="team-hero__badge"
+            :class="{ 'is-zoomable': !!media.emblemUrl }"
+            :title="media.emblemUrl ? '点击查看大图' : undefined"
+            @click="openImagePreview(media.emblemUrl, '队徽')"
+          >
             <img v-if="media.emblemUrl" :src="media.emblemUrl" alt="队徽" />
             <template v-else>{{ team?.name?.slice(0, 1) || '队' }}</template>
           </span>
@@ -310,19 +375,34 @@ onMounted(async () => {
           <div class="section-title">球队简介</div>
           <p class="intro-text">{{ team?.intro || '尚未填写球队简介。可介绍球队历史、训练情况与参赛成绩。' }}</p>
 
-          <div class="section-title">球队形象 <small>队徽、队旗与球队合影</small></div>
+          <div class="section-title">球队形象 <small>队徽、队旗与球队合影 · 点击可查看大图</small></div>
           <div class="media-grid">
-            <div class="media-card media-card--emblem">
+            <div
+              class="media-card media-card--emblem"
+              :class="{ 'is-zoomable': !!media.emblemUrl }"
+              :title="media.emblemUrl ? '点击查看大图' : undefined"
+              @click="openImagePreview(media.emblemUrl, '队徽')"
+            >
               <img v-if="media.emblemUrl" :src="media.emblemUrl" alt="队徽" />
               <span v-else>队徽</span>
               <small>队徽</small>
             </div>
-            <div class="media-card media-card--flag">
+            <div
+              class="media-card media-card--flag"
+              :class="{ 'is-zoomable': !!media.flagUrl }"
+              :title="media.flagUrl ? '点击查看大图' : undefined"
+              @click="openImagePreview(media.flagUrl, '队旗')"
+            >
               <img v-if="media.flagUrl" :src="media.flagUrl" alt="队旗" />
               <span v-else>队旗</span>
               <small>队旗</small>
             </div>
-            <div class="media-card media-card--photo">
+            <div
+              class="media-card media-card--photo"
+              :class="{ 'is-zoomable': !!media.groupPhotoUrl }"
+              :title="media.groupPhotoUrl ? '点击查看大图' : undefined"
+              @click="openImagePreview(media.groupPhotoUrl, '球队合影')"
+            >
               <img v-if="media.groupPhotoUrl" :src="media.groupPhotoUrl" alt="球队合影" />
               <span v-else>球队合影</span>
               <small>球队合影</small>
@@ -449,8 +529,8 @@ onMounted(async () => {
               <span>教练团队</span>
               <small>查看</small>
             </button>
-            <button type="button" class="side-link" @click="router.push('/console/team/materials')">
-              <span>球队材料</span>
+            <button type="button" class="side-link" @click="activeTab = 'materials'">
+              <span>档案材料</span>
               <small>资质与荣誉</small>
             </button>
             <button
@@ -466,18 +546,40 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="page-card side-card side-card--tip">
+        <div v-if="team && missingProfileItems.length" class="page-card side-card side-card--tip">
           <span class="side-card__eyebrow">资料清单</span>
-          <h3>资料完善度</h3>
+          <div class="completion-head">
+            <h3>资料完善度</h3>
+            <span class="completion-head__value">{{ profileCompletion }}%</span>
+          </div>
+          <div
+            class="completion-bar"
+            role="progressbar"
+            aria-label="球队资料完善度"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuenow="profileCompletion"
+          >
+            <i :style="{ width: `${profileCompletion}%` }" />
+          </div>
+          <p class="completion-note">还需补充 {{ missingProfileItems.length }} 项</p>
           <ul>
-            <li :class="{ done: team?.schoolName }">绑定所属学校</li>
-            <li :class="{ done: team?.cityName }">设置所属市州</li>
-            <li :class="{ done: team?.coachName }">登记主教练</li>
-            <li :class="{ done: team?.intro }">填写球队简介</li>
+            <li v-for="item in missingProfileItems" :key="item.key">{{ item.label }}</li>
           </ul>
         </div>
       </aside>
     </div>
+
+    <TeamMaterialsPanel v-else :team-id="teamId" />
+
+    <el-dialog
+      v-model="imagePreview.visible"
+      :title="imagePreview.title"
+      width="760px"
+      append-to-body
+    >
+      <img v-if="imagePreview.url" class="image-preview__img" :src="imagePreview.url" :alt="imagePreview.title" />
+    </el-dialog>
 
     <el-dialog v-model="createVisible" title="新建球队" width="520px">
       <el-form :model="createForm" label-position="top">
@@ -517,6 +619,37 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.page-tabs {
+  display: inline-flex;
+  gap: 2px;
+  margin-bottom: 16px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.page-tab {
+  padding: 7px 18px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-500);
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.page-tab:hover {
+  color: var(--ink-700);
+}
+
+.page-tab.is-active {
+  background: #fff;
+  color: var(--brand-800);
+  box-shadow: 0 1px 3px rgba(20, 42, 30, 0.08);
+}
+
 .profile-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -583,6 +716,24 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.is-zoomable {
+  cursor: zoom-in;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.is-zoomable:hover {
+  border-color: var(--brand-500);
+  box-shadow: 0 6px 16px rgba(4, 40, 27, 0.12);
+}
+
+.image-preview__img {
+  display: block;
+  width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+  border-radius: 10px;
 }
 
 .media-card small {
@@ -762,8 +913,45 @@ onMounted(async () => {
   font-size: 14px;
 }
 
+.completion-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.completion-head__value {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--brand-800);
+}
+
+.completion-bar {
+  height: 6px;
+  margin-top: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(7, 59, 44, 0.12);
+}
+
+.completion-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand-600), var(--brand-800));
+  transition: width 0.3s ease;
+}
+
+.completion-note {
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: #6b7a45;
+}
+
 .side-card--tip ul {
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -780,15 +968,6 @@ onMounted(async () => {
   content: '○';
   position: absolute;
   left: 0;
-}
-
-.side-card--tip li.done {
-  color: #3f5520;
-}
-
-.side-card--tip li.done::before {
-  content: '●';
-  color: var(--brand-700);
 }
 
 .edit-form {

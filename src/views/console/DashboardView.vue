@@ -130,7 +130,7 @@ const quickActions = computed(() => {
       { label: '本校球队', desc: '含分校区，共享学校名额', path: '/console/school/teams', icon: Trophy },
       { label: '新建报名', desc: '以学校名义报送球队', path: '/console/enrollments/create', icon: Plus },
       { label: '本校报名', desc: '查看本校报名进度', path: '/console/enrollments', icon: Tickets },
-      { label: '球队材料', desc: '按球队维护材料', path: '/console/team/materials', icon: Collection },
+      { label: '球队材料', desc: '按球队维护材料', path: '/console/team/profile?tab=materials', icon: Collection },
     ]
   }
   if (isTeam.value) {
@@ -138,7 +138,7 @@ const quickActions = computed(() => {
       { label: '报名进度', desc: '查看本队报名与审核结果', path: '/console/enrollments', icon: Tickets },
       { label: '球队资料', desc: '维护球队与校区信息', path: '/console/team/profile', icon: Trophy },
       { label: '球员名单', desc: '维护参赛球员', path: '/console/team/members', icon: User },
-      { label: '球队材料', desc: '上传盖章文件', path: '/console/team/materials', icon: Collection },
+      { label: '球队材料', desc: '上传盖章文件', path: '/console/team/profile?tab=materials', icon: Collection },
     ]
   }
   if (isReviewer.value) {
@@ -159,7 +159,7 @@ const quickActions = computed(() => {
   return [
     { label: '报名进度', desc: '查看权限范围内报名', path: '/console/enrollments', icon: Tickets },
     { label: '球员名单', desc: '维护参赛球员', path: '/console/team/members', icon: User },
-    { label: '球队材料', desc: '上传盖章文件', path: '/console/team/materials', icon: Collection },
+    { label: '球队材料', desc: '上传盖章文件', path: '/console/team/profile?tab=materials', icon: Collection },
   ]
 })
 

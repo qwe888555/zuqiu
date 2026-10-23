@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Delete, Document, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { fileApi, materialApi } from '../../api'
 import type { Material } from '../../api/types'
-import { useTeamScope } from '../../composables/useTeamScope'
-import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
 
-const { teams, teamId, loadTeams } = useTeamScope()
+const props = defineProps<{ teamId: string }>()
+
 const loading = ref(false)
 const rows = ref<Material[]>([])
 const total = ref(0)
@@ -20,7 +19,7 @@ const saving = ref(false)
 const uploadedFileName = ref('')
 const uploadedFileIds = ref<string[]>([])
 
-const form = reactive({
+const form = ref({
   materialType: 'TEAM_HONOR',
   title: '',
   description: '',
@@ -39,14 +38,18 @@ const approvedCount = computed(() => rows.value.filter((m) => m.reviewStatus ===
 const pendingCount = computed(() => rows.value.filter((m) => m.reviewStatus === 'PENDING').length)
 
 async function load() {
-  if (!teamId.value) return
+  if (!props.teamId) {
+    rows.value = []
+    total.value = 0
+    return
+  }
   loading.value = true
   try {
     const res = await materialApi.list({
       page: 1,
       pageSize: 100,
       ownerType: 'TEAM',
-      ownerId: teamId.value,
+      ownerId: props.teamId,
     })
     rows.value = res.items
     total.value = res.total
@@ -57,24 +60,18 @@ async function load() {
   }
 }
 
-async function changeTeam() {
-  await load()
-}
-
 function openCreate() {
-  form.materialType = 'TEAM_HONOR'
-  form.title = ''
-  form.description = ''
+  form.value = { materialType: 'TEAM_HONOR', title: '', description: '' }
   uploadedFileName.value = ''
   uploadedFileIds.value = []
   dialogVisible.value = true
 }
 
 async function doUpload(options: UploadRequestOptions) {
-  if (!teamId.value) return
+  if (!props.teamId) return
   uploading.value = true
   try {
-    const record = await fileApi.upload(options.file, 'TEAM', teamId.value)
+    const record = await fileApi.upload(options.file, 'TEAM', props.teamId)
     uploadedFileName.value = record.originalName
     uploadedFileIds.value = [record.id]
     ElMessage.success('文件上传成功')
@@ -86,17 +83,17 @@ async function doUpload(options: UploadRequestOptions) {
 }
 
 async function create() {
-  if (!teamId.value) return
-  if (!form.title.trim()) return ElMessage.warning('请填写材料名称')
+  if (!props.teamId) return
+  if (!form.value.title.trim()) return ElMessage.warning('请填写材料名称')
   if (!uploadedFileName.value) return ElMessage.warning('请先上传材料文件')
   saving.value = true
   try {
     await materialApi.create({
       ownerType: 'TEAM',
-      ownerId: teamId.value,
-      materialType: form.materialType,
-      title: form.title,
-      description: form.description,
+      ownerId: props.teamId,
+      materialType: form.value.materialType,
+      title: form.value.title,
+      description: form.value.description,
       fileName: uploadedFileName.value,
       fileIds: uploadedFileIds.value,
     })
@@ -125,31 +122,20 @@ async function removeMaterial(row: Material) {
   }
 }
 
-onMounted(async () => {
-  await loadTeams()
-  await load()
-})
+watch(() => props.teamId, load, { immediate: true })
 </script>
 
 <template>
-  <div class="page">
-    <PageHeader
-      title="球队材料"
-      description="维护球队荣誉、参赛记录、对阵记录与训练计划等材料。材料提交后由省级管理员审核，通过后可用于遴选与公示。"
-    >
-      <template #actions>
-        <el-select
-          v-if="teams.length > 1"
-          v-model="teamId"
-          style="width: 210px"
-          @change="changeTeam"
-        >
-          <el-option v-for="item in teams" :key="item.id" :label="item.name" :value="item.id" />
-        </el-select>
+  <div class="materials-panel">
+    <div class="materials-toolbar">
+      <p class="materials-toolbar__copy">
+        归档球队荣誉、参赛记录、对阵记录与训练计划；提交后由省级管理员审核，通过后可用于遴选与公示。
+      </p>
+      <div class="materials-toolbar__actions">
         <el-button :icon="Refresh" @click="load">刷新</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">上传材料</el-button>
-      </template>
-    </PageHeader>
+      </div>
+    </div>
 
     <div class="stat-grid">
       <StatCard label="球队材料" :value="total" hint="已归档材料数" :icon="Document" tone="green" />
@@ -233,6 +219,27 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.materials-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.materials-toolbar__copy {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--ink-500);
+}
+
+.materials-toolbar__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .material-cell {
   display: flex;
   align-items: center;

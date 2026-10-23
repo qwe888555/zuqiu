@@ -367,23 +367,18 @@ onMounted(async () => {
 .hero-stats div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .hero-stats strong {
-  font-size: 27px;
-  font-weight: 800;
+  font-size: 21px;
+  font-weight: 700;
   line-height: 1.1;
   color: #fff;
 }
 
-.hero-stats div:last-child strong {
-  font-size: 18px;
-  padding-top: 7px;
-}
-
 .hero-stats span {
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: rgba(255, 255, 255, 0.5);
 }
 
@@ -657,7 +652,7 @@ onMounted(async () => {
   }
 
   .hero-stats strong {
-    font-size: 22px;
+    font-size: 19px;
   }
 
   .list-panel {

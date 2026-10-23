@@ -65,16 +65,11 @@ const scheduledMatches = computed(() =>
 )
 const finishedMatches = computed(() =>
   matches.value
-    .filter((m) => ['FINISHED', 'STALE', 'CANCELLED'].includes(matchDisplayStatus(m)))
+    .filter((m) => ['FINISHED', 'CANCELLED'].includes(m.status))
     .slice()
     .sort((a, b) => {
-      // 已确认赛果 → 待确认 → 已取消；同一状态内按最近开球时间排序。
-      const rank = (match: PublicMatch) => {
-        const status = matchDisplayStatus(match)
-        if (status === 'FINISHED') return 0
-        if (status === 'STALE') return 1
-        return 2
-      }
+      // 已确认赛果在前，已取消在后；同一状态内按最近开球时间排序。
+      const rank = (match: PublicMatch) => (match.status === 'FINISHED' ? 0 : 1)
       return (
         rank(a) - rank(b) || dayjs(b.kickoffAt).valueOf() - dayjs(a.kickoffAt).valueOf()
       )
@@ -168,26 +163,20 @@ function formatKickoff(value?: string) {
 
 function matchCta(status?: string) {
   if (status === 'LIVE') return '查看实时赛况'
-  if (status === 'STALE') return '查看已记录赛况'
   if (status === 'SCHEDULED') return '查看赛程详情'
   if (status === 'CANCELLED') return '查看比赛详情'
   return '查看比赛结果'
 }
 
 function homeScoreText(match: PublicMatch) {
-  const status = matchDisplayStatus(match)
-  if (status === 'SCHEDULED') return '–'
+  if (match.status === 'SCHEDULED') return '–'
   if (match.status === 'CANCELLED') return '—'
-  // 已过开球时间但未开赛的场次只有默认 0，不能当作真实比分展示。
-  if (status === 'STALE' && match.status === 'SCHEDULED') return '–'
   return String(match.homeScore)
 }
 
 function awayScoreText(match: PublicMatch) {
-  const status = matchDisplayStatus(match)
-  if (status === 'SCHEDULED') return '–'
+  if (match.status === 'SCHEDULED') return '–'
   if (match.status === 'CANCELLED') return '—'
-  if (status === 'STALE' && match.status === 'SCHEDULED') return '–'
   return String(match.awayScore)
 }
 

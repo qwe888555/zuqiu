@@ -36,6 +36,7 @@ import type {
   Account,
   Enrollment,
   Envelope,
+  Message,
   PageResult,
   Person,
   SelectionResult,
@@ -115,6 +116,18 @@ function requireAccount(config: AxiosRequestConfig): Account {
   if (!account) throw new MockHttpError(401, 'UNAUTHENTICATED', '登录已过期，请重新登录')
   if (!account.enabled) throw new MockHttpError(403, 'FORBIDDEN', '账号已停用')
   return account
+}
+
+/**
+ * messages 是共享的 mock 数据，直接改 read 会让切换演示账号时互相污染。
+ * 已读操作按账号记在覆盖层里，初始 read 字段仍作为所有账号的默认值。
+ */
+const messageReadAt = new Map<string, Map<string, string>>()
+
+function messageForAccount(accountId: string, message: Message): Message {
+  const readAt = messageReadAt.get(accountId)?.get(message.id)
+  // 始终返回副本：前端标记已读时会原地修改 item，不能改到共享的 mock 数据。
+  return readAt ? { ...message, read: true, readAt } : { ...message }
 }
 
 function str(value: unknown): string {
@@ -247,9 +260,9 @@ on('POST', '/me/password', ({ body }) => {
 
 on('GET', '/me/messages', ({ config, query }) => {
   const account = requireAccount(config)
-  let items = messages
+  let items = messages.map((m) => messageForAccount(account.id, m))
   if (account.roles.includes('TEAM') || account.roles.includes('UNIVERSITY')) {
-    items = messages.filter(
+    items = items.filter(
       (m) =>
         !m.businessType ||
         ['ENROLLMENT', 'REVIEW', 'MATERIAL', 'MATCH', 'PUBLICATION'].includes(m.businessType),
@@ -265,19 +278,22 @@ on('GET', '/me/messages', ({ config, query }) => {
   return pageOf(items, query)
 })
 
-on('GET', '/me/messages/:messageId', ({ params }) => {
+on('GET', '/me/messages/:messageId', ({ config, params }) => {
+  const account = requireAccount(config)
   const msg = messages.find((m) => m.id === params.messageId)
   if (!msg) throw new MockHttpError(404, 'NOT_FOUND', '消息不存在')
-  return msg
+  return messageForAccount(account.id, msg)
 })
 
-on('POST', '/me/messages/:messageId/read', ({ params }) => {
+on('POST', '/me/messages/:messageId/read', ({ config, params }) => {
+  const account = requireAccount(config)
   const msg = messages.find((m) => m.id === params.messageId)
   if (!msg) throw new MockHttpError(404, 'NOT_FOUND', '消息不存在')
-  msg.read = true
-  msg.readAt = now()
-  msg.version += 1
-  return { success: true, id: msg.id, version: msg.version }
+  const readAt = now()
+  const state = messageReadAt.get(account.id) || new Map<string, string>()
+  state.set(msg.id, readAt)
+  messageReadAt.set(account.id, state)
+  return { success: true, id: msg.id, version: msg.version + 1, readAt }
 })
 
 on('GET', '/me/profile', ({ config }) => {

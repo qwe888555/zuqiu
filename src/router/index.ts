@@ -138,9 +138,8 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'team/materials',
-        name: 'team-materials',
-        component: () => import('../views/team/TeamMaterialsView.vue'),
-        meta: { title: '球队材料', roles: ['TEAM', 'UNIVERSITY'] },
+        redirect: '/console/team/profile?tab=materials',
+        meta: { title: '球队资料', roles: ['TEAM', 'UNIVERSITY'] },
       },
       {
         path: 'profile',

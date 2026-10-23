@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   ArrowRight,
   ChatDotRound,
   Close,
   Document,
+  Football,
   Promotion,
   Reading,
   RefreshLeft,
@@ -29,6 +30,43 @@ const context = ref<PolicyAssistantContext | null>(null)
 const exchanges = ref<Exchange[]>([])
 const threadRef = ref<HTMLElement | null>(null)
 let unregister: (() => void) | undefined
+
+const FAB_POS_KEY = 'football.policy-fab-pos'
+const PANEL_WIDTH = 380
+const PANEL_HEIGHT = 540
+const fabRef = ref<HTMLButtonElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
+const pos = reactive({ right: 26, bottom: 28 })
+const viewport = reactive({ w: window.innerWidth, h: window.innerHeight })
+const dragging = ref(false)
+const hovered = ref(false)
+let pointerId: number | null = null
+let startPointer = { x: 0, y: 0 }
+let startPos = { right: 0, bottom: 0 }
+let moved = false
+let suppressClick = false
+let suppressTimer: number | undefined
+
+/**
+ * 小窗随入口位置展开：优先放在足球上方；
+ * 上方空间不足时翻到下方，仍不够则贴住视口底部。
+ */
+const placement = computed(() => {
+  const panelWidth = Math.min(PANEL_WIDTH, viewport.w - 24)
+  const right = Math.min(Math.max(pos.right, 12), Math.max(12, viewport.w - panelWidth - 12))
+  const aboveBottom = pos.bottom + 70
+  if (aboveBottom + PANEL_HEIGHT <= viewport.h - 12) {
+    return { right, bottom: aboveBottom, below: false }
+  }
+  const belowBottom = pos.bottom - PANEL_HEIGHT - 10
+  if (belowBottom >= 12) return { right, bottom: belowBottom, below: true }
+  return { right, bottom: 12, below: false }
+})
+
+const panelStyle = computed(() => ({
+  right: `${placement.value.right}px`,
+  bottom: `${placement.value.bottom}px`,
+}))
 
 const quickQuestions = [
   '报名需要提交哪些材料？',
@@ -85,26 +123,145 @@ function handleRequest(request: PolicyAssistantRequest) {
   else scrollToBottom()
 }
 
+function clampPosition() {
+  const el = fabRef.value
+  const width = el?.offsetWidth || 170
+  const height = el?.offsetHeight || 58
+  pos.right = Math.min(Math.max(pos.right, 8), Math.max(8, viewport.w - width - 8))
+  pos.bottom = Math.min(Math.max(pos.bottom, 8), Math.max(8, viewport.h - height - 8))
+}
+
+function onPointerDown(event: PointerEvent) {
+  if (event.button !== 0) return
+  pointerId = event.pointerId
+  moved = false
+  startPointer = { x: event.clientX, y: event.clientY }
+  startPos = { right: pos.right, bottom: pos.bottom }
+  fabRef.value?.setPointerCapture(event.pointerId)
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (pointerId !== event.pointerId) return
+  const dx = event.clientX - startPointer.x
+  const dy = event.clientY - startPointer.y
+  if (!moved && Math.hypot(dx, dy) > 4) {
+    moved = true
+    dragging.value = true
+  }
+  if (!moved) return
+  pos.right = startPos.right - dx
+  pos.bottom = startPos.bottom - dy
+  clampPosition()
+}
+
+function onPointerUp(event: PointerEvent) {
+  if (pointerId !== event.pointerId) return
+  if (fabRef.value?.hasPointerCapture(event.pointerId)) {
+    fabRef.value.releasePointerCapture(event.pointerId)
+  }
+  pointerId = null
+  if (moved) {
+    // 拖动结束会紧跟一次 click，必须拦截，避免误开小窗。
+    suppressClick = true
+    window.clearTimeout(suppressTimer)
+    suppressTimer = window.setTimeout(() => {
+      suppressClick = false
+    }, 300)
+    try {
+      localStorage.setItem(FAB_POS_KEY, JSON.stringify({ right: pos.right, bottom: pos.bottom }))
+    } catch {
+      // 本地存储不可用时仅保留当前会话位置
+    }
+  }
+  dragging.value = false
+}
+
+function onFabClick() {
+  if (suppressClick) {
+    suppressClick = false
+    return
+  }
+  open.value = !open.value
+}
+
+function restorePosition() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FAB_POS_KEY) || '{}') as {
+      right?: number
+      bottom?: number
+    }
+    if (typeof saved.right === 'number' && typeof saved.bottom === 'number') {
+      pos.right = saved.right
+      pos.bottom = saved.bottom
+    }
+  } catch {
+    // 忽略无效的本地位置
+  }
+  clampPosition()
+}
+
+function handleResize() {
+  viewport.w = window.innerWidth
+  viewport.h = window.innerHeight
+  clampPosition()
+}
+
+function handleOutsidePointer(event: PointerEvent) {
+  if (!open.value) return
+  const target = event.target as Node
+  if (panelRef.value?.contains(target) || fabRef.value?.contains(target)) return
+  open.value = false
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') open.value = false
+}
+
 watch(
   () => [exchanges.value.length, exchanges.value.some((item) => item.loading)],
   () => scrollToBottom(),
 )
 
+watch(open, (value) => {
+  if (value) scrollToBottom()
+})
+
 onMounted(() => {
+  restorePosition()
   unregister = registerPolicyAssistant(handleRequest)
+  window.addEventListener('resize', handleResize)
+  document.addEventListener('pointerdown', handleOutsidePointer)
+  document.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
   unregister?.()
+  window.clearTimeout(suppressTimer)
+  window.removeEventListener('resize', handleResize)
+  document.removeEventListener('pointerdown', handleOutsidePointer)
+  document.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
 <template>
   <button
+    ref="fabRef"
     class="policy-fab"
+    :class="{ 'is-dragging': dragging, 'is-open': open }"
     type="button"
-    aria-label="打开政策问答"
-    @click="open = true"
+    :style="{ right: `${pos.right}px`, bottom: `${pos.bottom}px` }"
+    :aria-label="open ? '收起政策问答' : '打开政策问答'"
+    aria-haspopup="dialog"
+    :aria-expanded="open"
+    @click="onFabClick"
+    @pointerdown="onPointerDown"
+    @pointermove="onPointerMove"
+    @pointerup="onPointerUp"
+    @pointercancel="onPointerUp"
+    @pointerenter="hovered = true"
+    @pointerleave="hovered = false"
+    @focus="hovered = true"
+    @blur="hovered = false"
   >
     <span class="policy-fab__orb" aria-hidden="true">
       <span class="policy-fab__halo" />
@@ -175,15 +332,32 @@ onBeforeUnmount(() => {
       <strong>问政策</strong>
       <small>依据正式文件回答</small>
     </span>
+    <span class="policy-fab__hint" :class="{ 'is-visible': hovered && !open && !dragging }">
+      按住拖动 · 点击问我
+    </span>
   </button>
 
-  <el-drawer v-model="open" direction="rtl" size="460px" :with-header="false" class="policy-drawer">
-    <div class="assistant">
+  <Transition name="policy-pop">
+    <section
+      v-if="open"
+      ref="panelRef"
+      class="policy-panel"
+      :class="{ 'is-below': placement.below }"
+      :style="panelStyle"
+      role="dialog"
+      aria-label="政策问答"
+    >
+      <div class="assistant">
       <header class="assistant__head">
         <div class="assistant__topline">
           <span class="assistant__brand">
-            <span class="assistant__brand-dot" />
-            政策问答
+            <span class="assistant__brand-ball">
+              <el-icon><Football /></el-icon>
+            </span>
+            <span class="assistant__brand-copy">
+              <strong>政策问答</strong>
+              <small>依据正式文件 · 来源可追溯</small>
+            </span>
           </span>
           <div class="assistant__head-actions">
             <button
@@ -199,13 +373,6 @@ onBeforeUnmount(() => {
               <el-icon><Close /></el-icon>
             </button>
           </div>
-        </div>
-        <span class="assistant__kicker">POLICY DESK</span>
-        <h3>在正式文件里，<br />找得到答案</h3>
-        <p>覆盖竞赛规程、报名办法与资格要求。每条回答都标注政策出处，可回到原文核对。</p>
-        <div class="assistant__promises">
-          <span>来源可追溯</span>
-          <span>仅回答赛事政策</span>
         </div>
       </header>
 
@@ -347,8 +514,9 @@ onBeforeUnmount(() => {
         </div>
         <p>请勿输入身份证号、手机号等个人信息。</p>
       </footer>
-    </div>
-  </el-drawer>
+      </div>
+    </section>
+  </Transition>
 </template>
 
 <style scoped>
@@ -368,7 +536,9 @@ onBeforeUnmount(() => {
     var(--brand-900);
   color: #fff;
   box-shadow: 0 10px 28px rgba(7, 59, 44, 0.26);
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
@@ -378,8 +548,31 @@ onBeforeUnmount(() => {
   box-shadow: 0 14px 34px rgba(7, 59, 44, 0.32);
 }
 
-.policy-fab:hover .policy-fab__orbit {
+.policy-fab:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 4px;
+}
+
+.policy-fab.is-dragging {
+  transform: scale(1.03);
+  cursor: grabbing;
+  border-color: rgba(200, 243, 106, 0.5);
+  box-shadow: 0 18px 40px rgba(7, 59, 44, 0.38);
+}
+
+.policy-fab:hover .policy-fab__orbit,
+.policy-fab.is-dragging .policy-fab__orbit {
   animation-duration: 4s;
+}
+
+.policy-fab:hover .policy-fab__core {
+  scale: 1.05;
+  rotate: -4deg;
+}
+
+.policy-fab.is-dragging .policy-fab__core {
+  scale: 1.07;
+  rotate: 8deg;
 }
 
 /* ---------- 政策光球 ---------- */
@@ -437,6 +630,7 @@ onBeforeUnmount(() => {
   box-shadow:
     0 0 16px rgba(200, 243, 106, 0.5),
     inset 0 0 8px rgba(255, 255, 255, 0.35);
+  transition: scale 0.2s ease, rotate 0.2s ease;
   animation: orb-float 4s ease-in-out infinite;
 }
 
@@ -534,19 +728,105 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.5);
 }
 
+.policy-fab__hint {
+  position: absolute;
+  right: 2px;
+  bottom: calc(100% + 12px);
+  padding: 6px 10px;
+  border: 1px solid rgba(7, 59, 44, 0.08);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-700);
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 8px 22px rgba(7, 59, 44, 0.14);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.policy-fab__hint::after {
+  content: '';
+  position: absolute;
+  right: 22px;
+  bottom: -4px;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  transform: rotate(45deg);
+  box-shadow: 2px 2px 4px rgba(7, 59, 44, 0.06);
+}
+
+.policy-fab__hint.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ---------- 问答小窗 ---------- */
+
+.policy-panel {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  width: 380px;
+  height: min(540px, calc(100vh - 24px));
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 26px 64px rgba(7, 59, 44, 0.26), 0 2px 8px rgba(7, 59, 44, 0.08);
+  transform-origin: bottom right;
+}
+
+.policy-panel.is-below {
+  transform-origin: top right;
+}
+
+.policy-panel::after {
+  content: '';
+  position: absolute;
+  right: 28px;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  box-shadow: 3px 3px 6px rgba(7, 59, 44, 0.06);
+  transform: rotate(45deg);
+}
+
+.policy-panel.is-below::after {
+  top: -6px;
+  bottom: auto;
+  background: var(--brand-900);
+  box-shadow: -2px -2px 6px rgba(7, 59, 44, 0.1);
+}
+
+.policy-pop-enter-active,
+.policy-pop-leave-active {
+  transition: opacity 0.16s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.policy-pop-enter-from,
+.policy-pop-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.95);
+}
+
 .assistant {
   display: flex;
   flex-direction: column;
+  width: 100%;
   height: 100%;
-  margin: -20px;
+  overflow: hidden;
+  border-radius: 14px;
 }
 
 .assistant__head {
   position: relative;
   overflow: hidden;
-  padding: 18px 22px 20px;
+  padding: 11px 13px;
   background:
-    radial-gradient(120% 100% at 100% 0%, rgba(200, 243, 106, 0.13) 0%, transparent 52%),
+    radial-gradient(120% 140% at 100% 0%, rgba(200, 243, 106, 0.14) 0%, transparent 54%),
     var(--brand-900);
   color: #fff;
 }
@@ -554,10 +834,10 @@ onBeforeUnmount(() => {
 .assistant__head::after {
   content: '';
   position: absolute;
-  right: -48px;
-  bottom: -72px;
-  width: 190px;
-  height: 190px;
+  right: -38px;
+  bottom: -78px;
+  width: 156px;
+  height: 156px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 50%;
   pointer-events: none;
@@ -569,36 +849,65 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .assistant__brand {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.72);
+  gap: 9px;
+  min-width: 0;
+  color: #fff;
 }
 
-.assistant__brand-dot {
-  width: 5px;
-  height: 5px;
+.assistant__brand-ball {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: var(--lime);
+  color: var(--brand-900);
+  font-size: 16px;
+  box-shadow: 0 0 0 4px rgba(200, 243, 106, 0.1);
+}
+
+.assistant__brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.assistant__brand-copy strong {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.assistant__brand-copy small {
+  overflow: hidden;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .assistant__head-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .assistant__reset,
 .assistant__close {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 50%;
   background: transparent;
@@ -613,58 +922,10 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
-.assistant__kicker {
-  position: relative;
-  z-index: 1;
-  display: block;
-  margin-top: 20px;
-  font-family: var(--font-display);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: var(--lime);
-}
-
-.assistant__head h3 {
-  position: relative;
-  z-index: 1;
-  margin-top: 7px;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.assistant__head > p {
-  position: relative;
-  z-index: 1;
-  max-width: 360px;
-  margin-top: 9px;
-  font-size: 12px;
-  line-height: 1.75;
-  color: rgba(255, 255, 255, 0.56);
-}
-
-.assistant__promises {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 14px;
-}
-
-.assistant__promises span {
-  padding: 3px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.6);
-}
-
 .assistant__body {
   flex: 1;
   overflow-y: auto;
-  padding: 18px 20px 22px;
+  padding: 14px 14px 16px;
   background: var(--paper);
   scroll-behavior: smooth;
 }
@@ -713,7 +974,7 @@ onBeforeUnmount(() => {
 }
 
 .assistant__intro {
-  padding: 18px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
@@ -762,8 +1023,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 9px;
-  min-height: 44px;
-  padding: 9px 11px;
+  min-height: 40px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--paper);
@@ -1056,7 +1317,7 @@ onBeforeUnmount(() => {
 }
 
 .assistant__foot {
-  padding: 13px 18px 15px;
+  padding: 10px 12px 12px;
   background: #fff;
   border-top: 1px solid var(--line);
 }
@@ -1124,8 +1385,18 @@ onBeforeUnmount(() => {
     gap: 0;
   }
 
-  .policy-fab__copy {
+  .policy-fab__copy,
+  .policy-fab__hint {
     display: none;
+  }
+
+  .policy-panel {
+    width: calc(100vw - 24px);
+    height: min(520px, calc(100vh - 96px));
+  }
+
+  .assistant__body {
+    padding: 12px;
   }
 }
 

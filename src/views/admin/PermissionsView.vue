@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Check, CircleClose, Key, Lock, Menu, Setting, UserFilled } from '@element-plus/icons-vue'
+import { Check, CircleClose, Key, Lock, Setting, UserFilled } from '@element-plus/icons-vue'
 import { ROLE_MENU_LABELS, visibleSections } from '../../config/menus'
 import {
   PERMISSION_GROUPS,
   ROLE_DESCRIPTIONS,
   ROLE_PERMISSIONS,
+  type PermissionCode,
 } from '../../config/permissions'
 import type { RoleCode } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -48,16 +49,25 @@ const menus = computed(() => {
   return items
 })
 
-const scopeLabel = computed(() => {
-  const scopes: Record<string, string> = {
-    'data.province': '全省数据',
-    'data.city': '本市数据',
-    'data.team': '本队数据',
-    'data.self': '本人数据',
-  }
-  const keys = ROLE_PERMISSIONS[selectedRole.value].filter((code) => scopes[code])
-  return keys.map((code) => scopes[code]).join(' / ') || '未配置'
+const SCOPE_ITEMS: { code: PermissionCode; label: string }[] = [
+  { code: 'data.province', label: '全省数据' },
+  { code: 'data.city', label: '本市数据' },
+  { code: 'data.team', label: '本队数据' },
+  { code: 'data.self', label: '本人数据' },
+]
+
+const scopeItems = computed(() => {
+  const codes = new Set(ROLE_PERMISSIONS[selectedRole.value])
+  return SCOPE_ITEMS.map((item) => ({ ...item, granted: codes.has(item.code) }))
 })
+
+const scopeLabel = computed(
+  () =>
+    scopeItems.value
+      .filter((item) => item.granted)
+      .map((item) => item.label)
+      .join(' / ') || '未配置',
+)
 
 const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0, 1))
 </script>
@@ -86,7 +96,20 @@ const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0,
         :icon="Lock"
         tone="blue"
       />
-      <StatCard label="数据范围" :value="scopeLabel" hint="后端行级隔离" :icon="Menu" tone="amber" />
+      <div class="scope-card">
+        <span class="scope-card__label">数据范围</span>
+        <div class="scope-card__pills">
+          <span
+            v-for="scope in scopeItems"
+            :key="scope.code"
+            class="scope-pill"
+            :class="{ 'is-granted': scope.granted }"
+          >
+            {{ scope.label }}
+          </span>
+        </div>
+        <span class="scope-card__hint">后端行级隔离</span>
+      </div>
     </div>
 
     <section class="role-strip">
@@ -181,6 +204,50 @@ const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0,
 </template>
 
 <style scoped>
+.scope-card {
+  padding: 18px 20px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+  box-shadow: var(--shadow-card);
+}
+
+.scope-card__label {
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.scope-card__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.scope-pill {
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--paper);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--ink-300);
+  white-space: nowrap;
+}
+
+.scope-pill.is-granted {
+  background: var(--brand-50);
+  color: var(--brand-800);
+  font-weight: 600;
+}
+
+.scope-card__hint {
+  display: block;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--ink-300);
+}
+
 .role-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
