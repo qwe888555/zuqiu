@@ -7,10 +7,11 @@ import { Back, Calendar, Football, Location, Switch, VideoCamera, View, Warning 
 import { matchApi, publicApi } from '../../api'
 import type { LiveLink, LivePost, MatchEvent, PublicLivePost, PublicMatch } from '../../api/types'
 import StatusTag from '../../components/common/StatusTag.vue'
-import { matchDisplayStatus } from '../../utils/portal'
+import { refereeRoleLabel } from '../../config/labels'
+import { formatBeijing, matchDisplayStatus } from '../../utils/portal'
 
 interface MatchDetail extends PublicMatch {
-  events: MatchEvent[]
+  events?: MatchEvent[]
   referees?: { name: string; role: string; level?: string }[]
 }
 
@@ -61,12 +62,34 @@ const sortedEvents = computed(() =>
   }),
 )
 
+/** 公开详情不含事件流；只有内部预览（或后端将来补充事件）才展示「赛况事件」页签。 */
+const showEvents = computed(() => previewMode.value || sortedEvents.value.length > 0)
+const kickoffText = computed(() => formatBeijing(match.value?.kickoffAt, 'YYYY年MM月DD日 HH:mm'))
+const kickoffShort = computed(() => formatBeijing(match.value?.kickoffAt))
+
+function defaultTab() {
+  if (showEvents.value) activeTab.value = 'events'
+  else activeTab.value = liveFeed.value.length ? 'live' : 'info'
+}
+
+/** 公开直播链接只有 title/url，补齐渲染所需的本地 key，不回填业务字段。 */
+function normalizeLinks(links: Partial<LiveLink>[]): LiveLink[] {
+  return links.map((link, index) => ({
+    id: String(link.id || `public-link-${index}`),
+    matchId: String(link.matchId || ''),
+    title: String(link.title || ''),
+    url: String(link.url || ''),
+    enabled: link.enabled !== false,
+    version: Number(link.version) || 0,
+  }))
+}
+
 const briefText = computed(() => {
   const current = match.value
   if (!current) return ''
   const status = displayStatus.value
   if (status === 'SCHEDULED') {
-    return `本场将于 ${dayjs(current.kickoffAt).format('MM月DD日 HH:mm')} 在 ${current.venue || '待定场地'} 进行。`
+    return `本场将于 ${formatBeijing(current.kickoffAt)} 在 ${current.venue || '待定场地'} 进行。`
   }
   if (status === 'CANCELLED') {
     return '本场比赛已取消，后续安排以组委会通知为准。'
@@ -137,7 +160,8 @@ async function loadPreviewDetail(id: string): Promise<boolean> {
       events: events.items,
     }
     liveFeed.value = toPublicPosts(posts.items)
-    liveLinks.value = links
+    liveLinks.value = normalizeLinks(links)
+    defaultTab()
     return true
   } catch {
     return false
@@ -152,14 +176,23 @@ async function load() {
       if (!(await loadPreviewDetail(id))) match.value = null
       return
     }
-    match.value = await publicApi.match(id)
-    published.value = true
-    const [feed, links] = await Promise.all([
+    const [detail, feed, links, events] = await Promise.all([
+      publicApi.match(id),
       publicApi.liveFeed(id),
       publicApi.liveLinks(id),
+      // 公开详情只带 eventId，赛事名称需从公开赛事列表补齐。
+      publicApi.events({ page: 1, pageSize: 100 }),
     ])
+    const eventName = events.items.find((item) => item.id === detail.eventId)?.name
+    match.value = {
+      ...detail,
+      eventName: eventName || detail.eventName || '赛事',
+      events: detail.events || [],
+    }
+    published.value = true
     liveFeed.value = feed.items
-    liveLinks.value = links
+    liveLinks.value = normalizeLinks(links)
+    defaultTab()
   } catch {
     match.value = null
   } finally {
@@ -215,9 +248,9 @@ watch(() => route.params.id, load)
           </nav>
 
           <div class="scoreboard__meta">
-            <span class="group-pill">{{ match.groupName }}</span>
+            <span v-if="match.groupName" class="group-pill">{{ match.groupName }}</span>
             <StatusTag :status="displayStatus" kind="match" size="default" />
-            <span class="scoreboard__event">{{ match.eventName }}</span>
+            <span class="scoreboard__event">{{ match.eventName || '赛事' }}</span>
           </div>
 
           <div class="scoreboard__main">
@@ -236,7 +269,7 @@ watch(() => route.params.id, load)
               <span class="score__state">
                 {{
                   displayStatus === 'SCHEDULED'
-                    ? dayjs(match.kickoffAt).format('MM月DD日 HH:mm')
+                    ? kickoffShort
                     : displayStatus === 'LIVE'
                       ? '比赛进行中'
                       : displayStatus === 'CANCELLED'
@@ -255,8 +288,8 @@ watch(() => route.params.id, load)
           </div>
 
           <div class="scoreboard__info">
-            <span><el-icon><Calendar /></el-icon>{{ dayjs(match.kickoffAt).format('YYYY年MM月DD日 HH:mm') }}</span>
-            <span><el-icon><Location /></el-icon>{{ match.venue }}</span>
+            <span><el-icon><Calendar /></el-icon>{{ kickoffText }}</span>
+            <span><el-icon><Location /></el-icon>{{ match.venue || '场地待定' }}</span>
             <span v-if="isLive" class="live-refresh">每 20 秒自动刷新</span>
           </div>
         </div>
@@ -265,7 +298,12 @@ watch(() => route.params.id, load)
       <div class="container detail-body">
         <div class="detail-main">
           <div class="tab-bar">
-            <button type="button" :class="{ 'is-active': activeTab === 'events' }" @click="activeTab = 'events'">
+            <button
+              v-if="showEvents"
+              type="button"
+              :class="{ 'is-active': activeTab === 'events' }"
+              @click="activeTab = 'events'"
+            >
               赛况事件
             </button>
             <button type="button" :class="{ 'is-active': activeTab === 'live' }" @click="activeTab = 'live'">
@@ -319,13 +357,13 @@ watch(() => route.params.id, load)
           <div v-show="activeTab === 'live'" class="panel">
             <div v-if="liveFeed.length" class="live-feed">
               <article v-for="post in liveFeed" :key="post.id" class="live-post">
-                <span class="live-post__minute num">{{ post.minute }}'</span>
+                <span class="live-post__minute num">{{ post.minute != null ? `${post.minute}'` : '—' }}</span>
                 <div class="live-post__body">
                   <p>{{ post.text }}</p>
                   <div v-if="post.imageUrls?.length" class="live-post__images">
                     <img v-for="img in post.imageUrls" :key="img" :src="img" alt="赛场图片" />
                   </div>
-                  <span class="live-post__time">{{ dayjs(post.updatedAt).format('HH:mm') }}</span>
+                  <span class="live-post__time">{{ post.updatedAt ? dayjs(post.updatedAt).format('HH:mm') : '' }}</span>
                 </div>
               </article>
             </div>
@@ -336,19 +374,19 @@ watch(() => route.params.id, load)
             <div class="info-grid">
               <div class="info-item">
                 <span>赛事</span>
-                <strong>{{ match.eventName }}</strong>
+                <strong>{{ match.eventName || '赛事' }}</strong>
               </div>
               <div class="info-item">
                 <span>组别</span>
-                <strong>{{ match.groupName }}</strong>
+                <strong>{{ match.groupName || '组别信息暂未公开' }}</strong>
               </div>
               <div class="info-item">
                 <span>开球时间</span>
-                <strong>{{ dayjs(match.kickoffAt).format('YYYY-MM-DD HH:mm') }}</strong>
+                <strong>{{ kickoffText }}</strong>
               </div>
               <div class="info-item">
                 <span>比赛场地</span>
-                <strong>{{ match.venue }}</strong>
+                <strong>{{ match.venue || '场地待定' }}</strong>
               </div>
             </div>
 
@@ -359,7 +397,7 @@ watch(() => route.params.id, load)
                   <span class="referee__avatar">{{ ref.name.slice(0, 1) }}</span>
                   <div>
                     <strong>{{ ref.name }}</strong>
-                    <small>{{ ref.role }}<template v-if="ref.level"> · {{ ref.level }}</template></small>
+                    <small>{{ refereeRoleLabel(ref.role) }}<template v-if="ref.level"> · {{ ref.level }}</template></small>
                   </div>
                 </div>
               </div>
@@ -369,7 +407,7 @@ watch(() => route.params.id, load)
               <h3>直播入口</h3>
               <a
                 v-for="link in liveLinks"
-                :key="link.id"
+                :key="link.id || link.url"
                 :href="link.url"
                 target="_blank"
                 rel="noreferrer"

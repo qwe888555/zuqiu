@@ -62,9 +62,11 @@ const availableTeams = computed(() => {
 
 function groupFullReason(group: EventGroup): string {
   const quota = group.quota ?? 0
-  if (quota > 0 && (group.totalUsed ?? 0) >= quota) return '全省名额已满'
-  const schoolQuota = group.schoolQuota ?? 1
-  if (schoolQuota > 0 && (group.schoolUsed ?? 0) >= schoolQuota) return '本校名额已用完'
+  // 名额占用数由接口动态返回；接口未提供时不做前端臆测。
+  if (group.totalUsed != null && quota > 0 && group.totalUsed >= quota) return '组别名额已满'
+  if (group.schoolQuota != null && group.schoolQuota > 0 && (group.schoolUsed ?? 0) >= group.schoolQuota) {
+    return '本校名额已用完'
+  }
   return ''
 }
 
@@ -81,12 +83,13 @@ function campusText(team?: Team): string {
 async function loadBase() {
   loading.value = true
   try {
-    const [eventRes, schoolTeams] = await Promise.all([
+    // 两个接口的权限范围不同，任一失败都不能拖垮整个向导。
+    const [eventRes, teamRes] = await Promise.allSettled([
       eventApi.available({ page: 1, pageSize: 50, registrationOpen: 'true' }),
       meApi.teams(),
     ])
-    events.value = eventRes.items
-    teams.value = schoolTeams
+    events.value = eventRes.status === 'fulfilled' ? eventRes.value.items : []
+    teams.value = teamRes.status === 'fulfilled' ? teamRes.value : []
     const presetTeamId = String(route.query.teamId || '')
     if (presetTeamId && teams.value.some((team) => team.id === presetTeamId)) {
       form.teamId = presetTeamId
@@ -235,9 +238,10 @@ onMounted(() => {
                     <strong>{{ group.name }}</strong>
                     <span>{{ group.gender === 'MALE' ? '男子' : group.gender === 'FEMALE' ? '女子' : '混合' }} · 每队最多 {{ group.maxPlayers }} 人</span>
                     <small>年龄 {{ group.minAge }}-{{ group.maxAge }} 岁</small>
-                    <small>
-                      每校名额 {{ (group.schoolQuota ?? 1) === 0 ? '不限' : (group.schoolQuota ?? 1) }} 队 · 本校已用 {{ group.schoolUsed ?? 0 }} · 全省已报 {{ group.totalUsed ?? 0 }}/{{ group.quota || '不限' }}
+                    <small v-if="group.quota">
+                      组别名额 {{ group.quota }} 队<template v-if="group.totalUsed != null"> · 已报 {{ group.totalUsed }}</template>
                     </small>
+                    <small v-else>组别名额不限</small>
                     <em v-if="groupFullReason(group)">{{ groupFullReason(group) }}</em>
                   </button>
                 </div>

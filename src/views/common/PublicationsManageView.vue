@@ -1,32 +1,35 @@
-<script setup lang="ts">
+﻿﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Medal, Plus, Refresh, Search } from '@element-plus/icons-vue'
-import { enrollmentApi, eventApi, orgApi, personApi, publicationApi } from '../../api'
-import type { Enrollment, Event, EventGroup, Organization, Person, Publication } from '../../api/types'
+import { enrollmentApi, eventApi, personApi } from '../../api'
+import { GROUP_TYPE_LABEL, PUBLICITY_TYPE_LABEL, publicityApi } from '../../api/selection'
+import type { Enrollment, Event, Person, PublicityRecord, PublicityType, SelectionGroupType } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
-import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
-const rows = ref<Publication[]>([])
+const rows = ref<PublicityRecord[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
-const filters = reactive({ targetType: '', eventId: '', groupId: '', cityOrgId: '', active: '' })
 const events = ref<Event[]>([])
-const filterGroups = ref<EventGroup[]>([])
-const cities = ref<Organization[]>([])
+const cities = ref<string[]>([])
+const filters = reactive({
+  eventId: '',
+  publicityType: '' as PublicityType | '',
+  groupType: '' as SelectionGroupType | '',
+  city: '',
+  status: '' as 'PUBLISHED' | 'CANCELLED' | '',
+  keyword: '',
+})
 
 interface Candidate {
   id: string
   name: string
   sub: string
-  eventId?: string
-  groupId?: string
 }
 
 const dialogVisible = ref(false)
@@ -36,37 +39,43 @@ const searchKeyword = ref('')
 const candidates = ref<Candidate[]>([])
 const selectedTarget = ref<Candidate | null>(null)
 const form = reactive({
-  targetType: 'ATHLETE',
+  eventId: '',
+  publicityType: 'ATHLETE' as PublicityType,
   keyword: '',
 })
 
-const typeOptions = [
-  { value: 'ATHLETE', label: '运动员' },
-  { value: 'COACH', label: '教练员' },
-  { value: 'ENROLLMENT', label: '参赛单位' },
-]
+const batchVisible = ref(false)
+const batchSaving = ref(false)
+const batchForm = reactive({
+  groupType: '' as SelectionGroupType | '',
+  publicityType: '' as PublicityType | '',
+  city: '',
+})
 
-const typeLabel: Record<string, string> = {
-  ATHLETE: '运动员',
-  COACH: '教练员',
-  ENROLLMENT: '参赛单位',
-}
+const typeOptions = Object.entries(PUBLICITY_TYPE_LABEL) as Array<[PublicityType, string]>
+const groupOptions = Object.entries(GROUP_TYPE_LABEL) as Array<[SelectionGroupType, string]>
 
-const activeCount = computed(() => rows.value.filter((row) => row.active).length)
-const athleteCount = computed(() => rows.value.filter((row) => row.targetType === 'ATHLETE').length)
-const coachCount = computed(() => rows.value.filter((row) => row.targetType === 'COACH').length)
+const activeCount = computed(() => rows.value.filter((row) => row.status === 'PUBLISHED').length)
+const athleteCount = computed(() => rows.value.filter((row) => row.publicityType === 'ATHLETE').length)
+const coachCount = computed(() => rows.value.filter((row) => row.publicityType === 'COACH').length)
 
 async function load() {
+  if (!filters.eventId) {
+    rows.value = []
+    total.value = 0
+    return
+  }
   loading.value = true
   try {
-    const res = await publicationApi.list({
+    const res = await publicityApi.manageList({
+      eventId: filters.eventId,
+      groupType: filters.groupType || undefined,
+      city: filters.city || undefined,
+      publicityType: filters.publicityType || undefined,
+      status: filters.status || undefined,
+      keyword: filters.keyword || undefined,
       page: page.value,
-      pageSize: pageSize.value,
-      targetType: filters.targetType || undefined,
-      eventId: filters.eventId || undefined,
-      groupId: filters.groupId || undefined,
-      cityOrgId: filters.cityOrgId || undefined,
-      active: filters.active === '' ? undefined : filters.active === 'active',
+      size: pageSize.value,
     })
     rows.value = res.items
     total.value = res.total
@@ -82,56 +91,49 @@ function search() {
   load()
 }
 
-function eventName(eventId?: string) {
-  if (!eventId) return '—'
-  return events.value.find((item) => item.id === eventId)?.name || '赛事未匹配'
-}
-
 async function loadEvents() {
   try {
     const res = await eventApi.list({ page: 1, pageSize: 100 })
     events.value = res.items
+    if (!filters.eventId) {
+      filters.eventId = events.value[0]?.id || ''
+      form.eventId = filters.eventId
+    }
   } catch {
     events.value = []
   }
 }
 
 async function loadCities() {
+  if (!filters.eventId) {
+    cities.value = []
+    return
+  }
   try {
-    const res = await orgApi.list({ page: 1, pageSize: 100, orgType: 'CITY' })
-    cities.value = res.items
+    cities.value = await publicityApi.cities({ eventId: filters.eventId })
   } catch {
     cities.value = []
   }
 }
 
-async function changeFilterEvent(eventId: string) {
-  filters.groupId = ''
-  if (!eventId) {
-    filterGroups.value = []
-  } else {
-    try {
-      const res = await eventApi.groups(eventId)
-      filterGroups.value = res.items
-    } catch {
-      filterGroups.value = []
-    }
-  }
+async function changeEvent() {
+  filters.city = ''
+  await loadCities()
   search()
 }
 
 function resetFilters() {
-  filters.targetType = ''
-  filters.eventId = ''
-  filters.groupId = ''
-  filters.cityOrgId = ''
-  filters.active = ''
-  filterGroups.value = []
+  filters.publicityType = ''
+  filters.groupType = ''
+  filters.city = ''
+  filters.status = ''
+  filters.keyword = ''
   search()
 }
 
 function openCreate() {
-  form.targetType = 'ATHLETE'
+  form.eventId = filters.eventId || events.value[0]?.id || ''
+  form.publicityType = 'ATHLETE'
   selectedTarget.value = null
   candidates.value = []
   searchKeyword.value = ''
@@ -142,7 +144,7 @@ async function doSearch() {
   if (!searchKeyword.value.trim()) return
   searching.value = true
   try {
-    if (form.targetType === 'ENROLLMENT') {
+    if (form.publicityType === 'TEAM') {
       const res = await enrollmentApi.list({
         page: 1,
         pageSize: 20,
@@ -150,17 +152,15 @@ async function doSearch() {
         status: 'APPROVED',
       })
       candidates.value = (res.items as Enrollment[]).map((item) => ({
-        id: item.id,
+        id: item.teamId || item.id,
         name: item.teamName,
         sub: `${item.eventName} · ${item.groupName}`,
-        eventId: item.eventId,
-        groupId: item.groupId,
       }))
     } else {
+      const kind = form.publicityType
       const res = await personApi.search({ keyword: searchKeyword.value.trim() })
-      const kind = form.targetType === 'ATHLETE' ? 'ATHLETE' : 'COACH'
       candidates.value = res
-        .filter((person: Person) => person.kinds.includes(kind))
+        .filter((person: Person) => person.kinds.includes(kind as 'ATHLETE' | 'COACH'))
         .map((person) => ({
           id: person.id,
           name: person.realName,
@@ -175,17 +175,18 @@ async function doSearch() {
 }
 
 async function create() {
+  if (!form.eventId) return ElMessage.warning('请选择赛事')
   if (!selectedTarget.value) return ElMessage.warning('请先搜索并选择公示对象')
   saving.value = true
   try {
-    await publicationApi.create({
-      targetType: form.targetType,
-      targetId: selectedTarget.value.id,
-      eventId: form.targetType === 'ENROLLMENT' ? selectedTarget.value.eventId : undefined,
-      groupId: form.targetType === 'ENROLLMENT' ? selectedTarget.value.groupId : undefined,
+    await publicityApi.create({
+      eventId: form.eventId,
+      publicityType: form.publicityType,
+      sourceId: selectedTarget.value.id,
     })
     ElMessage.success('公示已发布')
     dialogVisible.value = false
+    await loadCities()
     await load()
   } catch {
     // 拦截器提示
@@ -194,10 +195,41 @@ async function create() {
   }
 }
 
-async function cancel(row: Publication) {
+function openBatch() {
+  batchForm.groupType = ''
+  batchForm.publicityType = ''
+  batchForm.city = ''
+  batchVisible.value = true
+}
+
+async function runBatch() {
+  if (!filters.eventId) return ElMessage.warning('请先选择赛事')
+  if (!batchForm.groupType && !batchForm.publicityType && !batchForm.city) {
+    return ElMessage.warning('请至少选择一个筛选条件')
+  }
+  batchSaving.value = true
+  try {
+    const res = await publicityApi.batch({
+      eventId: filters.eventId,
+      groupType: batchForm.groupType || undefined,
+      publicityType: batchForm.publicityType || undefined,
+      city: batchForm.city || undefined,
+    })
+    ElMessage.success(`批量公示完成：成功 ${res.published} 条，跳过 ${res.skipped} 条，失败 ${res.failed} 条`)
+    batchVisible.value = false
+    await loadCities()
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    batchSaving.value = false
+  }
+}
+
+async function cancel(row: PublicityRecord) {
   try {
     const { value } = await ElMessageBox.prompt(
-      `确认撤销「${row.targetName || '该对象'}」的公示？撤销后将不再展示在门户，请填写撤销原因。`,
+      `确认撤销「${row.name || '该对象'}」的公示？撤销后将不再展示在门户，请填写撤销原因。`,
       '撤销公示',
       {
         confirmButtonText: '确认撤销',
@@ -205,11 +237,10 @@ async function cancel(row: Publication) {
         type: 'warning',
         inputType: 'textarea',
         inputPlaceholder: '请填写撤销原因（不少于 4 个字）',
-        inputValidator: (input: string) =>
-          (input && input.trim().length >= 4) || '撤销原因至少填写 4 个字',
+        inputValidator: (input: string) => (input && input.trim().length >= 4) || '撤销原因至少填写 4 个字',
       },
     )
-    await publicationApi.cancel(row.id, { version: row.version, reason: value.trim() })
+    await publicityApi.cancel(row.id, value.trim())
     ElMessage.success('公示已撤销')
     await load()
   } catch {
@@ -217,10 +248,10 @@ async function cancel(row: Publication) {
   }
 }
 
-onMounted(() => {
-  load()
-  loadEvents()
-  loadCities()
+onMounted(async () => {
+  await loadEvents()
+  await loadCities()
+  await load()
 })
 </script>
 
@@ -228,91 +259,91 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="公示管理"
-      description="管理门户公示的运动员、教练员与参赛单位名单。公示仅展示必要信息，撤销后立即从门户下线。"
+      description="管理门户公示的运动员、教练员与球队名单。公示仅展示必要信息，撤销后立即从门户下线。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button :icon="Medal" :disabled="!filters.eventId" @click="openBatch">批量公示</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新增公示</el-button>
       </template>
     </PageHeader>
 
     <div class="stat-grid">
-      <StatCard label="公示记录" :value="total" hint="累计发布" :icon="Medal" tone="green" />
-      <StatCard label="公示中" :value="activeCount" hint="门户可见" :icon="Medal" tone="lime" />
+      <StatCard label="公示记录" :value="total" hint="当前筛选累计" :icon="Medal" tone="green" />
+      <StatCard label="公示中" :value="activeCount" hint="当前页可见" :icon="Medal" tone="lime" />
       <StatCard label="运动员" :value="athleteCount" hint="当前页统计" :icon="Medal" tone="blue" />
       <StatCard label="教练员" :value="coachCount" hint="当前页统计" :icon="Medal" tone="amber" />
     </div>
 
     <section class="page-card">
       <FilterBar :summary="'共 ' + total + ' 条公示'">
-        <el-select v-model="filters.targetType" placeholder="全部对象" clearable @change="search">
-          <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-        <el-select
-          v-model="filters.eventId"
-          placeholder="全部赛事"
-          clearable
-          filterable
-          @change="changeFilterEvent"
-        >
+        <el-select v-model="filters.eventId" placeholder="选择赛事" filterable style="width: 220px" @change="changeEvent">
           <el-option v-for="item in events" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
-        <el-select
-          v-model="filters.groupId"
-          placeholder="全部组别"
+        <el-select v-model="filters.publicityType" placeholder="全部对象" clearable @change="search">
+          <el-option v-for="[value, label] in typeOptions" :key="value" :label="label" :value="value" />
+        </el-select>
+        <el-select v-model="filters.groupType" placeholder="全部组别" clearable @change="search">
+          <el-option v-for="[value, label] in groupOptions" :key="value" :label="label" :value="value" />
+        </el-select>
+        <el-select v-model="filters.city" placeholder="全部市州" clearable filterable @change="search">
+          <el-option v-for="item in cities" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-select v-model="filters.status" placeholder="全部状态" clearable @change="search">
+          <el-option label="公示中" value="PUBLISHED" />
+          <el-option label="已撤销" value="CANCELLED" />
+        </el-select>
+        <el-input
+          v-model="filters.keyword"
+          placeholder="姓名 / 球队"
+          :prefix-icon="Search"
           clearable
-          :disabled="!filters.eventId"
-          @change="search"
-        >
-          <el-option v-for="item in filterGroups" :key="item.id" :label="item.name" :value="item.id" />
-        </el-select>
-        <el-select v-model="filters.cityOrgId" placeholder="全部市州" clearable filterable @change="search">
-          <el-option v-for="item in cities" :key="item.id" :label="item.name" :value="item.id" />
-        </el-select>
-        <el-select v-model="filters.active" placeholder="全部状态" clearable @change="search">
-          <el-option label="公示中" value="active" />
-          <el-option label="已撤销" value="cancelled" />
-        </el-select>
+          style="width: 170px"
+          @keyup.enter="search"
+          @clear="search"
+        />
         <el-button @click="resetFilters">重置</el-button>
       </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
-        <el-table-column label="公示对象" min-width="220">
+        <el-table-column label="公示对象" min-width="200">
           <template #default="{ row }">
             <div class="target-cell">
-              <span class="target-cell__avatar">{{ (row.targetName || '?').slice(0, 1) }}</span>
+              <span class="target-cell__avatar">{{ (row.name || '?').slice(0, 1) }}</span>
               <div>
-                <strong>{{ row.targetName || '—' }}</strong>
-                <small>{{ typeLabel[row.targetType] }}</small>
+                <strong>{{ row.name || '—' }}</strong>
+                <small>{{ row.publicityTypeLabel }}</small>
               </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="球队 / 单位" min-width="190">
-          <template #default="{ row }">{{ row.teamName || '—' }}</template>
-        </el-table-column>
-        <el-table-column label="赛事 / 组别" min-width="200">
+        <el-table-column label="球队 / 学校" min-width="200">
           <template #default="{ row }">
             <div class="stack">
-              <strong>{{ eventName(row.eventId) }}</strong>
-              <small>{{ row.groupName || '组别未设置' }}</small>
+              <strong>{{ row.teamName || '—' }}</strong>
+              <small>{{ row.schoolName || '学校未登记' }}</small>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="市州" width="100">
-          <template #default="{ row }">{{ row.cityName || '—' }}</template>
+        <el-table-column label="组别" width="100">
+          <template #default="{ row }">{{ row.groupTypeLabel || '—' }}</template>
         </el-table-column>
-        <el-table-column label="公示时间" width="160">
+        <el-table-column label="市州" width="110">
+          <template #default="{ row }">{{ row.city || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="公示时间" width="170">
+          <template #default="{ row }"><span class="muted">{{ row.publishedAt || '-' }}</span></template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <span class="muted">{{ dayjs(row.publishedAt).format('YYYY-MM-DD HH:mm') }}</span>
+            <el-tag :type="row.status === 'PUBLISHED' ? 'success' : 'info'" size="small" effect="plain">
+              {{ row.statusLabel }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }"><StatusTag :status="row.active" kind="publication" /></template>
-        </el-table-column>
-        <el-table-column label="操作" width="110" align="right">
+        <el-table-column label="操作" width="100" align="right">
           <template #default="{ row }">
-            <el-button v-if="row.active" link type="danger" :icon="Close" @click="cancel(row)">撤销</el-button>
+            <el-button v-if="row.status === 'PUBLISHED'" link type="danger" :icon="Close" @click="cancel(row)">撤销</el-button>
             <span v-else class="muted">已撤销</span>
           </template>
         </el-table-column>
@@ -329,18 +360,21 @@ onMounted(() => {
 
     <el-dialog v-model="dialogVisible" title="新增公示" width="580px">
       <el-form :model="form" label-position="top">
+        <el-form-item label="赛事" required>
+          <el-select v-model="form.eventId" style="width: 100%">
+            <el-option v-for="item in events" :key="item.id" :label="item.name" :value="item.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="公示对象类型">
-          <el-radio-group v-model="form.targetType" @change="candidates = []; selectedTarget = null">
-            <el-radio-button v-for="item in typeOptions" :key="item.value" :value="item.value">
-              {{ item.label }}
-            </el-radio-button>
+          <el-radio-group v-model="form.publicityType" @change="candidates = []; selectedTarget = null">
+            <el-radio-button v-for="[value, label] in typeOptions" :key="value" :value="value">{{ label }}</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="搜索公示对象">
           <div class="search-row">
             <el-input
               v-model="searchKeyword"
-              :placeholder="form.targetType === 'ENROLLMENT' ? '输入球队名称' : '输入姓名'"
+              :placeholder="form.publicityType === 'TEAM' ? '输入球队名称' : '输入姓名'"
               :prefix-icon="Search"
               @keyup.enter="doSearch"
             />
@@ -358,13 +392,7 @@ onMounted(() => {
         </div>
 
         <div v-else-if="candidates.length" class="candidate-list">
-          <button
-            v-for="item in candidates"
-            :key="item.id"
-            type="button"
-            class="candidate"
-            @click="selectedTarget = item"
-          >
+          <button v-for="item in candidates" :key="item.id" type="button" class="candidate" @click="selectedTarget = item">
             <span class="candidate__avatar">{{ item.name.slice(0, 1) }}</span>
             <span class="candidate__info">
               <strong>{{ item.name }}</strong>
@@ -385,6 +413,33 @@ onMounted(() => {
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="create">发布公示</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="batchVisible" title="批量公示" width="520px">
+      <p class="batch-tip">按筛选条件批量发布公示，已公示的对象将自动跳过。至少选择一个条件。</p>
+      <el-form :model="batchForm" label-position="top">
+        <div class="batch-grid">
+          <el-form-item label="组别">
+            <el-select v-model="batchForm.groupType" placeholder="全部组别" clearable style="width: 100%">
+              <el-option v-for="[value, label] in groupOptions" :key="value" :label="label" :value="value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="对象类型">
+            <el-select v-model="batchForm.publicityType" placeholder="全部对象" clearable style="width: 100%">
+              <el-option v-for="[value, label] in typeOptions" :key="value" :label="label" :value="value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="市州">
+            <el-select v-model="batchForm.city" placeholder="全部市州" clearable filterable style="width: 100%">
+              <el-option v-for="item in cities" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchSaving" @click="runBatch">开始批量公示</el-button>
       </template>
     </el-dialog>
   </div>
@@ -431,6 +486,11 @@ onMounted(() => {
   display: block;
   margin-top: 2px;
   font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.muted {
+  font-size: 10px;
   color: var(--ink-300);
 }
 
@@ -512,5 +572,18 @@ onMounted(() => {
 
 .candidate:hover {
   border-color: var(--brand-500);
+}
+
+.batch-tip {
+  margin-bottom: 14px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--ink-500);
+}
+
+.batch-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
 }
 </style>

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
+import { ElMessage } from 'element-plus'
 import { FolderOpened, Refresh, Search } from '@element-plus/icons-vue'
-import { selectionApi, teamApi } from '../../api'
-import type { Material, Match, Person, SelectionScore, Team } from '../../api/types'
+import { teamApi } from '../../api'
+import { selectionDossierApi, type CandidateDossier } from '../../api/selection'
+import type { Team } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 
@@ -20,23 +22,37 @@ interface DossierRow {
   materialCount?: number
 }
 
-interface DossierDetail {
-  person: Person
-  team?: Team
-  materials: Material[]
-  matches: Match[]
-  scores: SelectionScore[]
-}
-
 const loading = ref(false)
 const searched = ref(false)
 const rows = ref<DossierRow[]>([])
 const teams = ref<Team[]>([])
-const query = reactive({ keyword: '', idNumber: '', teamId: '' })
+const query = reactive({ athleteName: '', idNumber: '', teamId: '' })
 
 const drawerVisible = ref(false)
 const detailLoading = ref(false)
-const detail = ref<DossierDetail | null>(null)
+const detail = ref<CandidateDossier | null>(null)
+const detailTeams = computed(() => detail.value?.teams || [])
+const detailMaterials = computed(() => detail.value?.materials || [])
+const detailMatches = computed(() => detail.value?.matchRecords || [])
+const primaryTeam = computed(() => detailTeams.value[0])
+
+/** 详情与检索结果都按 CandidateDossier 聚合结构返回，这里拍平成表格行。 */
+function toDossierRow(dossier: CandidateDossier): DossierRow {
+  const athlete = dossier.athlete
+  const team = dossier.teams?.[0]
+  return {
+    athleteId: dossier.id,
+    realName: athlete.realName,
+    maskedIdNumber: athlete.maskedIdNumber,
+    gender: athlete.gender,
+    birthDate: athlete.birthDate,
+    schoolName: athlete.schoolName,
+    teamId: team?.id,
+    teamName: team?.name,
+    reviewStatus: athlete.reviewStatus,
+    materialCount: dossier.materials?.length || 0,
+  }
+}
 
 async function loadTeams() {
   try {
@@ -48,20 +64,23 @@ async function loadTeams() {
 }
 
 async function search() {
-  if (!query.keyword && !query.idNumber && !query.teamId) {
+  if (!query.athleteName.trim() && !query.idNumber.trim() && !query.teamId) {
     searched.value = false
     rows.value = []
     return
   }
+  if (query.idNumber && !/^\d{17}[\dXx]$/.test(query.idNumber.trim())) {
+    return ElMessage.warning('身份证号需填写完整的 18 位')
+  }
   loading.value = true
   searched.value = true
   try {
-    const res = await selectionApi.dossiers({
-      keyword: query.keyword || undefined,
-      idNumber: query.idNumber || undefined,
+    const res = await selectionDossierApi.search({
+      athleteName: query.athleteName.trim() || undefined,
+      idNumber: query.idNumber.trim() || undefined,
       teamId: query.teamId || undefined,
     })
-    rows.value = res as unknown as DossierRow[]
+    rows.value = res.items.map(toDossierRow)
   } catch {
     rows.value = []
   } finally {
@@ -70,7 +89,7 @@ async function search() {
 }
 
 function reset() {
-  query.keyword = ''
+  query.athleteName = ''
   query.idNumber = ''
   query.teamId = ''
   rows.value = []
@@ -82,18 +101,12 @@ async function openDossier(row: DossierRow) {
   detailLoading.value = true
   detail.value = null
   try {
-    const res = await selectionApi.dossier(row.athleteId)
-    detail.value = res as unknown as DossierDetail
+    detail.value = await selectionDossierApi.get(row.athleteId)
   } catch {
     drawerVisible.value = false
   } finally {
     detailLoading.value = false
   }
-}
-
-function scoreTotal(score: SelectionScore) {
-  if (typeof score.totalScore === 'number') return score.totalScore
-  return score.dimensionScores.reduce((sum, item) => sum + item.value, 0)
 }
 
 onMounted(loadTeams)
@@ -103,7 +116,7 @@ onMounted(loadTeams)
   <div class="page">
     <PageHeader
       title="遴选档案"
-      description="按姓名、证件号后四位或球队检索运动员档案。档案聚合个人资料、履历材料、比赛经历与历史评分。"
+      description="按姓名、完整证件号或球队检索运动员档案。档案聚合个人资料、履历材料与比赛经历。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="search">刷新</el-button>
@@ -113,7 +126,7 @@ onMounted(loadTeams)
     <section class="page-card search-card">
       <div class="search-grid">
         <el-input
-          v-model="query.keyword"
+          v-model="query.athleteName"
           placeholder="运动员姓名"
           :prefix-icon="Search"
           clearable
@@ -121,8 +134,8 @@ onMounted(loadTeams)
         />
         <el-input
           v-model="query.idNumber"
-          placeholder="证件号后四位"
-          maxlength="4"
+          placeholder="完整身份证号"
+          maxlength="18"
           clearable
           @keyup.enter="search"
         />
@@ -132,7 +145,7 @@ onMounted(loadTeams)
         <el-button type="primary" :icon="Search" :loading="loading" @click="search">检索档案</el-button>
         <el-button @click="reset">重置</el-button>
       </div>
-      <p class="search-hint">至少填写一项条件。证件号仅支持后四位模糊匹配，避免敏感信息泄露。</p>
+      <p class="search-hint">至少填写一项条件。证件号按完整 18 位做精确匹配，服务端不回显身份证号。</p>
     </section>
 
     <section v-if="searched" class="page-card">
@@ -183,77 +196,56 @@ onMounted(loadTeams)
       <div v-loading="detailLoading" class="dossier">
         <template v-if="detail">
           <header class="dossier-head">
-            <span class="dossier-head__avatar">{{ detail.person.realName.slice(0, 1) }}</span>
+            <span class="dossier-head__avatar">{{ detail.athlete.realName.slice(0, 1) }}</span>
             <div class="dossier-head__info">
               <span class="dossier-head__eyebrow">运动员档案</span>
-              <h2>{{ detail.person.realName }}</h2>
+              <h2>{{ detail.athlete.realName }}</h2>
               <p>
-                {{ detail.person.maskedIdNumber || '证件号未登记' }} ·
-                {{ detail.team?.name || '暂无球队' }} ·
-                {{ detail.person.schoolName || '学校未登记' }}
+                {{ detail.athlete.maskedIdNumber || '证件号未登记' }} ·
+                {{ primaryTeam?.name || '暂无球队' }} ·
+                {{ detail.athlete.schoolName || '学校未登记' }}
               </p>
             </div>
-            <StatusTag :status="detail.person.reviewStatus" kind="review" />
+            <StatusTag :status="detail.athlete.reviewStatus" kind="review" />
           </header>
 
           <section class="dossier-section">
             <h3>基础信息</h3>
             <div class="info-grid">
-              <div><span>性别</span><strong>{{ detail.person.gender === 'FEMALE' ? '女' : detail.person.gender === 'MALE' ? '男' : '未说明' }}</strong></div>
-              <div><span>出生日期</span><strong>{{ detail.person.birthDate || '—' }}</strong></div>
-              <div><span>年龄</span><strong class="num">{{ detail.person.birthDate ? dayjs().diff(dayjs(detail.person.birthDate), 'year') : '—' }}</strong></div>
-              <div><span>学籍号</span><strong>{{ detail.person.maskedStudentNumber || '—' }}</strong></div>
-              <div><span>所属球队</span><strong>{{ detail.team?.name || '—' }}</strong></div>
-              <div><span>市州</span><strong>{{ detail.team?.cityName || '—' }}</strong></div>
+              <div><span>性别</span><strong>{{ detail.athlete.gender === 'FEMALE' ? '女' : detail.athlete.gender === 'MALE' ? '男' : '未说明' }}</strong></div>
+              <div><span>出生日期</span><strong>{{ detail.athlete.birthDate || '—' }}</strong></div>
+              <div><span>年龄</span><strong class="num">{{ detail.athlete.birthDate ? dayjs().diff(dayjs(detail.athlete.birthDate), 'year') : '—' }}</strong></div>
+              <div><span>学籍号</span><strong>{{ detail.athlete.maskedStudentNumber || '—' }}</strong></div>
+              <div><span>所属球队</span><strong>{{ primaryTeam?.name || '—' }}</strong></div>
+              <div><span>市州</span><strong>{{ primaryTeam?.cityName || '—' }}</strong></div>
             </div>
           </section>
 
           <section class="dossier-section">
-            <h3>履历材料 <small>{{ detail.materials.length }} 份</small></h3>
+            <h3>履历材料 <small>{{ detailMaterials.length }} 份</small></h3>
             <div class="material-list">
-              <div v-for="material in detail.materials" :key="material.id" class="material-row">
+              <div v-for="material in detailMaterials" :key="material.id" class="material-row">
                 <span class="material-row__type">{{ material.materialLabel }}</span>
                 <strong>{{ material.title }}</strong>
                 <StatusTag :status="material.reviewStatus" kind="review" />
               </div>
-              <el-empty v-if="!detail.materials.length" description="暂无履历材料" :image-size="60" />
+              <el-empty v-if="!detailMaterials.length" description="暂无履历材料" :image-size="60" />
             </div>
           </section>
 
           <section class="dossier-section">
-            <h3>比赛经历 <small>最近 {{ detail.matches.length }} 场</small></h3>
+            <h3>比赛经历 <small>最近 {{ detailMatches.length }} 场</small></h3>
             <div class="match-list">
-              <div v-for="match in detail.matches" :key="match.id" class="match-row">
-                <span class="match-row__date">{{ dayjs(match.kickoffAt).format('MM-DD') }}</span>
+              <div v-for="match in detailMatches" :key="match.id" class="match-row">
+                <span class="match-row__date">{{ match.kickoffAt ? dayjs(match.kickoffAt).format('MM-DD') : '—' }}</span>
                 <span class="match-row__teams">
                   {{ match.homeTeamName }} <b class="num">{{ match.homeScore ?? 0 }} : {{ match.awayScore ?? 0 }}</b>
                   {{ match.awayTeamName }}
                 </span>
                 <StatusTag :status="match.status" kind="match" />
               </div>
-              <el-empty v-if="!detail.matches.length" description="暂无比赛记录" :image-size="60" />
+              <el-empty v-if="!detailMatches.length" description="暂无比赛记录" :image-size="60" />
             </div>
-          </section>
-
-          <section class="dossier-section">
-            <h3>遴选评分记录</h3>
-            <el-table :data="detail.scores" size="small">
-              <el-table-column label="轮次" width="90">
-                <template #default="{ row }">{{ row.round === 'PRELIMINARY' ? '初选' : '终选' }}</template>
-              </el-table-column>
-              <el-table-column label="各维度得分" min-width="260">
-                <template #default="{ row }">
-                  <span v-for="dim in row.dimensionScores" :key="dim.key" class="dim-chip">
-                    {{ dim.label || dim.key }} {{ dim.value }}
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column label="总分" width="80" align="center">
-                <template #default="{ row }"><strong class="num">{{ scoreTotal(row) }}</strong></template>
-              </el-table-column>
-              <el-table-column prop="operatorName" label="录入人" width="100" />
-            </el-table>
-            <el-empty v-if="!detail.scores.length" description="暂无评分记录" :image-size="60" />
           </section>
         </template>
       </div>

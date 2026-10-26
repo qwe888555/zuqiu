@@ -33,10 +33,12 @@ const teams = ref<Team[]>([])
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
+const editingRow = ref<Account | null>(null)
 const saving = ref(false)
 const inviteVisible = ref(false)
 const inviteLoading = ref(false)
 const inviteInfo = ref<{ registrationToken: string; expiresAt: string } | null>(null)
+const inviteForm = reactive({ kind: 'ATHLETE' as 'ATHLETE' | 'COACH', orgId: '' })
 const form = reactive({
   username: '',
   displayName: '',
@@ -56,7 +58,7 @@ async function load() {
     const res = await accountApi.list({
       page: page.value,
       pageSize: pageSize.value,
-      keyword: filters.keyword || undefined,
+      username: filters.keyword || undefined,
       role: filters.role || undefined,
     })
     rows.value = res.items
@@ -69,17 +71,13 @@ async function load() {
 }
 
 async function loadBase() {
-  try {
-    const [orgRes, teamRes] = await Promise.all([
-      orgApi.list({ page: 1, pageSize: 500 }),
-      teamApi.list({ page: 1, pageSize: 300 }),
-    ])
-    orgs.value = orgRes.items
-    teams.value = teamRes.items
-  } catch {
-    orgs.value = []
-    teams.value = []
-  }
+  // 球队档案接口在部分部署中不存在，不能因此连带丢掉组织下拉。
+  const [orgRes, teamRes] = await Promise.allSettled([
+    orgApi.list({ page: 1, pageSize: 500 }),
+    teamApi.list({ page: 1, pageSize: 300 }),
+  ])
+  orgs.value = orgRes.status === 'fulfilled' ? orgRes.value.items : []
+  teams.value = teamRes.status === 'fulfilled' ? teamRes.value.items : []
 }
 
 function search() {
@@ -89,6 +87,7 @@ function search() {
 
 function openCreate() {
   editingId.value = null
+  editingRow.value = null
   Object.assign(form, {
     username: '',
     displayName: '',
@@ -103,6 +102,7 @@ function openCreate() {
 function openEdit(row: Account) {
   if (!canManageRow(row)) return ElMessage.warning('仅管理员可修改管理员账号')
   editingId.value = row.id
+  editingRow.value = row
   Object.assign(form, {
     username: row.username,
     displayName: row.displayName,
@@ -114,24 +114,47 @@ function openEdit(row: Account) {
   dialogVisible.value = true
 }
 
+/** PUT 为整份替换：未提交的可选字段会被清空，因此编辑/启停都必须带全字段与 version。 */
+function accountPayload(row: Account) {
+  return {
+    username: row.username,
+    displayName: row.displayName,
+    roles: [...row.roles],
+    orgId: row.orgId,
+    teamIds: [...(row.teamIds || [])],
+    ...(row.personId ? { personId: row.personId } : {}),
+    enabled: row.enabled,
+    version: row.version,
+  }
+}
+
 async function save() {
   if (!form.username.trim()) return ElMessage.warning('请填写登录账号')
   if (!form.displayName.trim()) return ElMessage.warning('请填写账号名称')
   if (!form.roles.length) return ElMessage.warning('请至少选择一个角色')
+  if (!form.orgId) return ElMessage.warning('请选择所属机构')
   saving.value = true
   try {
-    if (editingId.value) {
+    if (editingId.value && editingRow.value) {
       await accountApi.update(editingId.value, {
+        ...accountPayload(editingRow.value),
         displayName: form.displayName,
-        roles: form.roles,
+        roles: [...form.roles],
         orgId: form.orgId,
-        teamIds: form.teamIds,
+        teamIds: [...form.teamIds],
         enabled: form.enabled,
       })
       ElMessage.success('账号已更新')
     } else {
-      await accountApi.create({ ...form })
-      ElMessage.success('账号已创建')
+      await accountApi.create({
+        username: form.username,
+        displayName: form.displayName,
+        roles: [...form.roles],
+        orgId: form.orgId,
+        teamIds: [...form.teamIds],
+        enabled: form.enabled,
+      })
+      ElMessage.success('账号已创建，初始密码为登录账号，首次登录需修改')
     }
     dialogVisible.value = false
     await load()
@@ -144,8 +167,9 @@ async function save() {
 
 async function toggleEnabled(row: Account) {
   if (!canManageRow(row)) return ElMessage.warning('仅管理员可操作管理员账号')
+  if (!row.orgId) return ElMessage.warning('该账号未绑定机构，无法修改状态')
   try {
-    await accountApi.update(row.id, { enabled: !row.enabled })
+    await accountApi.update(row.id, { ...accountPayload(row), enabled: !row.enabled })
     ElMessage.success(row.enabled ? '账号已停用' : '账号已启用')
     await load()
   } catch {
@@ -156,13 +180,24 @@ async function toggleEnabled(row: Account) {
 async function resetPassword(row: Account) {
   if (!canManageRow(row)) return ElMessage.warning('仅管理员可重置管理员密码')
   try {
-    await ElMessageBox.confirm(
-      `确认重置「${row.displayName}」的登录密码？重置后需通过绑定手机号重新设置。`,
+    const { value } = await ElMessageBox.prompt(
+      `为「${row.displayName}」设置新的登录密码，重置后该账号现有登录状态将失效。`,
       '重置密码',
-      { confirmButtonText: '确认重置', cancelButtonText: '取消', type: 'warning' },
+      {
+        confirmButtonText: '确认重置',
+        cancelButtonText: '取消',
+        inputType: 'password',
+        inputPlaceholder: '至少 8 位',
+        inputValidator: (val) => (val && val.length >= 8 ? true : '密码至少 8 位'),
+      },
     )
-    await accountApi.resetPassword(row.id)
-    ElMessage.success('密码已重置')
+    await accountApi.resetPassword(row.id, {
+      version: row.version,
+      newPassword: value,
+      forceChangeOnNextLogin: true,
+    })
+    ElMessage.success('密码已重置，该账号下次登录需修改密码')
+    await load()
   } catch {
     // 取消
   }
@@ -184,14 +219,25 @@ async function removeAccount(row: Account) {
   }
 }
 
-async function invite() {
+function invite() {
   inviteVisible.value = true
   inviteInfo.value = null
+  inviteLoading.value = false
+  inviteForm.kind = 'ATHLETE'
+  inviteForm.orgId = ''
+}
+
+async function generateInvite() {
+  if (!inviteForm.orgId) return ElMessage.warning('请选择受邀人员所属机构')
   inviteLoading.value = true
   try {
-    inviteInfo.value = await accountApi.invite()
+    inviteInfo.value = await accountApi.invite({
+      kind: inviteForm.kind,
+      orgId: inviteForm.orgId,
+      expiresInMinutes: 1440,
+    })
   } catch {
-    inviteVisible.value = false
+    // 拦截器提示
   } finally {
     inviteLoading.value = false
   }
@@ -330,8 +376,8 @@ onMounted(() => {
             </el-checkbox>
           </el-checkbox-group>
         </el-form-item>
-        <el-form-item label="所属机构">
-          <el-select v-model="form.orgId" filterable clearable style="width: 100%">
+        <el-form-item label="所属机构" required>
+          <el-select v-model="form.orgId" filterable clearable style="width: 100%" placeholder="请选择账号归属机构">
             <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
           </el-select>
         </el-form-item>
@@ -359,7 +405,21 @@ onMounted(() => {
 
     <el-dialog v-model="inviteVisible" title="注册邀请" width="520px">
       <div v-loading="inviteLoading" class="invite-body">
-        <template v-if="inviteInfo">
+        <el-form v-if="!inviteInfo" label-position="top">
+          <el-form-item label="受邀身份" required>
+            <el-radio-group v-model="inviteForm.kind">
+              <el-radio-button value="ATHLETE">运动员</el-radio-button>
+              <el-radio-button value="COACH">教练员</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="所属机构" required>
+            <el-select v-model="inviteForm.orgId" filterable style="width: 100%" placeholder="请选择受邀人员所属机构">
+              <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
+            </el-select>
+          </el-form-item>
+          <p class="muted invite-tip">令牌 24 小时内有效且仅可使用一次，请通过安全渠道发送给受邀人。</p>
+        </el-form>
+        <template v-else>
           <p class="muted">请将注册令牌发送给受邀单位，令牌 24 小时内有效且仅可使用一次。</p>
           <div class="token-box">{{ inviteInfo.registrationToken }}</div>
           <div class="invite-meta">
@@ -370,7 +430,10 @@ onMounted(() => {
       </div>
       <template #footer>
         <el-button @click="inviteVisible = false">关闭</el-button>
-        <el-button type="primary" :disabled="!inviteInfo" @click="copyToken">复制令牌</el-button>
+        <el-button v-if="!inviteInfo" type="primary" :loading="inviteLoading" @click="generateInvite">
+          生成令牌
+        </el-button>
+        <el-button v-else type="primary" @click="copyToken">复制令牌</el-button>
       </template>
     </el-dialog>
   </div>
@@ -420,6 +483,12 @@ onMounted(() => {
 
 .invite-body {
   min-height: 130px;
+}
+
+.invite-tip {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
 }
 
 .token-box {

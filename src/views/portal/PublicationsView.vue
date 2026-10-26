@@ -2,17 +2,19 @@
 import { computed, onMounted, ref } from 'vue'
 import { ArrowRight, InfoFilled, Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
-import type { PublicCard } from '../../api/types'
+import { publicityApi } from '../../api/selection'
+import type { PublicEvent, PublicityRecord } from '../../api/types'
 import {
   GROUP_TABS,
-  groupCategoryLabel,
   groupCategoryOf,
   groupPublications,
   publicationCountUnit,
 } from '../../utils/publications'
 
 const loading = ref(false)
-const allItems = ref<PublicCard[]>([])
+const allItems = ref<PublicityRecord[]>([])
+const events = ref<PublicEvent[]>([])
+const eventId = ref('')
 const groupFilter = ref<(typeof GROUP_TABS)[number]['value']>('')
 const typeFilter = ref<'' | 'ENROLLMENT' | 'PERSON'>('')
 const keyword = ref('')
@@ -23,7 +25,7 @@ const groupTabs = computed(() =>
   GROUP_TABS.map((tab) => ({
     ...tab,
     count: tab.value
-      ? groups.value.filter((group) => groupCategoryOf(group.groupName) === tab.value).length
+      ? groups.value.filter((group) => groupCategoryOf(group.groupType) === tab.value).length
       : groups.value.length,
   })),
 )
@@ -31,7 +33,7 @@ const groupTabs = computed(() =>
 const visibleGroups = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   return groups.value.filter((group) => {
-    if (groupFilter.value && groupCategoryOf(group.groupName) !== groupFilter.value) return false
+    if (groupFilter.value && groupCategoryOf(group.groupType) !== groupFilter.value) return false
     if (typeFilter.value && group.type !== typeFilter.value) return false
     if (kw) {
       const haystack = `${group.title} ${group.cities.join(' ')}`
@@ -42,7 +44,7 @@ const visibleGroups = computed(() => {
 })
 
 const cityCount = computed(
-  () => new Set(allItems.value.map((item) => item.cityName).filter(Boolean)).size,
+  () => new Set(allItems.value.map((item) => item.city).filter(Boolean)).size,
 )
 
 const typeOptions = [
@@ -55,17 +57,43 @@ function detailLink(key: string) {
   return `/publications/${encodeURIComponent(key)}`
 }
 
-onMounted(async () => {
+async function loadEvents() {
+  try {
+    // /public/events 免登录，匿名访客也能选择公示所属赛事。
+    const res = await publicApi.events({ page: 1, pageSize: 50 })
+    events.value = res.items
+    if (!eventId.value) eventId.value = events.value[0]?.id || ''
+  } catch {
+    events.value = []
+  }
+}
+
+async function load() {
+  if (!eventId.value) {
+    allItems.value = []
+    return
+  }
   loading.value = true
   try {
-    // 公开接口不返回批次和发布日期，一次取回后在本地按“类型 + 组别”归集。
-    const res = await publicApi.publications({ page: 1, pageSize: 100 })
+    const res = await publicityApi.list({ eventId: eventId.value, page: 1, size: 200 })
     allItems.value = res.items
   } catch {
     allItems.value = []
   } finally {
     loading.value = false
   }
+}
+
+async function changeEvent() {
+  groupFilter.value = ''
+  typeFilter.value = ''
+  keyword.value = ''
+  await load()
+}
+
+onMounted(async () => {
+  await loadEvents()
+  await load()
 })
 </script>
 
@@ -116,6 +144,15 @@ onMounted(async () => {
         </div>
 
         <div class="filter-row">
+          <el-select
+            v-model="eventId"
+            size="large"
+            placeholder="选择赛事"
+            class="event-select"
+            @change="changeEvent"
+          >
+            <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
+          </el-select>
           <div class="type-tabs">
             <button
               v-for="option in typeOptions"
@@ -157,7 +194,7 @@ onMounted(async () => {
           >
             <header class="notice-card__head">
               <span class="notice-card__type">{{ notice.typeLabel }}</span>
-              <span class="notice-card__group">{{ groupCategoryLabel(notice.groupName) }}</span>
+              <span class="notice-card__group">{{ notice.groupName }}</span>
             </header>
 
             <h3>{{ notice.title }}</h3>
@@ -347,6 +384,10 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+}
+
+.event-select {
+  width: 230px;
 }
 
 .type-tabs {

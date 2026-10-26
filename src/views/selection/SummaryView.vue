@@ -1,10 +1,16 @@
-<script setup lang="ts">
+﻿﻿<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { DataAnalysis, Download, Medal, Refresh, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { selectionApi } from '../../api'
-import type { SelectionRule, SelectionSummary, SelectionSummaryRow } from '../../api/types'
+import { eventApi } from '../../api'
+import {
+  GROUP_TYPE_LABEL,
+  ROUND_LABEL,
+  selectionResultApi,
+  selectionScoreApi,
+} from '../../api/selection'
+import type { Event, SelectionGroupType, SelectionRound, SelectionScoreRecord } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
@@ -13,12 +19,16 @@ const router = useRouter()
 const { can } = usePermission()
 const loading = ref(false)
 const exporting = ref(false)
-const rules = ref<SelectionRule[]>([])
-const ruleId = ref('')
-const summary = ref<SelectionSummary | null>(null)
+const events = ref<Event[]>([])
+const eventId = ref('')
+const groupType = ref<SelectionGroupType>('PRIMARY')
+const round = ref<SelectionRound>('INITIAL')
+const rows = ref<SelectionScoreRecord[]>([])
+const quota = ref<number | null>(null)
 
-const currentRule = computed(() => rules.value.find((rule) => rule.id === ruleId.value))
-const rows = computed(() => summary.value?.rows || [])
+const groupTypeOptions = Object.entries(GROUP_TYPE_LABEL) as Array<[SelectionGroupType, string]>
+const roundOptions = Object.entries(ROUND_LABEL) as Array<[SelectionRound, string]>
+
 const podium = computed(() => rows.value.slice(0, 3))
 const avgScore = computed(() =>
   rows.value.length
@@ -27,52 +37,65 @@ const avgScore = computed(() =>
 )
 const topScore = computed(() => (rows.value.length ? Math.max(...rows.value.map((row) => row.totalScore)) : 0))
 
-async function loadRules() {
+async function loadEvents() {
   try {
-    const res = await selectionApi.rules({ page: 1, pageSize: 100 })
-    rules.value = res.items
-    if (!ruleId.value) ruleId.value = rules.value[0]?.id || ''
+    const res = await eventApi.list({ page: 1, pageSize: 50 })
+    events.value = res.items
+    if (!eventId.value) eventId.value = events.value[0]?.id || ''
   } catch {
-    rules.value = []
+    events.value = []
+  }
+}
+
+async function loadQuota() {
+  quota.value = null
+  if (!eventId.value) return
+  try {
+    const batch = await selectionResultApi.latest({ eventId: eventId.value, groupType: groupType.value })
+    quota.value = batch?.quota ?? null
+  } catch {
+    quota.value = null
   }
 }
 
 async function loadSummary() {
-  if (!ruleId.value) {
-    summary.value = null
+  if (!eventId.value) {
+    rows.value = []
     return
   }
   loading.value = true
   try {
-    summary.value = await selectionApi.summary(ruleId.value)
+    rows.value = await selectionScoreApi.summary({
+      eventId: eventId.value,
+      groupType: groupType.value,
+      round: round.value,
+    })
   } catch {
-    summary.value = null
+    rows.value = []
   } finally {
     loading.value = false
   }
 }
 
-async function changeRule() {
+async function changeContext() {
+  await loadQuota()
   await loadSummary()
 }
 
-function cutoffClass(rank: number) {
-  const topN = currentRule.value?.topN || 0
-  return rank <= topN ? 'is-in' : ''
-}
-
-function rowClassName({ row }: { row: SelectionSummaryRow }) {
-  return cutoffClass(row.rank)
+function rowClassName({ row }: { row: SelectionScoreRecord }) {
+  return quota.value && (row.rankNo || 0) <= quota.value ? 'is-in' : ''
 }
 
 async function exportSummary() {
-  if (!ruleId.value) return
+  if (!eventId.value) return
   exporting.value = true
   try {
-    const downloaded = await selectionApi.exportSummary(ruleId.value)
-    ElMessage.success(
-      downloaded ? '文件已开始下载' : '演示环境已模拟导出，接入后端后将下载真实文件',
-    )
+    const downloaded = await selectionScoreApi.exportScores({
+      eventId: eventId.value,
+      groupType: groupType.value,
+      round: round.value,
+    })
+    ElMessage.success(downloaded ? '文件已开始下载' : '演示环境已模拟导出，接入后端后将下载真实文件')
   } catch {
     // 拦截器提示
   } finally {
@@ -81,7 +104,8 @@ async function exportSummary() {
 }
 
 onMounted(async () => {
-  await loadRules()
+  await loadEvents()
+  await loadQuota()
   await loadSummary()
 })
 </script>
@@ -90,7 +114,7 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="排名汇总"
-      description="根据当前评分实时计算排名。并列分数保留并列名次；排名仅作参考，正式结果需在「正式结果」中生成并发布。"
+      description="根据评分实时计算排名，分数相同保留并列名次。正式入围名单需在「正式结果」中按名额生成并发布。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="loadSummary">刷新</el-button>
@@ -98,7 +122,7 @@ onMounted(async () => {
           v-if="can('selection.manage')"
           :icon="Download"
           :loading="exporting"
-          :disabled="!ruleId"
+          :disabled="!eventId"
           @click="exportSummary"
         >
           导出汇总
@@ -108,29 +132,24 @@ onMounted(async () => {
     </PageHeader>
 
     <section class="page-card filter-card">
-      <el-select v-model="ruleId" placeholder="选择评分规则" style="width: 380px" @change="changeRule">
-        <el-option
-          v-for="rule in rules"
-          :key="rule.id"
-          :label="`${rule.eventName || '赛事'} · ${rule.groupName || '组别'} · ${rule.round === 'PRELIMINARY' ? '初选' : '终选'}`"
-          :value="rule.id"
-        />
+      <el-select v-model="eventId" placeholder="选择赛事" style="width: 260px" @change="changeContext">
+        <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
       </el-select>
-      <span v-if="currentRule" class="rule-meta">
-        <el-tag :type="currentRule.confirmed ? 'success' : 'warning'" size="small" effect="plain">
-          {{ currentRule.confirmed ? '规则已确认' : '规则待确认' }}
-        </el-tag>
-        <span class="muted">评分版本 {{ summary?.scoreRevision || '—' }} · 入围 {{ currentRule.topN }} 人</span>
-      </span>
+      <el-select v-model="groupType" style="width: 130px" @change="changeContext">
+        <el-option v-for="[value, label] in groupTypeOptions" :key="value" :label="label" :value="value" />
+      </el-select>
+      <el-radio-group v-model="round" @change="changeContext">
+        <el-radio-button v-for="[value, label] in roundOptions" :key="value" :value="value">{{ label }}</el-radio-button>
+      </el-radio-group>
       <span class="filter-spacer" />
-      <span class="muted">{{ summary?.round === 'FINAL' ? '终选' : '初选' }}排名</span>
+      <span class="muted">{{ GROUP_TYPE_LABEL[groupType] }} · {{ ROUND_LABEL[round] }}排名</span>
     </section>
 
     <div class="stat-grid">
-      <StatCard label="参与评分" :value="rows.length" hint="当前规则下人数" :icon="TrendCharts" tone="green" />
+      <StatCard label="参与评分" :value="rows.length" hint="当前轮次人数" :icon="TrendCharts" tone="green" />
       <StatCard label="最高分" :value="topScore" hint="百分制折算" :icon="Medal" tone="lime" />
       <StatCard label="平均分" :value="avgScore" hint="全部评分均值" :icon="DataAnalysis" tone="blue" />
-      <StatCard label="评分版本" :value="summary?.scoreRevision || 0" hint="每次修改递增" :icon="Refresh" tone="amber" />
+      <StatCard label="入围名额" :value="quota ?? '—'" hint="取自现行结果批次" :icon="Refresh" tone="amber" />
     </div>
 
     <div class="summary-grid">
@@ -139,14 +158,16 @@ onMounted(async () => {
         <div class="podium">
           <div
             v-for="(row, index) in podium"
-            :key="row.athleteId"
+            :key="row.candidateId"
             class="podium-item"
             :class="`is-${index + 1}`"
           >
-            <span class="podium-item__rank num">{{ row.rank }}</span>
-            <span class="podium-item__avatar">{{ row.athleteName.slice(0, 1) }}</span>
-            <strong>{{ row.athleteName }}</strong>
-            <small>{{ row.teamName || '球队未登记' }}</small>
+            <span class="podium-item__rank num">{{ row.rankNo }}</span>
+            <span class="podium-item__avatar">{{ row.candidateName.slice(0, 1) }}</span>
+            <div>
+              <strong>{{ row.candidateName }}</strong>
+              <small>{{ row.teamName || '球队未登记' }}</small>
+            </div>
             <b class="num">{{ row.totalScore }}</b>
           </div>
           <el-empty v-if="!podium.length" description="暂无评分数据" :image-size="70" />
@@ -158,18 +179,18 @@ onMounted(async () => {
         <el-table v-loading="loading" :data="rows" style="width: 100%" :row-class-name="rowClassName">
           <el-table-column label="名次" width="80" align="center">
             <template #default="{ row }">
-              <span class="rank-badge" :class="{ 'is-top': row.rank <= 3 }">{{ row.rank }}</span>
+              <span class="rank-badge" :class="{ 'is-top': (row.rankNo || 0) <= 3 }">{{ row.rankNo }}</span>
             </template>
           </el-table-column>
           <el-table-column label="运动员" min-width="180">
             <template #default="{ row }">
               <div class="athlete-cell">
-                <span class="athlete-cell__avatar">{{ row.athleteName.slice(0, 1) }}</span>
-                <strong>{{ row.athleteName }}</strong>
+                <span class="athlete-cell__avatar">{{ row.candidateName.slice(0, 1) }}</span>
+                <strong>{{ row.candidateName }}</strong>
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="teamName" label="所属球队" min-width="200">
+          <el-table-column label="所属球队" min-width="200">
             <template #default="{ row }">{{ row.teamName || '—' }}</template>
           </el-table-column>
           <el-table-column label="总分" width="110" align="center">
@@ -179,7 +200,7 @@ onMounted(async () => {
           </el-table-column>
           <el-table-column label="入围" width="90" align="center">
             <template #default="{ row }">
-              <el-tag v-if="row.rank <= (currentRule?.topN || 0)" type="success" size="small" effect="plain">入围</el-tag>
+              <el-tag v-if="quota && (row.rankNo || 0) <= quota" type="success" size="small" effect="plain">入围</el-tag>
               <span v-else class="muted">—</span>
             </template>
           </el-table-column>
@@ -199,14 +220,13 @@ onMounted(async () => {
   padding: 16px 20px;
 }
 
-.rule-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .filter-spacer {
   flex: 1;
+}
+
+.muted {
+  font-size: 10px;
+  color: var(--ink-300);
 }
 
 .summary-grid {

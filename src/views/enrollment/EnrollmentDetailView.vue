@@ -35,6 +35,7 @@ import { useAuthStore } from '../../stores/auth'
 import { canEnroll } from '../../utils/roles'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import { reviewActionLabel } from '../../config/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -125,7 +126,8 @@ async function load() {
   loading.value = true
   try {
     detail.value = await enrollmentApi.get(enrollmentId.value)
-    reviews.value = await enrollmentApi.reviews(enrollmentId.value)
+    const reviewPage = await enrollmentApi.reviews(enrollmentId.value)
+    reviews.value = reviewPage.items
   } catch {
     detail.value = null
   } finally {
@@ -134,9 +136,10 @@ async function load() {
 }
 
 async function runPrecheck() {
+  if (!detail.value) return
   actionLoading.value = true
   try {
-    const result = await enrollmentApi.precheck(enrollmentId.value)
+    const result = await enrollmentApi.precheck(enrollmentId.value, detail.value.version)
     precheckIssues.value = result.issues
     if (result.passed) {
       ElMessage.success('预检通过，可以提交审核')
@@ -151,9 +154,10 @@ async function runPrecheck() {
 }
 
 async function submitEnrollment() {
+  if (!detail.value) return
   actionLoading.value = true
   try {
-    const result = await enrollmentApi.precheck(enrollmentId.value)
+    const result = await enrollmentApi.precheck(enrollmentId.value, detail.value.version)
     if (!result.passed) {
       precheckIssues.value = result.issues
       precheckVisible.value = true
@@ -164,7 +168,7 @@ async function submitEnrollment() {
       '提交报名',
       { confirmButtonText: '确认提交', cancelButtonText: '取消', type: 'warning' },
     )
-    await enrollmentApi.submit(enrollmentId.value)
+    await enrollmentApi.submit(enrollmentId.value, detail.value.version)
     ElMessage.success('已提交，等待审核')
     await load()
   } catch {
@@ -181,7 +185,8 @@ async function withdraw() {
       cancelButtonText: '取消',
       inputValidator: (val) => (val && val.trim().length >= 4 ? true : '请至少填写 4 个字符'),
     })
-    await enrollmentApi.withdraw(enrollmentId.value, value)
+    if (!detail.value) return
+    await enrollmentApi.withdraw(enrollmentId.value, detail.value.version, value)
     ElMessage.success('已撤回报名')
     await load()
   } catch {
@@ -215,7 +220,8 @@ async function approve() {
       cancelButtonText: '取消',
       type: 'success',
     })
-    await enrollmentApi.review(enrollmentId.value, { decision: 'APPROVE' })
+    if (!detail.value) return
+    await enrollmentApi.review(enrollmentId.value, detail.value.version, { decision: 'APPROVE' })
     ElMessage.success('审核已通过')
     await load()
   } catch {
@@ -230,7 +236,8 @@ async function reject() {
       cancelButtonText: '取消',
       inputValidator: (val) => (val && val.trim().length >= 6 ? true : '请至少填写 6 个字符'),
     })
-    await enrollmentApi.review(enrollmentId.value, { decision: 'REJECT', reason: value })
+    if (!detail.value) return
+    await enrollmentApi.review(enrollmentId.value, detail.value.version, { decision: 'REJECT', reason: value })
     ElMessage.success('已驳回并通知参赛单位')
     await load()
   } catch {
@@ -351,12 +358,15 @@ function onPhotoFileChange(uploadFile: UploadFile) {
 }
 
 async function runImport(mode: 'VALIDATE_ONLY' | 'APPLY_VALID_ROWS') {
+  if (!detail.value) return
+  if (!importFile.value) return ElMessage.warning('请先选择球员名单 Excel 文件')
   importing.value = true
   try {
     importReport.value = await enrollmentApi.importPlayers(
       enrollmentId.value,
+      detail.value.version,
       mode,
-      importFile.value || undefined,
+      importFile.value,
     )
     if (mode === 'APPLY_VALID_ROWS') await load()
   } catch {
@@ -367,11 +377,14 @@ async function runImport(mode: 'VALIDATE_ONLY' | 'APPLY_VALID_ROWS') {
 }
 
 async function runPhotoImport() {
+  if (!detail.value) return
+  if (!photoFile.value) return ElMessage.warning('请先选择照片压缩包')
   importing.value = true
   try {
     importReport.value = await enrollmentApi.importPhotos(
       enrollmentId.value,
-      photoFile.value || undefined,
+      detail.value.version,
+      photoFile.value,
     )
     await load()
   } catch {
@@ -409,11 +422,16 @@ async function uploadAttachment(options: UploadRequestOptions) {
   attachmentUploading.value = true
   try {
     const file = options.file
-    const record = await fileApi.upload(file, 'ENROLLMENT', enrollmentId.value, 'ENROLLMENT_MATERIAL')
+    // 文件类别必须与 materialType 一致，后端会校验归属与类别。
+    const record = await fileApi.upload(
+      file,
+      'ENROLLMENT',
+      enrollmentId.value,
+      attachmentType.value,
+    )
     await enrollmentApi.addAttachment(enrollmentId.value, {
       materialType: attachmentType.value,
       fileId: record.id,
-      fileName: record.originalName,
     })
     ElMessage.success('材料上传成功')
     attachmentVisible.value = false
@@ -425,9 +443,17 @@ async function uploadAttachment(options: UploadRequestOptions) {
   }
 }
 
+/** 后端附件只返回 fileId，无文件名时用材料类型作为展示名。 */
+function attachmentLabel(attachment: EnrollmentAttachment) {
+  return (
+    attachment.fileName ||
+    (attachment.materialType === 'STAMPED_FORM' ? '盖章报名表' : '学籍证明')
+  )
+}
+
 async function downloadAttachment(attachment: EnrollmentAttachment) {
   try {
-    const downloaded = await fileApi.download(attachment.fileId, attachment.fileName)
+    const downloaded = await fileApi.download(attachment.fileId, attachmentLabel(attachment))
     ElMessage.success(downloaded ? '文件已开始下载' : '演示环境已模拟下载，接入后端后将下载真实文件')
   } catch {
     // 拦截器提示
@@ -436,7 +462,7 @@ async function downloadAttachment(attachment: EnrollmentAttachment) {
 
 async function removeAttachment(attachment: EnrollmentAttachment) {
   try {
-    await ElMessageBox.confirm(`确认移除材料「${attachment.fileName}」？`, '移除材料', {
+    await ElMessageBox.confirm(`确认移除材料「${attachmentLabel(attachment)}」？`, '移除材料', {
       confirmButtonText: '移除',
       cancelButtonText: '取消',
       type: 'warning',
@@ -535,7 +561,7 @@ onMounted(load)
           </div>
           <div>
             <span>球员人数</span>
-            <strong class="num">{{ detail.playerCount }}</strong>
+            <strong class="num">{{ detail.playerCount ?? detail.players?.length ?? '—' }}</strong>
           </div>
           <div>
             <span>提交次数</span>
@@ -579,7 +605,7 @@ onMounted(load)
             <div class="page-toolbar">
               <div class="section-title">
                 球员名单
-                <small>{{ detail.playerCount }} 人 · {{ detail.groupName }}</small>
+                <small>{{ detail.playerCount ?? detail.players?.length ?? '—' }} 人 · {{ detail.groupName }}</small>
               </div>
               <div class="toolbar-actions">
                 <el-button v-if="canEdit" size="small" @click="importVisible = true">批量导入</el-button>
@@ -644,7 +670,7 @@ onMounted(load)
               <div v-for="att in detail.attachments || []" :key="att.id" class="attachment">
                 <span class="attachment__icon"><el-icon><Download /></el-icon></span>
                 <div class="attachment__body">
-                  <strong>{{ att.fileName }}</strong>
+                  <strong>{{ attachmentLabel(att) }}</strong>
                   <small>{{ att.materialType === 'STAMPED_FORM' ? '加盖公章的报名表' : '学籍证明' }}</small>
                 </div>
                 <div class="attachment__actions">
@@ -678,9 +704,9 @@ onMounted(load)
                 <div class="audit-item__body">
                   <div class="audit-item__line">
                     <strong>
-                      {{ record.action === 'APPROVE' ? '审核通过' : record.action === 'REJECT' ? '审核驳回' : record.action === 'WITHDRAW' ? '撤回报名' : '提交报名' }}
+                      {{ reviewActionLabel(record.action) }}
                     </strong>
-                    <span>{{ record.operatorName }}</span>
+                    <span>{{ record.operatorName || record.operatorAccountId || '—' }}</span>
                   </div>
                   <p v-if="record.reason">{{ record.reason }}</p>
                   <small>{{ formatDate(record.createdAt) }}<template v-if="record.stage"> · {{ record.stage === 'CITY' ? '市州初审' : record.stage === 'PROVINCE' ? '省级终审' : '提交环节' }}</template></small>

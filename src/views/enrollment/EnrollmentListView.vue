@@ -131,7 +131,7 @@ function schoolLine(row: Enrollment): string {
 async function handleSubmit(row: Enrollment) {
   submitting.value = row.id
   try {
-    const result = await enrollmentApi.precheck(row.id)
+    const result = await enrollmentApi.precheck(row.id, row.version)
     if (!result.passed) {
       precheckIssues.value = result.issues
       precheckVisible.value = true
@@ -142,7 +142,7 @@ async function handleSubmit(row: Enrollment) {
       '提交报名',
       { confirmButtonText: '确认提交', cancelButtonText: '再检查一下', type: 'warning' },
     )
-    await enrollmentApi.submit(row.id)
+    await enrollmentApi.submit(row.id, row.version)
     ElMessage.success('报名已提交，等待审核')
     await load()
   } catch {
@@ -160,7 +160,7 @@ async function handleWithdraw(row: Enrollment) {
       inputPlaceholder: '例如：球员名单需要调整',
       inputValidator: (val) => (val && val.trim().length >= 4 ? true : '请至少填写 4 个字符'),
     })
-    await enrollmentApi.withdraw(row.id, value)
+    await enrollmentApi.withdraw(row.id, row.version, value)
     ElMessage.success('报名已撤回')
     await load()
   } catch {
@@ -243,7 +243,7 @@ onMounted(() => {
         </el-table-column>
         <el-table-column label="球员" width="80" align="center">
           <template #default="{ row }">
-            <span class="num">{{ row.playerCount }}</span>
+            <span class="num">{{ row.playerCount ?? '—' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="提交次数" width="90" align="center">

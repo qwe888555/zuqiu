@@ -20,10 +20,12 @@ const keyword = ref('')
 
 const eventVisible = ref(false)
 const editingId = ref<string | null>(null)
+const editingVersion = ref(0)
 const savingEvent = ref(false)
 const eventForm = reactive({
   name: '',
   season: '',
+  eventCategory: '',
   registrationOpensAt: '',
   registrationClosesAt: '',
   status: 'DRAFT',
@@ -36,12 +38,12 @@ const currentEvent = ref<Event | null>(null)
 const groups = ref<EventGroup[]>([])
 const groupVisible = ref(false)
 const editingGroupId = ref<string | null>(null)
+const editingGroupVersion = ref(0)
 const groupForm = reactive({
   name: '',
   category: 'PRIMARY' as GroupCategory,
   gender: 'MALE',
   quota: 16,
-  schoolQuota: 1,
   minAge: 6,
   maxAge: 12,
   maxPlayers: 18,
@@ -57,7 +59,8 @@ async function load() {
     const res = await eventApi.list({
       page: page.value,
       pageSize: pageSize.value,
-      keyword: keyword.value || undefined,
+      // 成员5 赛事列表的查询参数是 name，没有 keyword。
+      name: keyword.value || undefined,
     })
     rows.value = res.items
     total.value = res.total
@@ -75,9 +78,11 @@ function search() {
 
 function openCreate() {
   editingId.value = null
+  editingVersion.value = 0
   Object.assign(eventForm, {
     name: '',
     season: `${new Date().getFullYear()} 赛季`,
+    eventCategory: '',
     registrationOpensAt: '',
     registrationClosesAt: '',
     status: 'DRAFT',
@@ -88,9 +93,11 @@ function openCreate() {
 
 function openEdit(row: Event) {
   editingId.value = row.id
+  editingVersion.value = row.version
   Object.assign(eventForm, {
     name: row.name,
     season: row.season,
+    eventCategory: row.eventCategory || '',
     registrationOpensAt: row.registrationOpensAt,
     registrationClosesAt: row.registrationClosesAt,
     status: row.status,
@@ -102,13 +109,23 @@ function openEdit(row: Event) {
 async function saveEvent() {
   if (!eventForm.name.trim()) return ElMessage.warning('请填写赛事名称')
   if (!eventForm.season.trim()) return ElMessage.warning('请填写赛季')
+  // 成员5 的创建/修改接口要求报名开放期必填。
+  if (!eventForm.registrationOpensAt) return ElMessage.warning('请选择报名开始时间')
+  if (!eventForm.registrationClosesAt) return ElMessage.warning('请选择报名截止时间')
   savingEvent.value = true
   try {
     if (editingId.value) {
-      await eventApi.update(editingId.value, { ...eventForm })
+      await eventApi.update(editingId.value, {
+        ...eventForm,
+        eventCategory: eventForm.eventCategory.trim(),
+        version: editingVersion.value,
+      })
       ElMessage.success('赛事已更新')
     } else {
-      await eventApi.create({ ...eventForm })
+      await eventApi.create({
+        ...eventForm,
+        eventCategory: eventForm.eventCategory.trim(),
+      })
       ElMessage.success('赛事已创建')
     }
     eventVisible.value = false
@@ -156,12 +173,12 @@ async function loadGroups() {
 
 function openGroupCreate() {
   editingGroupId.value = null
+  editingGroupVersion.value = 0
   Object.assign(groupForm, {
     name: '',
     category: 'PRIMARY',
     gender: 'MALE',
     quota: 16,
-    schoolQuota: 1,
     minAge: 6,
     maxAge: 12,
     maxPlayers: 18,
@@ -172,12 +189,12 @@ function openGroupCreate() {
 
 function openGroupEdit(group: EventGroup) {
   editingGroupId.value = group.id
+  editingGroupVersion.value = group.version
   Object.assign(groupForm, {
     name: group.name,
     category: group.category,
     gender: group.gender,
     quota: group.quota ?? 16,
-    schoolQuota: group.schoolQuota ?? 1,
     minAge: group.minAge || 0,
     maxAge: group.maxAge || 60,
     maxPlayers: group.maxPlayers,
@@ -189,13 +206,12 @@ function openGroupEdit(group: EventGroup) {
 async function saveGroup() {
   if (!currentEvent.value) return
   if (!groupForm.name.trim()) return ElMessage.warning('请填写组别名称')
-  if (groupForm.schoolQuota < 0) return ElMessage.warning('每校名额不能为负数')
-  if (groupForm.quota > 0 && groupForm.schoolQuota > groupForm.quota) {
-    return ElMessage.warning('每校名额不能大于组别总名额')
-  }
   try {
     if (editingGroupId.value) {
-      await eventApi.updateGroup(currentEvent.value.id, editingGroupId.value, { ...groupForm })
+      await eventApi.updateGroup(currentEvent.value.id, editingGroupId.value, {
+        ...groupForm,
+        version: editingGroupVersion.value,
+      })
       ElMessage.success('组别已更新')
     } else {
       await eventApi.createGroup(currentEvent.value.id, { ...groupForm })
@@ -273,12 +289,6 @@ onMounted(load)
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="组别 / 队伍" width="130" align="center">
-          <template #default="{ row }">
-            <span class="num">{{ row.groupCount || 0 }}</span>
-            <span class="muted"> / {{ row.teamCount || 0 }}</span>
-          </template>
-        </el-table-column>
         <el-table-column label="状态" width="120">
           <template #default="{ row }"><StatusTag :status="row.status" kind="event" /></template>
         </el-table-column>
@@ -331,8 +341,10 @@ onMounted(load)
             <div><dt>年龄要求</dt><dd>{{ group.minAge }}-{{ group.maxAge }} 岁</dd></div>
             <div><dt>每队人数</dt><dd>最多 {{ group.maxPlayers }} 人</dd></div>
             <div><dt>组别总名额</dt><dd>{{ (group.quota ?? 0) > 0 ? group.quota : '不限' }}</dd></div>
-            <div><dt>每校名额</dt><dd>{{ (group.schoolQuota ?? 1) > 0 ? `${group.schoolQuota ?? 1} 队` : '不限' }}</dd></div>
-            <div><dt>已报名</dt><dd>{{ group.teamCount ?? group.totalUsed ?? 0 }} 队</dd></div>
+            <div>
+              <dt>已报名</dt>
+              <dd>{{ group.teamCount ?? group.totalUsed ?? '—' }}<template v-if="group.teamCount != null || group.totalUsed != null"> 队</template></dd>
+            </div>
             <div class="full">
               <dt>必备材料</dt>
               <dd>
@@ -362,6 +374,9 @@ onMounted(load)
           </el-form-item>
           <el-form-item label="赛季" required>
             <el-input v-model="eventForm.season" placeholder="如：2026 春季" />
+          </el-form-item>
+          <el-form-item label="赛事类别（选填）">
+            <el-input v-model="eventForm.eventCategory" maxlength="64" placeholder="字典编码，如 PROVINCE_LEAGUE" />
           </el-form-item>
           <el-form-item label="报名开始时间">
             <el-date-picker
@@ -420,10 +435,6 @@ onMounted(load)
           </el-form-item>
           <el-form-item label="组别总名额（队）">
             <el-input-number v-model="groupForm.quota" :min="0" :max="200" style="width: 100%" />
-          </el-form-item>
-          <el-form-item label="每校名额（队）">
-            <el-input-number v-model="groupForm.schoolQuota" :min="0" :max="20" style="width: 100%" />
-            <span class="field-hint">同一学校（含分校区）在该组别可报的球队数；0 表示不限，默认 1</span>
           </el-form-item>
           <el-form-item label="最小年龄">
             <el-input-number v-model="groupForm.minAge" :min="0" :max="60" style="width: 100%" />

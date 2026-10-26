@@ -1,48 +1,48 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { CircleCheck, Delete, Edit, Plus, Refresh, Setting } from '@element-plus/icons-vue'
-import { eventApi, selectionApi } from '../../api'
-import type { Event, EventGroup, RoundType, ScoreDimension, SelectionRule } from '../../api/types'
+import { ElMessage } from 'element-plus'
+import { Delete, Edit, Plus, Refresh, Setting } from '@element-plus/icons-vue'
+import {
+  GROUP_TYPE_LABEL,
+  ROUND_LABEL,
+  selectionTemplateApi,
+} from '../../api/selection'
+import type { SelectionGroupType, SelectionRound, SelectionTemplate, TemplateDimension } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 
 const loading = ref(false)
-const rows = ref<SelectionRule[]>([])
+const rows = ref<SelectionTemplate[]>([])
 const total = ref(0)
-const events = ref<Event[]>([])
-const groups = ref<EventGroup[]>([])
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
 const saving = ref(false)
 
 const form = reactive({
-  eventId: '',
-  groupId: '',
-  round: 'PRELIMINARY' as RoundType,
-  topN: 10,
-  confirmed: false,
-  dimensions: [] as ScoreDimension[],
+  name: '',
+  groupType: 'PRIMARY' as SelectionGroupType,
+  round: 'INITIAL' as SelectionRound,
+  dimensions: [] as TemplateDimension[],
 })
 
-const defaultDimensions: ScoreDimension[] = [
-  { key: 'skill', label: '技术能力', maxScore: 100, weight: 0.3 },
-  { key: 'tactics', label: '战术意识', maxScore: 100, weight: 0.3 },
-  { key: 'fitness', label: '身体素质', maxScore: 100, weight: 0.2 },
-  { key: 'performance', label: '比赛表现', maxScore: 100, weight: 0.2 },
+const defaultDimensions: TemplateDimension[] = [
+  { code: 'SKILL', name: '技术能力', maxScore: 100, weight: 30 },
+  { code: 'TACTICS', name: '战术意识', maxScore: 100, weight: 30 },
+  { code: 'FITNESS', name: '身体素质', maxScore: 100, weight: 20 },
+  { code: 'PERFORMANCE', name: '比赛表现', maxScore: 100, weight: 20 },
 ]
 
-const weightSum = computed(() =>
-  Math.round(form.dimensions.reduce((sum, item) => sum + (Number(item.weight) || 0), 0) * 100) / 100,
+const weightSum = computed(
+  () => Math.round(form.dimensions.reduce((sum, item) => sum + (Number(item.weight) || 0), 0) * 100) / 100,
 )
+const weightValid = computed(() => Math.abs(weightSum.value - 100) < 0.001)
 
-const weightValid = computed(() => Math.abs(weightSum.value - 1) < 0.001)
-
-const roundLabel: Record<string, string> = { PRELIMINARY: '初选', FINAL: '终选' }
+const groupTypeOptions = Object.entries(GROUP_TYPE_LABEL) as Array<[SelectionGroupType, string]>
+const roundOptions = Object.entries(ROUND_LABEL) as Array<[SelectionRound, string]>
 
 async function load() {
   loading.value = true
   try {
-    const res = await selectionApi.rules({ page: 1, pageSize: 100 })
+    const res = await selectionTemplateApi.list({ page: 1, size: 100 })
     rows.value = res.items
     total.value = res.total
   } catch {
@@ -52,59 +52,34 @@ async function load() {
   }
 }
 
-async function loadBase() {
-  try {
-    const res = await eventApi.list({ page: 1, pageSize: 50 })
-    events.value = res.items
-  } catch {
-    events.value = []
-  }
+function groupLabel(row: SelectionTemplate): string {
+  return row.groupTypeLabel || GROUP_TYPE_LABEL[row.groupType]
 }
 
-async function loadGroups() {
-  groups.value = []
-  form.groupId = ''
-  if (!form.eventId) return
-  try {
-    const res = await eventApi.groups(form.eventId)
-    groups.value = res.items
-  } catch {
-    groups.value = []
-  }
+function roundLabel(row: SelectionTemplate): string {
+  return row.roundLabel || ROUND_LABEL[row.round]
 }
 
 function openCreate() {
   editingId.value = null
-  form.eventId = events.value[0]?.id || ''
-  form.groupId = ''
-  form.round = 'PRELIMINARY'
-  form.topN = 10
-  form.confirmed = false
+  form.name = ''
+  form.groupType = 'PRIMARY'
+  form.round = 'INITIAL'
   form.dimensions = defaultDimensions.map((item) => ({ ...item }))
   dialogVisible.value = true
-  loadGroups()
 }
 
-async function openEdit(row: SelectionRule) {
+function openEdit(row: SelectionTemplate) {
   editingId.value = row.id
-  form.eventId = row.eventId
+  form.name = row.name
+  form.groupType = row.groupType
   form.round = row.round
-  form.topN = row.topN
-  form.confirmed = row.confirmed
   form.dimensions = row.dimensions.map((item) => ({ ...item }))
   dialogVisible.value = true
-  groups.value = []
-  form.groupId = row.groupId
-  try {
-    const res = await eventApi.groups(row.eventId)
-    groups.value = res.items
-  } catch {
-    groups.value = []
-  }
 }
 
 function addDimension() {
-  form.dimensions.push({ key: `dim_${Date.now()}`, label: '', maxScore: 100, weight: 0 })
+  form.dimensions.push({ code: `DIM${form.dimensions.length + 1}`, name: '', maxScore: 100, weight: 0 })
 }
 
 function removeDimension(index: number) {
@@ -112,27 +87,32 @@ function removeDimension(index: number) {
 }
 
 async function save() {
-  if (!form.eventId) return ElMessage.warning('请选择赛事')
-  if (!form.groupId) return ElMessage.warning('请选择组别')
+  const name = form.name.trim()
+  if (!name) return ElMessage.warning('请填写模板名称')
   if (!form.dimensions.length) return ElMessage.warning('请至少配置一个评分维度')
-  if (form.dimensions.some((item) => !item.label.trim())) return ElMessage.warning('请填写所有维度名称')
-  if (!weightValid.value) return ElMessage.warning(`维度权重之和需为 1，当前为 ${weightSum.value}`)
+  if (form.dimensions.some((item) => !item.name.trim())) return ElMessage.warning('请填写所有维度名称')
+  if (!weightValid.value) return ElMessage.warning(`维度权重之和需为 100，当前为 ${weightSum.value}`)
+  if (form.dimensions.some((item) => !item.code)) {
+    return ElMessage.warning('维度编码不能为空')
+  }
   saving.value = true
   try {
     const payload = {
-      eventId: form.eventId,
-      groupId: form.groupId,
+      name,
+      groupType: form.groupType,
       round: form.round,
-      topN: form.topN,
-      confirmed: form.confirmed,
-      dimensions: form.dimensions,
+      dimensions: form.dimensions.map((item, index) => ({
+        ...item,
+        code: item.code.trim().toUpperCase(),
+        sortNo: index + 1,
+      })),
     }
     if (editingId.value) {
-      await selectionApi.updateRule(editingId.value, payload)
-      ElMessage.success('评分规则已更新')
+      await selectionTemplateApi.update(editingId.value, payload)
+      ElMessage.success('评分模板已更新')
     } else {
-      await selectionApi.createRule(payload)
-      ElMessage.success('评分规则已创建')
+      await selectionTemplateApi.create(payload)
+      ElMessage.success('评分模板已创建，同组别同轮次旧模板已自动停用')
     }
     dialogVisible.value = false
     await load()
@@ -143,134 +123,106 @@ async function save() {
   }
 }
 
-async function confirmRule(row: SelectionRule) {
-  try {
-    await ElMessageBox.confirm('规则确认后将用于评分录入与排名生成，后续修改需重新确认。', '确认评分规则', {
-      confirmButtonText: '确认规则',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
-    await selectionApi.updateRule(row.id, { confirmed: true })
-    ElMessage.success('规则已确认')
-    await load()
-  } catch {
-    // 取消
-  }
-}
-
-onMounted(() => {
-  load()
-  loadBase()
-})
+onMounted(load)
 </script>
 
 <template>
   <div class="page">
     <PageHeader
-      title="评分规则"
-      description="按赛事与组别配置遴选维度、权重与入围名额。规则确认后方可录入评分，权重合计须为 100%。"
+      title="评分模板"
+      description="按组别与轮次维护评分维度及权重，权重合计须为 100%。模板启用后方可用于评分录入。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建规则</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreate">新建模板</el-button>
       </template>
     </PageHeader>
 
     <section class="page-card">
       <div class="rule-summary">
         <div class="rule-summary__item">
-          <span>规则总数</span>
+          <span>模板总数</span>
           <strong class="num">{{ total }}</strong>
         </div>
         <div class="rule-summary__item">
-          <span>已确认</span>
-          <strong class="num">{{ rows.filter((r) => r.confirmed).length }}</strong>
+          <span>启用中</span>
+          <strong class="num">{{ rows.filter((r) => r.status === 1).length }}</strong>
         </div>
         <div class="rule-summary__item">
-          <span>待确认</span>
-          <strong class="num">{{ rows.filter((r) => !r.confirmed).length }}</strong>
+          <span>已停用</span>
+          <strong class="num">{{ rows.filter((r) => r.status === 0).length }}</strong>
         </div>
-        <p class="rule-summary__note">
-          排名并列时按「并列保留」处理；终选规则可单独设置入围名额。
-        </p>
+        <p class="rule-summary__note">同一组别 + 轮次仅保留一个启用模板；新建时旧模板自动停用。</p>
       </div>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
-        <el-table-column label="赛事 / 组别" min-width="230">
+        <el-table-column label="模板名称" min-width="230">
           <template #default="{ row }">
             <div class="rule-cell">
               <span class="rule-cell__icon"><el-icon><Setting /></el-icon></span>
               <div>
-                <strong>{{ row.eventName || '赛事' }}</strong>
-                <small>{{ row.groupName || '组别' }} · {{ roundLabel[row.round] }}</small>
+                <strong>{{ row.name }}</strong>
+                <small>{{ groupLabel(row) }} · {{ roundLabel(row) }}</small>
               </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="评分维度" min-width="250">
+        <el-table-column label="评分维度" min-width="280">
           <template #default="{ row }">
             <div class="dim-list">
-              <span v-for="dim in row.dimensions" :key="dim.key" class="dim-item">
-                {{ dim.label }} <b>{{ Math.round(dim.weight * 100) }}%</b>
+              <span v-for="dim in row.dimensions" :key="dim.code" class="dim-item">
+                {{ dim.name }} <b>{{ dim.weight }}%</b>
               </span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="入围名额" width="100" align="center">
-          <template #default="{ row }"><span class="num">{{ row.topN }}</span></template>
+        <el-table-column label="更新时间" width="160">
+          <template #default="{ row }"><span class="muted">{{ row.updatedAt || row.createdAt || '-' }}</span></template>
         </el-table-column>
-        <el-table-column label="状态" width="110">
+        <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.confirmed ? 'success' : 'warning'" size="small" effect="plain">
-              {{ row.confirmed ? '已确认' : '待确认' }}
+            <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small" effect="plain">
+              {{ row.status === 1 ? '启用' : '停用' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="210" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="!row.confirmed" link type="success" :icon="CircleCheck" @click="confirmRule(row)">
-              确认
-            </el-button>
             <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!loading && !rows.length" description="尚未配置评分规则" :image-size="80" />
+      <el-empty v-if="!loading && !rows.length" description="尚未配置评分模板" :image-size="80" />
     </section>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑评分规则' : '新建评分规则'" width="760px">
+    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑评分模板' : '新建评分模板'" width="760px">
       <el-form :model="form" label-position="top">
         <div class="form-grid">
-          <el-form-item label="赛事" required>
-            <el-select v-model="form.eventId" style="width: 100%" @change="loadGroups">
-              <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
-            </el-select>
+          <el-form-item label="模板名称" required>
+            <el-input v-model="form.name" maxlength="50" placeholder="如：小学男子组初选评分模板" />
           </el-form-item>
           <el-form-item label="组别" required>
-            <el-select v-model="form.groupId" style="width: 100%" placeholder="选择组别">
-              <el-option v-for="group in groups" :key="group.id" :label="group.name" :value="group.id" />
+            <el-select v-model="form.groupType" style="width: 100%" :disabled="!!editingId">
+              <el-option v-for="[value, label] in groupTypeOptions" :key="value" :label="label" :value="value" />
             </el-select>
           </el-form-item>
-          <el-form-item label="遴选轮次">
-            <el-radio-group v-model="form.round">
-              <el-radio-button value="PRELIMINARY">初选</el-radio-button>
-              <el-radio-button value="FINAL">终选</el-radio-button>
+          <el-form-item label="遴选轮次" required>
+            <el-radio-group v-model="form.round" :disabled="!!editingId">
+              <el-radio-button v-for="[value, label] in roundOptions" :key="value" :value="value">{{ label }}</el-radio-button>
             </el-radio-group>
-          </el-form-item>
-          <el-form-item label="入围名额">
-            <el-input-number v-model="form.topN" :min="1" :max="200" style="width: 100%" />
           </el-form-item>
         </div>
 
         <div class="dim-head">
           <span class="section-title" style="margin: 0">评分维度</span>
-          <span class="weight-sum" :class="{ 'is-error': !weightValid }">权重合计 {{ Math.round(weightSum * 100) }}%</span>
+          <span class="weight-sum" :class="{ 'is-error': !weightValid }">权重合计 {{ weightSum }}%</span>
           <el-button size="small" :icon="Plus" @click="addDimension">添加维度</el-button>
         </div>
         <div class="dim-editor">
-          <div v-for="(dim, index) in form.dimensions" :key="dim.key" class="dim-row">
-            <el-input v-model="dim.label" placeholder="维度名称" />
-            <el-input-number v-model="dim.weight" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" />
+          <div v-for="(dim, index) in form.dimensions" :key="index" class="dim-row">
+            <el-input v-model="dim.name" placeholder="维度名称" />
+            <el-input v-model="dim.code" placeholder="编码" style="text-transform: uppercase" />
+            <el-input-number v-model="dim.weight" :min="0" :max="100" :step="5" :precision="0" controls-position="right" />
             <span class="dim-row__suffix">权重</span>
             <el-input-number v-model="dim.maxScore" :min="1" :max="1000" :step="10" controls-position="right" />
             <span class="dim-row__suffix">满分</span>
@@ -283,14 +235,10 @@ onMounted(() => {
             />
           </div>
         </div>
-
-        <el-form-item style="margin-top: 14px">
-          <el-checkbox v-model="form.confirmed">保存后立即确认规则（确认后录入评分）</el-checkbox>
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存规则</el-button>
+        <el-button type="primary" :loading="saving" @click="save">保存模板</el-button>
       </template>
     </el-dialog>
   </div>
@@ -355,6 +303,11 @@ onMounted(() => {
   color: var(--ink-300);
 }
 
+.muted {
+  font-size: 10px;
+  color: var(--ink-400);
+}
+
 .dim-list {
   display: flex;
   flex-wrap: wrap;
@@ -375,7 +328,7 @@ onMounted(() => {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 0 16px;
 }
 
@@ -408,7 +361,7 @@ onMounted(() => {
 
 .dim-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) 130px auto 130px auto auto;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) 110px auto 110px auto auto;
   align-items: center;
   gap: 7px;
 }

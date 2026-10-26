@@ -10,7 +10,9 @@ const submitting = ref(false)
 const form = reactive({
   registrationToken: '',
   username: '',
-  displayName: '',
+  realName: '',
+  idNumber: '',
+  phone: '',
   password: '',
   confirmPassword: '',
 })
@@ -20,13 +22,23 @@ const validateConfirm = (_rule: unknown, value: string, callback: (error?: Error
   else callback()
 }
 
+const validatePhone = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if (!value || /^1\d{10}$/.test(value)) callback()
+  else callback(new Error('请输入 11 位手机号'))
+}
+
 const rules: FormRules = {
   registrationToken: [{ required: true, message: '请填写注册邀请凭证', trigger: 'blur' }],
   username: [
     { required: true, message: '请设置登录账号', trigger: 'blur' },
     { min: 4, max: 32, message: '账号长度为 4-32 位', trigger: 'blur' },
   ],
-  displayName: [{ required: true, message: '请填写姓名或单位名称', trigger: 'blur' }],
+  realName: [{ required: true, message: '请填写真实姓名', trigger: 'blur' }],
+  idNumber: [
+    { required: true, message: '请填写身份证号', trigger: 'blur' },
+    { pattern: /^\d{17}[\dXx]$/, message: '请输入 18 位身份证号', trigger: 'blur' },
+  ],
+  phone: [{ validator: validatePhone, trigger: 'blur' }],
   password: [
     { required: true, message: '请设置密码', trigger: 'blur' },
     { min: 8, message: '密码至少 8 位', trigger: 'blur' },
@@ -41,10 +53,12 @@ async function submit() {
   submitting.value = true
   try {
     await authApi.register({
-      registrationToken: form.registrationToken,
-      username: form.username,
-      displayName: form.displayName,
+      registrationToken: form.registrationToken.trim(),
+      username: form.username.trim(),
       password: form.password,
+      realName: form.realName.trim(),
+      idNumber: form.idNumber.trim(),
+      ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
     })
     ElMessage.success('注册成功，请使用新账号登录')
     router.push('/login')
@@ -74,8 +88,14 @@ async function submit() {
           <el-form-item label="登录账号" prop="username">
             <el-input v-model="form.username" placeholder="4-32 位字母或数字" />
           </el-form-item>
-          <el-form-item label="姓名 / 单位名称" prop="displayName">
-            <el-input v-model="form.displayName" placeholder="用于平台内展示" />
+          <el-form-item label="真实姓名" prop="realName">
+            <el-input v-model="form.realName" placeholder="与身份证一致" />
+          </el-form-item>
+          <el-form-item label="身份证号" prop="idNumber">
+            <el-input v-model="form.idNumber" maxlength="18" placeholder="18 位身份证号" />
+          </el-form-item>
+          <el-form-item label="手机号（选填）" prop="phone">
+            <el-input v-model="form.phone" maxlength="11" placeholder="用于接收赛事通知" />
           </el-form-item>
           <el-form-item label="登录密码" prop="password">
             <el-input v-model="form.password" type="password" show-password placeholder="至少 8 位" />

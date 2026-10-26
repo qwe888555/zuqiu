@@ -223,7 +223,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       },
       {
         key: 'rules',
-        title: '评分规则',
+        title: '评分模板',
         path: '/console/selection/rules',
         icon: Setting,
         roles: ['ADMIN'],

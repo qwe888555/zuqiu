@@ -3,26 +3,20 @@ import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ArrowRight, Calendar, Location, Ticket } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
+import { publicityApi } from '../../api/selection'
 import type {
   GoalRankingRow,
   PublicContent,
+  PublicEvent,
   PublicMatch,
   PublicResource,
+  PublicityRecord,
 } from '../../api/types'
-import { IMG } from '../../mock/data'
+import { IMG } from '../../config/images'
 import StatusTag from '../../components/common/StatusTag.vue'
 import { useConsoleEntry } from '../../composables/useConsoleEntry'
-import { matchDisplayStatus, policyKind } from '../../utils/portal'
-
-interface PublicCard {
-  publicationId: string
-  targetType: string
-  displayName: string
-  teamName?: string
-  cityName?: string
-  groupName?: string
-  publicPhotoUrl?: string
-}
+import { matchDisplayStatus, policyKind, sortPublicEvents } from '../../utils/portal'
+import { publicityNoticeKey } from '../../utils/publications'
 
 const MATCH_TABS = [
   { key: 'LIVE', label: '比赛动态' },
@@ -40,7 +34,7 @@ const news = ref<PublicContent[]>([])
 const policies = ref<PublicContent[]>([])
 const matches = ref<PublicMatch[]>([])
 const goals = ref<GoalRankingRow[]>([])
-const stars = ref<PublicCard[]>([])
+const stars = ref<PublicityRecord[]>([])
 const matchTab = ref<MatchTab>('LIVE')
 const updatedAt = ref('')
 
@@ -120,21 +114,49 @@ async function loadHome() {
   loading.value = true
   loadError.value = false
   try {
-    const [resourceRes, newsRes, policyRes, matchRes, goalRes, pubRes] = await Promise.all([
+    // /public/events 免登录；/public/matches 与 /public/statistics/goals 仍需 eventId。
+    const [resourceRes, newsRes, policyRes, eventRes] = await Promise.all([
       publicApi.resources(),
       publicApi.contents({ page: 1, pageSize: 6, contentType: 'NEWS' }),
       publicApi.contents({ page: 1, pageSize: 4, contentType: 'POLICY' }),
-      publicApi.matches({ page: 1, pageSize: 50 }),
-      publicApi.goals({ groupCategory: 'PRIMARY' }),
-      publicApi.publications({ page: 1, pageSize: 4 }),
+      publicApi
+        .events({ page: 1, pageSize: 50 })
+        .catch(() => ({ items: [] as PublicEvent[] })),
     ])
     banners.value = resourceRes.items
     news.value = newsRes.items
     policies.value = policyRes.items
-    matches.value = matchRes.items
-    goals.value = goalRes.rows.slice(0, 5)
-    stars.value = pubRes.items.slice(0, 3)
     updatedAt.value = dayjs().format('HH:mm')
+
+    // 按状态优先探测，跳过尚无已发布对阵/进球数据的赛事。
+    let publicEventId = ''
+    let matchItems: PublicMatch[] = []
+    let goalRows: GoalRankingRow[] = []
+    for (const event of sortPublicEvents(eventRes.items)) {
+      const [matchRes, goalRes] = await Promise.all([
+        publicApi.matches({ eventId: event.id, page: 1, pageSize: 50 }),
+        publicApi.goals({ eventId: event.id }),
+      ])
+      if (!matchRes.items.length && !goalRes.rows.length) continue
+      publicEventId = event.id
+      matchItems = matchRes.items
+      goalRows = goalRes.rows
+      break
+    }
+
+    matches.value = matchItems
+    goals.value = goalRows.slice(0, 5)
+    if (publicEventId) {
+      // 成员6 是独立服务，未部署时不能影响门户主体内容。
+      try {
+        const pubRes = await publicityApi.list({ eventId: publicEventId, page: 1, size: 100 })
+        stars.value = pubRes.items.slice(0, 3)
+      } catch {
+        stars.value = []
+      }
+    } else {
+      stars.value = []
+    }
     if (!liveMatches.value.length) {
       matchTab.value = scheduledMatches.value.length ? 'SCHEDULED' : 'FINISHED'
     }
@@ -184,9 +206,8 @@ function goalBarWidth(value: number) {
   return `${Math.max(8, Math.round((value / maxGoals.value) * 100))}%`
 }
 
-function publicationLink(star: PublicCard) {
-  const type = star.targetType === 'ENROLLMENT' ? 'ENROLLMENT' : 'PERSON'
-  return `/publications/${encodeURIComponent(`${type}|${star.groupName || '未标注组别'}`)}`
+function publicationLink(star: PublicityRecord) {
+  return `/publications/${encodeURIComponent(publicityNoticeKey(star))}`
 }
 
 </script>
@@ -513,16 +534,16 @@ function publicationLink(star: PublicCard) {
           <div class="publication-list">
             <router-link
               v-for="star in stars"
-              :key="star.publicationId"
+              :key="star.id"
               :to="publicationLink(star)"
               class="publication-row"
             >
-              <span class="publication-row__avatar">{{ star.displayName.slice(0, 1) }}</span>
+              <span class="publication-row__avatar">{{ star.name.slice(0, 1) }}</span>
               <span class="publication-row__body">
-                <strong>{{ star.displayName }}</strong>
-                <small>{{ star.teamName || star.cityName || '公示对象' }}</small>
+                <strong>{{ star.name }}</strong>
+                <small>{{ star.teamName || star.city || '公示对象' }}</small>
               </span>
-              <span class="publication-row__group">{{ star.groupName }}</span>
+              <span class="publication-row__group">{{ star.groupTypeLabel }}</span>
               <el-icon><ArrowRight /></el-icon>
             </router-link>
             <el-empty v-if="!loading && !stars.length" description="暂无公示" :image-size="60" />

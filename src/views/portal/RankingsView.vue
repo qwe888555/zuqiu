@@ -3,10 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { Medal, Trophy } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
-import type { GoalRankingRow } from '../../api/types'
+import type { GoalRankingRow, PublicEvent } from '../../api/types'
+import { sortPublicEvents } from '../../utils/portal'
 
 const loading = ref(false)
 const rows = ref<GoalRankingRow[]>([])
+const events = ref<PublicEvent[]>([])
+const eventId = ref('')
 const category = ref('PRIMARY')
 const generatedAt = ref('')
 
@@ -87,17 +90,47 @@ function podiumFoot(row: GoalRankingRow, index: number) {
   return gapToLeader(row.goals) ? `距榜首 ${gapToLeader(row.goals)} 球` : '与榜首并列'
 }
 
+async function fetchGoals(id: string) {
+  return publicApi.goals({ eventId: id, category: category.value })
+}
+
 async function load() {
   loading.value = true
   try {
-    const res = await publicApi.goals({ groupCategory: category.value })
-    rows.value = res.rows
-    generatedAt.value = res.generatedAt
+    // /public/events 免登录，访客据此取得射手榜所需的赛事上下文。
+    if (!events.value.length) {
+      const res = await publicApi.events({ page: 1, pageSize: 50 })
+      events.value = sortPublicEvents(res.items)
+    }
+    if (eventId.value) {
+      const res = await fetchGoals(eventId.value)
+      rows.value = res.rows
+      generatedAt.value = res.generatedAt
+      return
+    }
+    // 首次进入按状态优先探测，跳过尚无进球数据的赛事。
+    for (const event of events.value) {
+      const res = await fetchGoals(event.id)
+      if (res.rows.length) {
+        eventId.value = event.id
+        rows.value = res.rows
+        generatedAt.value = res.generatedAt
+        return
+      }
+    }
+    eventId.value = events.value[0]?.id || ''
+    rows.value = []
+    generatedAt.value = ''
   } catch {
     rows.value = []
   } finally {
     loading.value = false
   }
+}
+
+async function changeEvent() {
+  generatedAt.value = ''
+  await load()
 }
 
 function switchCategory(value: string) {
@@ -138,6 +171,20 @@ onMounted(load)
 
     <div class="container ranking-body">
       <div class="ranking-toolbar">
+        <el-select
+          v-model="eventId"
+          size="large"
+          placeholder="选择赛事"
+          class="event-select"
+          @change="changeEvent"
+        >
+          <el-option
+            v-for="event in events"
+            :key="event.id"
+            :label="event.name"
+            :value="event.id"
+          />
+        </el-select>
         <div class="scope-tabs" role="tablist" aria-label="选择组别">
           <button
             v-for="item in categories"
@@ -391,6 +438,11 @@ onMounted(load)
   border-radius: 10px;
   background: #fff;
   box-shadow: var(--shadow-card);
+}
+
+.event-select {
+  width: 230px;
+  flex-shrink: 0;
 }
 
 .scope-tabs {
@@ -1048,6 +1100,7 @@ onMounted(load)
     padding: 9px;
   }
 
+  .event-select,
   .scope-tabs {
     width: 100%;
   }

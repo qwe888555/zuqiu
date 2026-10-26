@@ -5,6 +5,17 @@ import { TOKEN_KEY } from '../api/http'
 import { visibleSections } from '../config/menus'
 import type { CurrentUser, RoleCode } from '../api/types'
 
+/**
+ * 登录失败统一文案：不把后端的参数校验/字段错误直接抛给用户。
+ * 5xx 视为服务异常，其余有响应的失败统一提示账号或密码错误。
+ */
+export function loginErrorMessage(error: unknown): string {
+  const status = (error as { response?: { status?: number } })?.response?.status
+  if (status && status >= 500) return '登录服务暂时不可用，请稍后重试'
+  if (status) return '账号或密码错误，请重新输入'
+  return '登录失败，请检查网络后重试'
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem(TOKEN_KEY) || '')
   const user = ref<CurrentUser | null>(null)
@@ -23,6 +34,9 @@ export const useAuthStore = defineStore('auth', () => {
       localStorage.setItem(TOKEN_KEY, result.accessToken)
       await fetchMe()
       return result
+    } catch (error) {
+      // 具体文案由调用方（登录弹窗）展示，避免在 store 里重复弹提示。
+      throw error
     } finally {
       loading.value = false
     }

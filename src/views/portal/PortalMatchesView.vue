@@ -3,14 +3,21 @@ import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ArrowRight, Calendar, Location, Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
-import type { PublicMatch } from '../../api/types'
+import type { PublicEvent, PublicMatch } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import MatchScheduleRow from '../../components/portal/MatchScheduleRow.vue'
-import { MATCH_SECTIONS, matchDisplayStatus, sortPublicMatches } from '../../utils/portal'
+import {
+  MATCH_SECTIONS,
+  matchDisplayStatus,
+  sortPublicEvents,
+  sortPublicMatches,
+} from '../../utils/portal'
 
 const loading = ref(false)
 const allItems = ref<PublicMatch[]>([])
+const events = ref<PublicEvent[]>([])
+const eventId = ref('')
 const page = ref(1)
 const pageSize = 12
 const status = ref('')
@@ -156,12 +163,34 @@ function selectDefaultDay() {
     (todayCell?.matches.length ? todayCell : firstMatchDay || todayCell || cells[0])?.key || ''
 }
 
+async function fetchMatches(id: string) {
+  // 公开接口没有排序与球队搜索参数，一次取回后在本地分组、排序、分页。
+  const res = await publicApi.matches({ eventId: id, page: 1, pageSize: 200 })
+  return res.items
+}
+
 async function load() {
   loading.value = true
   try {
-    // 公开接口没有排序与球队搜索参数，一次取回后在本地分组、排序、分页。
-    const res = await publicApi.matches({ page: 1, pageSize: 200 })
-    allItems.value = res.items
+    // /public/events 免登录，匿名访客也能取得赛程所需的赛事上下文。
+    if (!events.value.length) {
+      const res = await publicApi.events({ page: 1, pageSize: 50 })
+      events.value = sortPublicEvents(res.items)
+    }
+    if (eventId.value) {
+      allItems.value = await fetchMatches(eventId.value)
+    } else {
+      // 首次进入时按状态优先探测，跳过尚未发布任何对阵的赛事。
+      for (const event of events.value) {
+        const items = await fetchMatches(event.id)
+        if (items.length) {
+          eventId.value = event.id
+          allItems.value = items
+          break
+        }
+      }
+      if (!eventId.value) allItems.value = []
+    }
     if (!date.value && todayCount.value && viewMode.value === 'list') date.value = todayKey
     if (viewMode.value === 'calendar') selectDefaultDay()
   } catch {
@@ -169,6 +198,16 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function changeEvent() {
+  status.value = ''
+  date.value = ''
+  groupName.value = ''
+  keyword.value = ''
+  page.value = 1
+  selectedDay.value = ''
+  await load()
 }
 
 function switchStatus(value: string) {
@@ -269,6 +308,20 @@ onMounted(load)
               <span class="status-tab__count num">{{ tab.count }}</span>
             </button>
           </div>
+          <el-select
+            v-model="eventId"
+            size="large"
+            placeholder="选择赛事"
+            class="event-select"
+            @change="changeEvent"
+          >
+            <el-option
+              v-for="event in events"
+              :key="event.id"
+              :label="event.name"
+              :value="event.id"
+            />
+          </el-select>
         </div>
 
         <div class="filter-row filter-row--controls">
@@ -666,6 +719,10 @@ onMounted(load)
 
 .date-picker {
   width: 170px;
+}
+
+.event-select {
+  width: 240px;
 }
 
 .group-select {
@@ -1182,6 +1239,7 @@ onMounted(load)
     font-size: 19px;
   }
 
+  .event-select,
   .date-picker,
   .group-select,
   .team-search {

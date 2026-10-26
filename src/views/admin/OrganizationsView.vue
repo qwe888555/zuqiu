@@ -21,6 +21,7 @@ const filterType = ref('')
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
+const editingVersion = ref(0)
 const saving = ref(false)
 const form = reactive({
   parentId: '',
@@ -34,6 +35,7 @@ const typeOptions: { value: OrgType; label: string }[] = [
   { value: 'PROVINCE', label: '省级' },
   { value: 'CITY', label: '市州' },
   { value: 'SCHOOL', label: '中小学校' },
+  { value: 'UNIVERSITY', label: '高校' },
   { value: 'TEAM', label: '独立球队' },
 ]
 
@@ -98,6 +100,7 @@ async function load() {
 
 function openCreate(parent?: Organization) {
   editingId.value = null
+  editingVersion.value = 0
   Object.assign(form, {
     parentId: parent?.id || '',
     name: '',
@@ -110,6 +113,7 @@ function openCreate(parent?: Organization) {
 
 function openEdit(row: Organization) {
   editingId.value = row.id
+  editingVersion.value = row.version
   Object.assign(form, {
     parentId: row.parentId || '',
     name: row.name,
@@ -127,11 +131,12 @@ async function save() {
   try {
     if (editingId.value) {
       await orgApi.update(editingId.value, {
-        parentId: form.parentId || undefined,
+        ...(form.parentId ? { parentId: form.parentId } : {}),
         name: form.name,
         orgType: form.orgType,
         code: form.code,
         enabled: form.enabled,
+        version: editingVersion.value,
       })
       ElMessage.success('组织信息已更新')
     } else {
@@ -155,7 +160,14 @@ async function save() {
 
 async function toggleEnabled(row: Organization) {
   try {
-    await orgApi.update(row.id, { enabled: !row.enabled })
+    await orgApi.update(row.id, {
+      ...(row.parentId ? { parentId: row.parentId } : {}),
+      name: row.name,
+      orgType: row.orgType,
+      code: row.code,
+      enabled: !row.enabled,
+      version: row.version,
+    })
     ElMessage.success(row.enabled ? '组织已停用' : '组织已启用')
     await load()
   } catch {
@@ -275,7 +287,12 @@ onMounted(load)
             <el-input v-model="form.name" placeholder="如：成都市教育局" />
           </el-form-item>
           <el-form-item label="组织编码" required>
-            <el-input v-model="form.code" placeholder="如：510100" />
+            <el-input
+              v-model="form.code"
+              placeholder="如：510100"
+              :disabled="Boolean(editingId)"
+            />
+            <span v-if="editingId" class="form-hint">组织编码创建后不可修改</span>
           </el-form-item>
         </div>
         <div class="form-grid">
@@ -345,6 +362,12 @@ onMounted(load)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.form-hint {
+  margin-top: 4px;
+  font-size: 9.5px;
+  color: var(--ink-300);
 }
 
 @media (max-width: 640px) {
