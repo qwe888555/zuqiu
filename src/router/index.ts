@@ -179,7 +179,7 @@ const routes: RouteRecordRaw[] = [
         path: 'selection/rules',
         name: 'selection-rules',
         component: () => import('../views/selection/RulesView.vue'),
-        meta: { title: '评分规则', roles: ['ADMIN'] },
+        meta: { title: '评分模板', roles: ['ADMIN'] },
       },
       {
         path: 'selection/scoring',

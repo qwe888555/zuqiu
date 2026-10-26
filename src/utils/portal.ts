@@ -1,7 +1,23 @@
 import dayjs from 'dayjs'
-import type { PublicMatch } from '../api/types'
+import type { PublicEvent, PublicMatch } from '../api/types'
 
 export const FOLLOW_TEAM_KEY = 'football.portal.follow-team'
+
+/** 门户赛事默认顺序：进行中 > 报名截止 > 报名中 > 已结束，同状态按赛季倒序。 */
+export function sortPublicEvents(list: PublicEvent[]): PublicEvent[] {
+  const priority: Record<PublicEvent['status'], number> = {
+    RUNNING: 0,
+    REGISTRATION_CLOSED: 1,
+    REGISTRATION_OPEN: 2,
+    FINISHED: 3,
+    DRAFT: 4,
+  }
+  return [...list].sort(
+    (a, b) =>
+      (priority[a.status] ?? 9) - (priority[b.status] ?? 9) ||
+      String(b.season).localeCompare(String(a.season)),
+  )
+}
 
 export type MatchDisplayStatus = PublicMatch['status']
 

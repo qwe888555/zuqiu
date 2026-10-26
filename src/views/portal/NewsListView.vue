@@ -4,7 +4,7 @@ import dayjs from 'dayjs'
 import { ArrowRight, Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { PublicContent } from '../../api/types'
-import { IMG } from '../../mock/data'
+import { IMG } from '../../config/images'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 
 const loading = ref(false)

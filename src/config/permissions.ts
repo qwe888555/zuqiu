@@ -97,7 +97,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     hint: '初选/复选评分、正式结果与门户公示',
     permissions: [
       { code: 'selection.view', label: '查看遴选档案', description: '检索运动员档案与历史评分' },
-      { code: 'selection.manage', label: '遴选评分与结果', description: '维护评分规则、录入评分、生成正式结果' },
+      { code: 'selection.manage', label: '遴选评分与结果', description: '维护评分模板、录入评分、生成正式结果' },
       { code: 'publication.manage', label: '公示管理', description: '发布与撤销门户公示' },
     ],
   },

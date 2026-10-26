@@ -15,7 +15,8 @@ const exporting = ref<'xlsx' | 'zip' | ''>('')
 const events = ref<Event[]>([])
 const rows = ref<StatRow[]>([])
 const eventId = ref('')
-const dimension = ref<'city' | 'group' | 'school'>('city')
+// 成员3 统计接口的 dimension 枚举为 CITY / UNIVERSITY / GROUP，且 eventId 必填。
+const dimension = ref<'CITY' | 'UNIVERSITY' | 'GROUP'>('CITY')
 const selectedCity = ref('')
 
 function cityKey(label: string) {
@@ -59,16 +60,21 @@ const totalApproved = computed(() => rows.value.reduce((sum, row) => sum + (row.
 const maxTeamCount = computed(() => Math.max(1, ...rows.value.map((row) => row.teamCount)))
 
 const dimensionLabel = computed(
-  () => ({ city: '市州', group: '组别', school: '学校' })[dimension.value],
+  () => ({ CITY: '市州', UNIVERSITY: '高校', GROUP: '组别' })[dimension.value],
 )
 
 async function load() {
+  if (!eventId.value) {
+    rows.value = []
+    return
+  }
   loading.value = true
   try {
-    rows.value = await enrollmentApi.statistics({
-      eventId: eventId.value || undefined,
+    const page = await enrollmentApi.statistics({
+      eventId: eventId.value,
       dimension: dimension.value,
     })
+    rows.value = page.items
   } catch {
     rows.value = []
   } finally {
@@ -80,19 +86,24 @@ async function loadEvents() {
   try {
     const res = await eventApi.list({ page: 1, pageSize: 50 })
     events.value = res.items
+    if (!eventId.value) eventId.value = events.value[0]?.id || ''
   } catch {
     events.value = []
   }
 }
 
 async function exportData(kind: 'xlsx' | 'zip') {
+  if (!eventId.value) return ElMessage.warning('请先选择赛事')
   exporting.value = kind
   try {
-    const params = { eventId: eventId.value || undefined }
+    const payload = {
+      filters: { eventId: eventId.value },
+      scope: 'FILTERED' as const,
+    }
     const downloaded =
       kind === 'xlsx'
-        ? await enrollmentApi.exportRegistrations(params)
-        : await enrollmentApi.exportDocuments(params)
+        ? await enrollmentApi.exportRegistrations(payload)
+        : await enrollmentApi.exportDocuments(payload)
     ElMessage.success(
       downloaded ? '文件已开始下载' : '演示环境已模拟导出，接入后端后将下载真实文件',
     )
@@ -103,9 +114,9 @@ async function exportData(kind: 'xlsx' | 'zip') {
   }
 }
 
-onMounted(() => {
-  loadEvents()
-  load()
+onMounted(async () => {
+  await loadEvents()
+  await load()
 })
 </script>
 
@@ -135,13 +146,13 @@ onMounted(() => {
     </PageHeader>
 
     <section class="page-card filter-card">
-      <el-select v-model="eventId" placeholder="全部赛事" clearable style="width: 280px" @change="load">
+      <el-select v-model="eventId" placeholder="请选择赛事" style="width: 280px" @change="load">
         <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
       </el-select>
       <el-radio-group v-model="dimension" @change="changeDimension">
-        <el-radio-button value="city">按市州</el-radio-button>
-        <el-radio-button value="group">按组别</el-radio-button>
-        <el-radio-button value="school">按学校</el-radio-button>
+        <el-radio-button value="CITY">按市州</el-radio-button>
+        <el-radio-button value="UNIVERSITY">按高校</el-radio-button>
+        <el-radio-button value="GROUP">按组别</el-radio-button>
       </el-radio-group>
       <span class="filter-card__spacer" />
       <span class="muted">统计口径：当前账号数据范围内</span>
@@ -154,7 +165,7 @@ onMounted(() => {
       <StatCard label="已通过" :value="totalApproved" hint="完成终审" :icon="DataAnalysis" tone="blue" />
     </div>
 
-    <section v-if="dimension === 'city'" class="page-card heat-card">
+    <section v-if="dimension === 'CITY'" class="page-card heat-card">
       <div class="section-title">
         市州报名热力
         <small>点击市州查看明细，示意布局不按行政区划比例</small>

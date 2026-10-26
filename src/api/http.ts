@@ -1,9 +1,15 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
-import { mockAdapter } from '../mock/adapter'
 import type { Envelope } from './types'
 
 export const TOKEN_KEY = 'football.token'
+
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    /** 静默模式：失败时不弹全局提示，也不做登录跳转，由调用方给出统一文案。 */
+    silentError?: boolean
+  }
+}
 
 const useMock = import.meta.env.VITE_USE_MOCK !== 'false'
 
@@ -14,8 +20,15 @@ const instance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
   timeout: 20000,
   headers: { 'Content-Type': 'application/json' },
-  ...(useMock ? { adapter: mockAdapter } : {}),
 })
+
+if (useMock) {
+  // 懒加载 mock 模块，关闭 Mock 时不会把演示数据打进产物包。
+  instance.defaults.adapter = async (config) => {
+    const { mockAdapter } = await import('../mock/adapter')
+    return mockAdapter(config)
+  }
+}
 
 instance.interceptors.request.use((config) => {
   const token = localStorage.getItem(TOKEN_KEY)
@@ -36,15 +49,16 @@ instance.interceptors.response.use(
   },
   (error) => {
     const status = error?.response?.status
+    const silent = Boolean((error?.config as AxiosRequestConfig | undefined)?.silentError)
     const message =
       error?.response?.data?.message || error?.message || '网络异常，请稍后重试'
-    if (status === 401) {
+    if (status === 401 && !silent) {
       localStorage.removeItem(TOKEN_KEY)
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login'
       }
     }
-    ElMessage.error(message)
+    if (!silent) ElMessage.error(message)
     return Promise.reject(error)
   },
 )
@@ -78,13 +92,32 @@ async function download(
   return true
 }
 
+/** 生成 8–128 字符的幂等键，满足提交/审核/赛事事件等接口的 Idempotency-Key 约束 */
+export function newIdempotencyKey(prefix = 'idem'): string {
+  const random =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+  return `${prefix}_${random}`.slice(0, 128)
+}
+
 export const http = {
   download,
   get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
     return request<T>({ method: 'get', url, params })
   },
-  post<T>(url: string, data?: unknown): Promise<T> {
-    return request<T>({ method: 'post', url, data })
+  post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+    return request<T>({ method: 'post', url, data, ...config })
+  },
+  /**
+   * 写操作带上 Idempotency-Key。即使重试也不会重复落库，
+   * 后端要求 8–128 字符，超过长度会返回 400。
+   */
+  postIdempotent<T>(url: string, data?: unknown, key: string = newIdempotencyKey()): Promise<T> {
+    return request<T>({ method: 'post', url, data, headers: { 'Idempotency-Key': key } })
+  },
+  putIdempotent<T>(url: string, data?: unknown, key: string = newIdempotencyKey()): Promise<T> {
+    return request<T>({ method: 'put', url, data, headers: { 'Idempotency-Key': key } })
   },
   postForm<T>(url: string, form: FormData): Promise<T> {
     return request<T>({

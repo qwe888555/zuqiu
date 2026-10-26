@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
-import { Refresh, Search, View } from '@element-plus/icons-vue'
-import { auditApi } from '../../api'
-import type { AuditLog } from '../../api/types'
+import { Refresh, View } from '@element-plus/icons-vue'
+import { accountApi, auditApi } from '../../api'
+import type { Account, AuditLog } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
@@ -14,7 +14,31 @@ const rows = ref<AuditLog[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
-const filters = reactive({ logType: '', outcome: '', keyword: '' })
+/** 后端审计列表只支持 logType / objectId / from / to，避免传无效筛选参数。 */
+const filters = reactive({ logType: '' })
+const accountCache = new Map<string, Promise<Account | null>>()
+
+function fetchAccount(id: string) {
+  let pending = accountCache.get(id)
+  if (!pending) {
+    pending = accountApi.get(id).catch(() => null)
+    accountCache.set(id, pending)
+  }
+  return pending
+}
+
+/** 审计投影不含操作人姓名，按 operatorAccountId 补全。 */
+async function enrichLog(row: AuditLog): Promise<AuditLog> {
+  if (!row.operatorAccountId || row.operatorName) return row
+  const account = await fetchAccount(row.operatorAccountId)
+  return { ...row, operatorName: account?.displayName || account?.username }
+}
+
+function operatorLabel(row: AuditLog) {
+  if (row.operatorName) return row.operatorName
+  if (row.operatorAccountId) return `账号 ${row.operatorAccountId.slice(-6)}`
+  return '系统'
+}
 
 const drawerVisible = ref(false)
 const detail = ref<AuditLog | null>(null)
@@ -48,10 +72,8 @@ async function load() {
       page: page.value,
       pageSize: pageSize.value,
       logType: filters.logType || undefined,
-      outcome: filters.outcome || undefined,
-      keyword: filters.keyword || undefined,
     })
-    rows.value = res.items
+    rows.value = await Promise.all(res.items.map(enrichLog))
     total.value = res.total
   } catch {
     rows.value = []
@@ -87,29 +109,16 @@ onMounted(load)
     <div class="stat-grid">
       <StatCard label="日志总数" :value="total" hint="当前筛选范围" :icon="Refresh" tone="green" />
       <StatCard label="成功" :value="successCount" hint="当前页统计" :icon="Refresh" tone="lime" />
-      <StatCard label="失败" :value="failureCount" hint="需关注" :icon="Refresh" tone="amber" />
+      <StatCard label="失败" :value="failureCount" hint="当前页统计" :icon="Refresh" tone="amber" />
       <StatCard label="登录记录" :value="loginCount" hint="当前页统计" :icon="Refresh" tone="blue" />
     </div>
 
     <section class="page-card">
       <FilterBar :summary="'共 ' + total + ' 条日志'">
-        <el-input
-          v-model="filters.keyword"
-          placeholder="操作人 / 摘要"
-          :prefix-icon="Search"
-          clearable
-          style="width: 220px"
-          @keyup.enter="search"
-          @clear="search"
-        />
         <el-select v-model="filters.logType" placeholder="全部日志类型" clearable @change="search">
           <el-option label="操作日志" value="OPERATION" />
           <el-option label="登录日志" value="LOGIN" />
           <el-option label="报名日志" value="ENROLLMENT" />
-        </el-select>
-        <el-select v-model="filters.outcome" placeholder="全部结果" clearable @change="search">
-          <el-option label="成功" value="SUCCESS" />
-          <el-option label="失败" value="FAILURE" />
         </el-select>
         <el-button type="primary" plain @click="search">查询</el-button>
       </FilterBar>
@@ -126,7 +135,7 @@ onMounted(load)
           </template>
         </el-table-column>
         <el-table-column label="操作人" width="150">
-          <template #default="{ row }">{{ row.operatorName || '系统' }}</template>
+          <template #default="{ row }">{{ operatorLabel(row) }}</template>
         </el-table-column>
         <el-table-column label="动作" width="150">
           <template #default="{ row }">
@@ -173,7 +182,7 @@ onMounted(load)
 
         <div class="info-grid">
           <div><span>日志类型</span><strong>{{ logTypeLabel[detail.logType || 'OPERATION'] }}</strong></div>
-          <div><span>操作人</span><strong>{{ detail.operatorName || '系统' }}</strong></div>
+          <div><span>操作人</span><strong>{{ operatorLabel(detail) }}</strong></div>
           <div><span>操作动作</span><strong>{{ detail.action || '—' }}</strong></div>
           <div><span>对象类型</span><strong>{{ objectTypeLabel[detail.objectType || ''] || detail.objectType || '—' }}</strong></div>
           <div><span>对象 ID</span><strong class="mono">{{ detail.objectId || '—' }}</strong></div>

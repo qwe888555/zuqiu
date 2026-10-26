@@ -2,11 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Search } from '@element-plus/icons-vue'
-import { publicApi } from '../../api'
-import type { PublicCard } from '../../api/types'
+import { publicityApi } from '../../api/selection'
+import type { PublicityRecord } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import {
-  groupCategoryLabel,
   groupPublications,
   publicationCountUnit,
   publicationSubtitle,
@@ -15,7 +14,7 @@ import {
 const route = useRoute()
 
 const loading = ref(false)
-const allItems = ref<PublicCard[]>([])
+const allItems = ref<PublicityRecord[]>([])
 const keyword = ref('')
 const objectType = ref('')
 const cityFilter = ref('')
@@ -31,12 +30,14 @@ const noticeKey = computed(() => {
   }
 })
 
+const [noticeEventId, noticeType, noticeGroupType] = noticeKey.value.split('|')
+
 const notices = computed(() => groupPublications(allItems.value))
 const notice = computed(() => notices.value.find((item) => item.key === noticeKey.value) || null)
 
 const objectTabs = computed(() => {
   if (notice.value?.type === 'ENROLLMENT') {
-    return [{ label: '参赛球队', value: 'ENROLLMENT' }]
+    return [{ label: '参赛球队', value: 'TEAM' }]
   }
   return [
     { label: '全部对象', value: '' },
@@ -46,25 +47,25 @@ const objectTabs = computed(() => {
 })
 
 const cityOptions = computed(() => [
-  ...new Set(notice.value?.items.map((item) => item.cityName).filter(Boolean) as string[]),
+  ...new Set(notice.value?.items.map((item) => item.city).filter(Boolean) as string[]),
 ])
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   return (notice.value?.items || [])
     .filter((item) => {
-      if (objectType.value && item.targetType !== objectType.value) return false
-      if (cityFilter.value && item.cityName !== cityFilter.value) return false
+      if (objectType.value && item.publicityType !== objectType.value) return false
+      if (cityFilter.value && item.city !== cityFilter.value) return false
       if (kw) {
-        const haystack = `${item.displayName} ${item.teamName || ''} ${item.cityName || ''}`
+        const haystack = `${item.name} ${item.teamName || ''} ${item.city || ''}`
         if (!haystack.toLowerCase().includes(kw)) return false
       }
       return true
     })
     .slice()
     .sort((a, b) => {
-      const left = `${a.cityName || ''}${a.teamName || ''}${a.displayName}`
-      const right = `${b.cityName || ''}${b.teamName || ''}${b.displayName}`
+      const left = `${a.city || ''}${a.teamName || ''}${a.name}`
+      const right = `${b.city || ''}${b.teamName || ''}${b.name}`
       return left.localeCompare(right, 'zh-Hans-CN')
     })
 })
@@ -90,9 +91,16 @@ function resetPage() {
 }
 
 onMounted(async () => {
+  if (!noticeEventId) return
   loading.value = true
   try {
-    const res = await publicApi.publications({ page: 1, pageSize: 100 })
+    const res = await publicityApi.list({
+      eventId: noticeEventId,
+      publicityType: (noticeType as 'ATHLETE' | 'COACH' | 'TEAM') || undefined,
+      groupType: (noticeGroupType as PublicityRecord['groupType']) || undefined,
+      page: 1,
+      size: 500,
+    })
     allItems.value = res.items
   } catch {
     allItems.value = []
@@ -118,7 +126,7 @@ onMounted(async () => {
           <div class="hero-copy">
             <div class="hero-tags">
               <span class="type-tag">{{ notice.typeLabel }}</span>
-              <span class="group-tag">{{ groupCategoryLabel(notice.groupName) }}</span>
+              <span class="group-tag">{{ notice.groupName }}</span>
             </div>
             <h1>{{ notice.title }}</h1>
             <p>
@@ -141,7 +149,7 @@ onMounted(async () => {
               <span>个市州</span>
             </div>
             <div>
-              <strong class="num">{{ groupCategoryLabel(notice.groupName) }}</strong>
+              <strong class="num">{{ notice.groupName }}</strong>
               <span>所属组别</span>
             </div>
           </div>
@@ -221,14 +229,14 @@ onMounted(async () => {
             <span>组别</span>
           </div>
 
-          <div v-for="item in items" :key="item.publicationId" class="list-row">
+          <div v-for="item in items" :key="item.id" class="list-row">
             <span class="person">
-              <span class="person__avatar">{{ item.displayName.slice(0, 1) }}</span>
-              <strong>{{ item.displayName }}</strong>
+              <span class="person__avatar">{{ item.name.slice(0, 1) }}</span>
+              <strong>{{ item.name }}</strong>
             </span>
-            <span><span class="row-type">{{ typeLabel(item.targetType) }}</span></span>
+            <span><span class="row-type">{{ typeLabel(item.publicityType) }}</span></span>
             <span class="row-sub">{{ publicationSubtitle(item) }}</span>
-            <span>{{ item.groupName || '—' }}</span>
+            <span>{{ item.groupTypeLabel || '—' }}</span>
           </div>
 
           <el-empty v-if="!loading && !items.length" description="没有符合条件的公示信息" />

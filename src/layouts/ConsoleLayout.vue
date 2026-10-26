@@ -10,7 +10,7 @@ import { meApi } from '../api'
 import { MOCK_ENABLED } from '../api/http'
 import { homeForRoles, workspaceLabelForRoles } from '../utils/roles'
 import { openLoginDialog } from '../composables/useLoginDialog'
-import { DEMO_ACCOUNTS } from '../mock/data'
+import { DEMO_ACCOUNTS } from '../config/demoAccounts'
 
 const route = useRoute()
 const router = useRouter()

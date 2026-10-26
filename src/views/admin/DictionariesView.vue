@@ -25,6 +25,7 @@ const keyword = ref('')
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
+const editingVersion = ref(0)
 const saving = ref(false)
 const form = reactive({
   dictType: '',
@@ -82,6 +83,7 @@ async function load() {
 
 function openCreate() {
   editingId.value = null
+  editingVersion.value = 0
   Object.assign(form, {
     dictType: activeType.value || 'GROUP_CATEGORY',
     value: '',
@@ -94,6 +96,7 @@ function openCreate() {
 
 function openEdit(row: DictionaryItem) {
   editingId.value = row.id
+  editingVersion.value = row.version
   Object.assign(form, {
     dictType: row.dictType,
     value: row.value,
@@ -111,7 +114,7 @@ async function save() {
   saving.value = true
   try {
     if (editingId.value) {
-      await dictApi.update(editingId.value, { ...form })
+      await dictApi.update(editingId.value, { ...form, version: editingVersion.value })
       ElMessage.success('字典项已更新')
     } else {
       await dictApi.create({ ...form })
@@ -129,7 +132,14 @@ async function save() {
 
 async function toggleEnabled(row: DictionaryItem) {
   try {
-    await dictApi.update(row.id, { enabled: !row.enabled })
+    await dictApi.update(row.id, {
+      dictType: row.dictType,
+      value: row.value,
+      label: row.label,
+      sortOrder: row.sortOrder ?? 0,
+      enabled: !row.enabled,
+      version: row.version,
+    })
     ElMessage.success(row.enabled ? '字典项已停用' : '字典项已启用')
     await load()
   } catch {

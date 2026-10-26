@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Close, Menu as MenuIcon, UserFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
+import { MOCK_ENABLED } from '../api/http'
 import { useConsoleEntry } from '../composables/useConsoleEntry'
 import LoginDialog from '../components/auth/LoginDialog.vue'
 import PolicyAssistant from '../components/portal/PolicyAssistant.vue'
@@ -12,6 +13,8 @@ const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const mobileOpen = ref(false)
+/** 备案号属于部署信息，未配置时不展示占位号。 */
+const icpNumber = import.meta.env.VITE_ICP_NUMBER || ''
 
 const {
   consoleLabel,
@@ -142,7 +145,7 @@ function navigate(path: string) {
             </span>
           </div>
           <p>面向全省学校与球队的青少年足球赛事服务平台。</p>
-          <span class="footer-badge">演示环境 · 数据均为模拟数据</span>
+          <span v-if="MOCK_ENABLED" class="footer-badge">演示环境 · 数据均为模拟数据</span>
         </div>
 
         <div class="footer-col">
@@ -170,7 +173,7 @@ function navigate(path: string) {
       <div class="footer-bottom">
         <div class="container">
           <span>© 2026 省级中小学足球联赛组委会</span>
-          <span>川 ICP 备 00000000 号</span>
+          <span v-if="icpNumber">{{ icpNumber }}</span>
         </div>
       </div>
     </footer>

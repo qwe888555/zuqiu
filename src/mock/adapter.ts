@@ -1,4 +1,4 @@
-import type { AxiosAdapter, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
+﻿import type { AxiosAdapter, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import {
   DEMO_ACCOUNTS,
   accounts,
@@ -22,10 +22,8 @@ import {
   organizations,
   persons,
   portalResources,
-  publications,
   reviewRecords,
   rosterItems,
-  selectionRules,
   selectionScores,
   teamCoaches,
   teamMembers,
@@ -39,8 +37,6 @@ import type {
   Message,
   PageResult,
   Person,
-  SelectionResult,
-  SelectionSummaryRow,
   Team,
 } from '../api/types'
 
@@ -539,7 +535,9 @@ on('POST', '/files', ({ body, config }) => {
 
 on('POST', '/files/batch', ({ body, config }) => {
   const files = Array.isArray(body.files) ? body.files : []
-  return { files: files.map((f: unknown) => makeFileRecord(f, config)), count: files.length }
+  if (!files.length) throw new MockHttpError(400, 'VALIDATION_ERROR', '请至少选择一个文件')
+  if (files.length > 20) throw new MockHttpError(400, 'VALIDATION_ERROR', '单次批量上传不超过 20 个文件')
+  return files.map((f: unknown) => makeFileRecord(f, config))
 })
 
 function extractFile(body: any): File | { name?: string; size?: number; type?: string } {
@@ -585,6 +583,10 @@ on('GET', '/files/:id', ({ params }) => ({
 }))
 
 on('GET', '/files/:id/content', () => ({ success: true }))
+
+on('GET', '/files/:id/thumbnail', ({ params }) => ({
+  url: `https://picsum.photos/seed/${encodeURIComponent(params.id)}/320/200`,
+}))
 
 on('DELETE', '/files/:id', () => ({ success: true }))
 
@@ -1163,11 +1165,11 @@ function collectEnrollmentIssues(enrollment: Enrollment) {
         })
       }
     })
-    if (enrollment.playerCount > group.maxPlayers) {
+    if ((enrollment.playerCount ?? 0) > group.maxPlayers) {
       issues.push({ code: 'PLAYER_LIMIT', field: 'players', message: `名单人数超过组别上限 ${group.maxPlayers} 人`, severity: 'ERROR' })
     }
   }
-  if (enrollment.playerCount < MIN_ENROLLMENT_PLAYERS) {
+  if ((enrollment.playerCount ?? 0) < MIN_ENROLLMENT_PLAYERS) {
     issues.push({
       code: 'PLAYER_LIMIT',
       field: 'players',
@@ -1533,10 +1535,18 @@ on('DELETE', '/enrollments/:id/players/:rid', ({ params, config }) => {
   return { success: true }
 })
 
-on('POST', '/enrollments/:id/precheck', ({ params, config }) => {
+function assertVersion(current: number, expected: unknown) {
+  const version = Number(expected)
+  if (Number.isFinite(version) && version !== current) {
+    throw new MockHttpError(409, 'VERSION_CONFLICT', '报名单已被他人修改，请刷新后重试')
+  }
+}
+
+on('POST', '/enrollments/:id/precheck', ({ params, body, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
   assertEnrollmentEditable(config, enrollment)
+  assertVersion(enrollment.version, body.version)
   const issues = collectEnrollmentIssues(enrollment)
   return {
     passed: issues.every((issue) => issue.severity !== 'ERROR'),
@@ -1545,9 +1555,26 @@ on('POST', '/enrollments/:id/precheck', ({ params, config }) => {
   }
 })
 
-on('POST', '/enrollments/:id/submit', ({ params, config }) => {
+const submitIdempotency = new Map<string, string>()
+
+on('POST', '/enrollments/:id/submit', ({ params, body, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  const headers = (config.headers || {}) as Record<string, unknown>
+  const key = String(headers['Idempotency-Key'] || headers['idempotency-key'] || '')
+  if (!key || key.length < 8 || key.length > 128) {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', '提交需携带 8–128 字符的 Idempotency-Key')
+  }
+  const fingerprint = `${params.id}|${Number(body.version)}`
+  const seen = submitIdempotency.get(key)
+  if (seen) {
+    if (seen !== fingerprint) {
+      throw new MockHttpError(409, 'IDEMPOTENCY_CONFLICT', '同一幂等键提交了不同内容')
+    }
+    return enrollment
+  }
+  submitIdempotency.set(key, fingerprint)
+  assertVersion(enrollment.version, body.version)
   const account = requireUniversity(config)
   if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
     throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可提交该报名单')
@@ -1592,8 +1619,12 @@ on('POST', '/enrollments/:id/withdraw', ({ params, body, config }) => {
   if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
     throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可撤回该报名单')
   }
+  assertVersion(enrollment.version, body.version)
   if (!['PENDING_CITY_REVIEW', 'PENDING_PROVINCE_REVIEW'].includes(enrollment.status)) {
     throw new MockHttpError(409, 'INVALID_STATUS', '仅审核中的报名单可撤回')
+  }
+  if (!str(body.reason).trim()) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '撤回必须填写原因')
   }
   const from = enrollment.status
   enrollment.status = 'WITHDRAWN'
@@ -1631,14 +1662,19 @@ on('POST', '/enrollments/:id/reviews', ({ params, body, config }) => {
   } else {
     throw new MockHttpError(409, 'INVALID_STATUS', '当前报名单不在审核流程中')
   }
-  if (!['APPROVE', 'REJECT'].includes(str(body.decision))) {
+  assertVersion(enrollment.version, body.version)
+  if (!['APPROVE', 'REJECT', 'RETURN_FOR_CORRECTION'].includes(str(body.decision))) {
     throw new MockHttpError(400, 'VALIDATION_ERROR', '审核结论无效')
   }
-  if (body.decision === 'REJECT' && !str(body.reason).trim()) {
-    throw new MockHttpError(400, 'VALIDATION_ERROR', '驳回时必须填写原因')
+  if (body.decision !== 'APPROVE' && !str(body.reason).trim()) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '驳回或退回补正时必须填写原因')
   }
   if (body.decision === 'APPROVE') {
     enrollment.status = from === 'PENDING_CITY_REVIEW' ? 'PENDING_PROVINCE_REVIEW' : 'APPROVED'
+  } else if (body.decision === 'RETURN_FOR_CORRECTION') {
+    enrollment.status = 'DRAFT'
+    enrollment.editable = true
+    enrollment.latestReviewReason = str(body.reason)
   } else {
     enrollment.status = 'REJECTED'
     enrollment.editable = true
@@ -1665,9 +1701,10 @@ on('GET', '/enrollments/:id/reviews', ({ params, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
   assertEnrollmentVisible(config, enrollment)
-  return reviewRecords
+  const list = reviewRecords
     .filter((r) => r.enrollmentId === params.id)
-    .sort((a, b) => str(a.createdAt).localeCompare(str(b.createdAt)))
+    .sort((a, b) => str(b.createdAt).localeCompare(str(a.createdAt)))
+  return { items: list, page: 1, pageSize: list.length || 10, total: list.length }
 })
 
 on('GET', '/enrollments/:id/snapshots/:sid', ({ params, config }) => {
@@ -1789,7 +1826,7 @@ on('GET', '/enrollment-statistics', ({ query, config }) => {
             : e.cityName || '未分组'
     const row = groups.get(key) || { label, teamCount: 0, athleteCount: 0, pendingCount: 0, approvedCount: 0, rejectedCount: 0 }
     row.teamCount += 1
-    row.athleteCount += e.playerCount
+    row.athleteCount += e.playerCount ?? 0
     if (e.status === 'PENDING_CITY_REVIEW' || e.status === 'PENDING_PROVINCE_REVIEW') row.pendingCount += 1
     if (e.status === 'APPROVED') row.approvedCount += 1
     if (e.status === 'REJECTED') row.rejectedCount += 1
@@ -1877,12 +1914,18 @@ on('POST', '/matches/:id/publish', ({ params }) => {
   return { success: true }
 })
 
-on('POST', '/matches/:id/unpublish', ({ params }) => {
+on('POST', '/matches/:id/unpublish', ({ params, body }) => {
   const match = matches.find((m) => m.id === params.id)
-  if (match) {
-    match.published = false
-    match.version += 1
+  if (!match) throw new MockHttpError(404, 'NOT_FOUND', '比赛不存在')
+  if (!str(body.reason).trim()) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '下线必须填写原因')
   }
+  assertVersion(match.version, body.version)
+  if (!match.published) {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '该对阵尚未发布，无需下线')
+  }
+  match.published = false
+  match.version += 1
   return { success: true }
 })
 
@@ -1891,9 +1934,25 @@ on('GET', '/matches/:id/events', ({ params, query }) => {
   return pageOf(items, query)
 })
 
-on('POST', '/matches/:id/events', ({ params, body }) => {
+const eventIdempotency = new Map<string, string>()
+
+on('POST', '/matches/:id/events', ({ params, body, config }) => {
   const match = matches.find((m) => m.id === params.id)
   if (!match) throw new MockHttpError(404, 'NOT_FOUND', '比赛不存在')
+  const headers = (config.headers || {}) as Record<string, unknown>
+  const key = String(headers['Idempotency-Key'] || headers['idempotency-key'] || '')
+  if (!key || key.length < 8 || key.length > 128) {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', '录入事件需携带 8–128 字符的 Idempotency-Key')
+  }
+  const seenEventId = eventIdempotency.get(key)
+  if (seenEventId) {
+    const existing = matchEvents.find((e) => e.id === seenEventId)
+    if (existing) return existing
+  }
+  if (body.matchVersion != null) assertVersion(match.version, body.matchVersion)
+  if (match.status === 'FINISHED' || match.status === 'CANCELLED') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '比赛已结束或已取消，不能继续录入事件')
+  }
   const teamId = str(body.teamId)
   const isHome = teamId === match.homeTeamId
   const event = {
@@ -1938,6 +1997,7 @@ on('POST', '/matches/:id/events', ({ params, body }) => {
   match.scoreRevision += 1
   match.version += 1
   if (match.status === 'SCHEDULED') match.status = 'LIVE'
+  eventIdempotency.set(key, event.id)
   return event
 })
 
@@ -1948,15 +2008,28 @@ on('PUT', '/matches/:id/events/:eid', ({ params, body }) => {
   return event
 })
 
-on('DELETE', '/matches/:id/events/:eid', ({ params }) => {
+on('DELETE', '/matches/:id/events/:eid', ({ params, body }) => {
   const idx = matchEvents.findIndex((e) => e.id === params.eid)
   if (idx < 0) throw new MockHttpError(404, 'NOT_FOUND', '比赛事件不存在')
+  const event = matchEvents[idx]
+  assertVersion(event.version, body.version)
+  const match = matches.find((m) => m.id === params.id)
+  if (match && body.matchVersion != null) assertVersion(match.version, body.matchVersion)
+  // 撤销进球需回退比分，与文档“事件变更自动重算比分”保持一致
+  if (match && event.eventType === 'GOAL') {
+    const scoredByHome = event.teamId === match.homeTeamId
+    const homeScored = event.ownGoal ? !scoredByHome : scoredByHome
+    if (homeScored) match.homeScore = Math.max(0, (match.homeScore || 0) - 1)
+    else match.awayScore = Math.max(0, (match.awayScore || 0) - 1)
+    match.scoreRevision += 1
+    match.version += 1
+  }
   matchEvents.splice(idx, 1)
   return { success: true }
 })
 
-on('GET', '/matches/:id/documents', ({ params }) =>
-  matchDocuments.filter((d) => d.matchId === params.id),
+on('GET', '/matches/:id/documents', ({ params, query }) =>
+  pageOf(matchDocuments.filter((d) => d.matchId === params.id), query),
 )
 
 on('POST', '/matches/:id/documents', ({ params, body }) => {
@@ -2052,12 +2125,25 @@ on('GET', '/matches/:id/result', ({ params }) => {
   }
 })
 
-on('PUT', '/matches/:id/result', ({ params, body }) => {
+on('PUT', '/matches/:id/result', ({ params, body, config }) => {
   const match = matches.find((m) => m.id === params.id)
   if (!match) throw new MockHttpError(404, 'NOT_FOUND', '比赛不存在')
-  if (body.resultType !== 'NORMAL') {
-    match.homeScore = Number(body.manualHomeScore) || match.homeScore
-    match.awayScore = Number(body.manualAwayScore) || match.awayScore
+  assertVersion(match.version, body.version)
+  const resultType = str(body.resultType || 'NORMAL')
+  if (!['NORMAL', 'FORFEIT', 'ADMIN_CORRECTION'].includes(resultType)) {
+    throw new MockHttpError(400, 'VALIDATION_ERROR', '赛果类型无效')
+  }
+  if (resultType !== 'NORMAL') {
+    const account = accountFrom(config)
+    if (!account || !account.roles.some((role) => role === 'ADMIN' || role === 'PROVINCE_REVIEWER')) {
+      throw new MockHttpError(403, 'FORBIDDEN', '弃权与人工改判仅赛事管理员可录入')
+    }
+    if (!str(body.reason).trim()) throw new MockHttpError(400, 'VALIDATION_ERROR', '请填写人工改判原因')
+    if (body.manualHomeScore == null || body.manualAwayScore == null) {
+      throw new MockHttpError(400, 'VALIDATION_ERROR', '请填写人工主客队比分')
+    }
+    match.homeScore = Number(body.manualHomeScore)
+    match.awayScore = Number(body.manualAwayScore)
   }
   match.version += 1
   return {
@@ -2074,20 +2160,22 @@ on('PUT', '/matches/:id/result', ({ params, body }) => {
 
 on('POST', '/matches/:id/result/publish', ({ params }) => {
   const match = matches.find((m) => m.id === params.id)
-  if (match) {
-    match.resultPublished = true
-    match.status = 'FINISHED'
-    match.version += 1
+  if (!match) throw new MockHttpError(404, 'NOT_FOUND', '比赛不存在')
+  // 文档：仅 FINISHED 比赛可发布赛果
+  if (match.status !== 'FINISHED') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '仅已结束的比赛可发布赛果')
   }
+  match.resultPublished = true
+  match.version += 1
   return { success: true }
 })
 
-on('DELETE', '/matches/:id/result', ({ params }) => {
+on('DELETE', '/matches/:id/result', ({ params, body }) => {
   const match = matches.find((m) => m.id === params.id)
-  if (match) {
-    match.resultPublished = false
-    match.version += 1
-  }
+  if (!match) throw new MockHttpError(404, 'NOT_FOUND', '比赛不存在')
+  assertVersion(match.version, body.version)
+  match.resultPublished = false
+  match.version += 1
   return { success: true }
 })
 
@@ -2097,7 +2185,7 @@ on('GET', '/statistics/goals', ({ query }) => {
     const teamIds = teams.filter((t) => t.category === query.groupCategory).map((t) => t.id)
     items = items.filter((r) => teamIds.includes(r.teamId))
   }
-  return { rows: items, generatedAt: now() }
+  return pageOf(items, query)
 })
 
 // ---------------------------------------------------------------------------
@@ -2178,9 +2266,14 @@ on('POST', '/contents/:id/publish', ({ params }) => {
   return content
 })
 
-on('POST', '/contents/:id/unpublish', ({ params }) => {
+on('POST', '/contents/:id/unpublish', ({ params, body }) => {
   const content = contents.find((c) => c.id === params.id)
   if (!content) throw new MockHttpError(404, 'NOT_FOUND', '内容不存在')
+  if (!str(body.reason).trim()) throw new MockHttpError(400, 'VALIDATION_ERROR', '下线必须填写原因')
+  assertVersion(content.version, body.version)
+  if (content.status !== 'PUBLISHED') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '仅已发布内容可下线')
+  }
   content.status = 'OFFLINE'
   content.version += 1
   return content
@@ -2227,291 +2320,21 @@ on('DELETE', '/portal-resources/:id', ({ params }) => {
   portalResources.splice(idx, 1)
   return { success: true }
 })
-
-on('GET', '/publications', ({ query }) => {
-  let items = publications
-  if (query.targetType) items = items.filter((p) => p.targetType === query.targetType)
-  if (query.active !== undefined) items = items.filter((p) => p.active === (str(query.active) === 'true'))
-  if (query.eventId) items = items.filter((p) => p.eventId === query.eventId)
-  if (query.groupId) items = items.filter((p) => p.groupId === query.groupId)
-  if (query.cityOrgId) {
-    const cityName = organizations.find((o) => o.id === query.cityOrgId)?.name
-    items = items.filter((p) => p.cityName === cityName)
-  }
-  items = items.map((p) => {
-    const enrollment = p.targetType === 'ENROLLMENT' ? enrollments.find((e) => e.id === p.targetId) : undefined
-    const person = p.targetType !== 'ENROLLMENT' ? persons.find((x) => x.id === p.targetId) : undefined
-    return {
-      ...p,
-      targetName: p.targetName || enrollment?.teamName || person?.realName,
-      teamName: p.teamName || enrollment?.teamName || person?.teamName,
-      eventId: p.eventId || enrollment?.eventId,
-      groupId: p.groupId || enrollment?.groupId,
-      groupName: p.groupName || eventGroups.find((g) => g.id === (p.groupId || enrollment?.groupId))?.name,
-      cityOrgId: p.cityOrgId || enrollment?.cityOrgId,
-      cityName: p.cityName || enrollment?.cityName,
-    }
-  })
-  return pageOf(items, query)
-})
-
-on('POST', '/publications', ({ body }) => {
-  const enrollment = body.targetType === 'ENROLLMENT'
-    ? enrollments.find((e) => e.id === body.targetId)
-    : undefined
-  const person = body.targetType !== 'ENROLLMENT'
-    ? persons.find((p) => p.id === body.targetId)
-    : undefined
-  const eventId = body.eventId || enrollment?.eventId
-  const groupId = body.groupId || enrollment?.groupId
-  const item = {
-    id: nextId('pub'),
-    targetType: body.targetType,
-    targetId: str(body.targetId),
-    targetName: enrollment?.teamName || person?.realName,
-    teamName: enrollment?.teamName || person?.teamName,
-    eventId,
-    groupId,
-    groupName: eventGroups.find((g) => g.id === groupId)?.name,
-    cityOrgId: enrollment?.cityOrgId,
-    cityName: enrollment?.cityName,
-    active: true,
-    publishedAt: now(),
-    version: 1,
-  }
-  publications.unshift(item as never)
-  return item
-})
-
-on('POST', '/publications/:id/cancel', ({ params }) => {
-  const item = publications.find((p) => p.id === params.id)
-  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '公示记录不存在')
-  item.active = false
-  item.cancelledAt = now()
-  item.version += 1
-  return { success: true, id: item.id, version: item.version }
-})
-
-// ---------------------------------------------------------------------------
-// 遴选
-// ---------------------------------------------------------------------------
-
-on('GET', '/selection-rules', ({ query }) => {
-  let items = selectionRules
-  if (query.round) items = items.filter((r) => r.round === query.round)
-  if (query.groupId) items = items.filter((r) => r.groupId === query.groupId)
-  return pageOf(items, query)
-})
-
-on('GET', '/selection-rules/:id', ({ params }) => {
-  const rule = selectionRules.find((r) => r.id === params.id)
-  if (!rule) throw new MockHttpError(404, 'NOT_FOUND', '评分规则不存在')
-  return rule
-})
-
-on('POST', '/selection-rules', ({ body }) => {
-  const rule = {
-    id: nextId('rule'),
-    eventId: str(body.eventId),
-    eventName: events.find((e) => e.id === body.eventId)?.name,
-    groupId: str(body.groupId),
-    groupName: eventGroups.find((g) => g.id === body.groupId)?.name,
-    round: body.round || 'PRELIMINARY',
-    dimensions: body.dimensions || [],
-    topN: Number(body.topN) || 10,
-    tiePolicy: 'KEEP_TIES' as const,
-    confirmed: Boolean(body.confirmed),
-    version: 1,
-  }
-  selectionRules.unshift(rule as never)
-  return rule
-})
-
-on('PUT', '/selection-rules/:id', ({ params, body }) => {
-  const rule = selectionRules.find((r) => r.id === params.id)
-  if (!rule) throw new MockHttpError(404, 'NOT_FOUND', '评分规则不存在')
-  Object.assign(rule, body, { version: rule.version + 1 })
-  return rule
-})
-
-on('GET', '/selection-scores', ({ query }) => {
-  let items = selectionScores
-  if (query.ruleId) items = items.filter((s) => s.ruleId === query.ruleId)
-  if (query.round) items = items.filter((s) => s.round === query.round)
-  if (query.keyword) items = items.filter((s) => contains(s.athleteName, str(query.keyword)) || contains(s.teamName, str(query.keyword)))
-  return pageOf(items, query)
-})
-
-on('GET', '/selection-scores/:id', ({ params }) => {
-  const item = selectionScores.find((s) => s.id === params.id)
-  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '评分记录不存在')
-  return item
-})
-
-on('POST', '/selection-scores', ({ body }) => {
-  const rule = selectionRules.find((r) => r.id === body.ruleId)
-  const person = persons.find((p) => p.id === body.athleteId)
-  const member = teamMembers.find((m) => m.athleteId === body.athleteId)
-  const scores = body.dimensionScores || []
-  const total = (rule?.dimensions || []).reduce((sum, d, i) => {
-    const value = scores[i]?.value || 0
-    return sum + (value / d.maxScore) * 100 * d.weight
-  }, 0)
-  const item = {
-    id: nextId('score'),
-    ruleId: str(body.ruleId),
-    athleteId: str(body.athleteId),
-    athleteName: person?.realName || '',
-    teamName: teams.find((t) => t.id === member?.teamId)?.name,
-    groupName: rule?.groupName,
-    round: rule?.round || 'PRELIMINARY',
-    dimensionScores: scores,
-    remark: body.remark,
-    totalScore: Math.round(total * 100) / 100,
-    scoreRevision: 13,
-    operatorName: '当前用户',
-    version: 1,
-    createdAt: now(),
-  }
-  selectionScores.push(item as never)
-  return item
-})
-
-on('PUT', '/selection-scores/:id', ({ params, body }) => {
-  const item = selectionScores.find((s) => s.id === params.id)
-  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '评分记录不存在')
-  Object.assign(item, body, { version: item.version + 1, scoreRevision: 14 })
-  return item
-})
-
-on('GET', '/selection-summaries', ({ query }) => {
-  const rule = selectionRules.find((r) => r.id === query.ruleId) || selectionRules[0]
-  const scores = selectionScores.filter((s) => s.ruleId === rule.id)
-  const sorted = [...scores].sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0))
-  let lastScore: number | null = null
-  let lastRank = 0
-  const rows: SelectionSummaryRow[] = sorted.map((s, i) => {
-    const score = s.totalScore || 0
-    const rank = lastScore === score ? lastRank : i + 1
-    lastScore = score
-    lastRank = rank
-    return {
-      athleteId: s.athleteId,
-      athleteName: s.athleteName,
-      teamId: teamMembers.find((m) => m.athleteId === s.athleteId)?.teamId,
-      teamName: s.teamName,
-      totalScore: score,
-      rank,
-    }
-  })
-  return { ruleId: rule.id, round: rule.round, scoreRevision: 12, rows }
-})
-
-on('GET', '/selection-summaries/export.xlsx', () => ({ success: true }))
-
-on('POST', '/selection-results/generate', ({ body }) => {
-  const rule = selectionRules.find((r) => r.id === body.ruleId)
-  if (!rule) throw new MockHttpError(404, 'NOT_FOUND', '评分规则不存在')
-  if (!rule.confirmed) throw new MockHttpError(409, 'STATE_CONFLICT', '评分规则尚未确认，不能生成正式结果')
-  const scores = selectionScores.filter((s) => s.ruleId === rule.id)
-  const sorted = [...scores].sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0))
-  const cutoff = sorted[Math.min(rule.topN, sorted.length) - 1]?.totalScore ?? 0
-  let lastScore: number | null = null
-  let lastRank = 0
-  const rows: SelectionSummaryRow[] = sorted
-    .filter((s) => (s.totalScore || 0) >= cutoff)
-    .map((s, i) => {
-      const score = s.totalScore || 0
-      const rank = lastScore === score ? lastRank : i + 1
-      lastScore = score
-      lastRank = rank
-      return {
-        athleteId: s.athleteId,
-        athleteName: s.athleteName,
-        teamId: teamMembers.find((m) => m.athleteId === s.athleteId)?.teamId,
-        teamName: s.teamName,
-        totalScore: score,
-        rank,
-      }
-    })
-  const result: SelectionResult = {
-    id: nextId('result'),
-    eventId: rule.eventId,
-    eventName: rule.eventName,
-    groupId: rule.groupId,
-    groupName: rule.groupName,
-    round: rule.round,
-    ruleId: rule.id,
-    sourceScoreRevision: 12,
-    stale: false,
-    rows,
-    version: 1,
-    createdAt: now(),
-  }
-  selectionResults.unshift(result)
-  return result
-})
-
-const selectionResults: SelectionResult[] = [
-  {
-    id: 'result_primary_pre',
-    eventId: 'event_primary_2026',
-    eventName: events[0].name,
-    groupId: 'group_primary_boys',
-    groupName: '小学男子组',
-    round: 'PRELIMINARY',
-    ruleId: 'rule_primary_pre_2026',
-    sourceScoreRevision: 12,
-    stale: false,
-    rows: [],
-    version: 1,
-    createdAt: '2026-10-17T09:30:00+08:00',
-  },
-]
-
-function ensureResultRows(result: SelectionResult): SelectionResult {
-  if (result.rows.length) return result
-  const rule = selectionRules.find((r) => r.id === result.ruleId)
-  const scores = selectionScores.filter((s) => s.ruleId === result.ruleId)
-  const sorted = [...scores].sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0))
-  const cutoff = sorted[Math.min(rule?.topN || 8, sorted.length) - 1]?.totalScore ?? 0
-  result.rows = sorted
-    .filter((s) => (s.totalScore || 0) >= cutoff)
-    .map((s, i) => ({
-      athleteId: s.athleteId,
-      athleteName: s.athleteName,
-      teamId: teamMembers.find((m) => m.athleteId === s.athleteId)?.teamId,
-      teamName: s.teamName,
-      totalScore: s.totalScore || 0,
-      rank: i + 1,
-    }))
-  return result
-}
-
-on('GET', '/selection-results', ({ query }) => {
-  let items = selectionResults.map(ensureResultRows)
-  if (query.groupId) items = items.filter((r) => r.groupId === query.groupId)
-  if (query.round) items = items.filter((r) => r.round === query.round)
-  return pageOf(items, query)
-})
-
-on('GET', '/selection-results/:id', ({ params }) => {
-  const item = selectionResults.find((r) => r.id === params.id)
-  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '遴选结果不存在')
-  return ensureResultRows(item)
-})
-
 // ---------------------------------------------------------------------------
 // 身份核验
 // ---------------------------------------------------------------------------
 
-on('GET', '/identity-checks', ({ query }) => {
+function listIdentityChecks({ query }: { query: Record<string, unknown> }) {
   let items = identityChecks
   if (query.matchId) items = items.filter((i) => i.matchId === query.matchId)
   if (query.manualStatus) items = items.filter((i) => i.manualStatus === query.manualStatus)
   if (query.machineStatus) items = items.filter((i) => i.machineStatus === query.machineStatus)
   return pageOf(items, query)
-})
+}
+
+on('GET', '/identity-checks', listIdentityChecks)
+// 后端契约路径是 /identity-checks/list，必须在 :id 动态路由之前注册。
+on('GET', '/identity-checks/list', listIdentityChecks)
 
 on('GET', '/identity-checks/:id', ({ params }) => {
   const item = identityChecks.find((i) => i.id === params.id)
@@ -2554,6 +2377,23 @@ on('POST', '/identity-checks/:id/manual-review', ({ params, body }) => {
 // ---------------------------------------------------------------------------
 // 公开门户
 // ---------------------------------------------------------------------------
+
+on('GET', '/public/events', ({ query }) => {
+  let items = events.filter((e) => e.status !== 'DRAFT')
+  if (query.season) items = items.filter((e) => e.season === query.season)
+  if (query.eventCategory) items = items.filter((e) => e.eventCategory === query.eventCategory)
+  const mapped = items.map((e) => ({
+    id: e.id,
+    name: e.name,
+    season: e.season,
+    eventCategory: e.eventCategory,
+    status: e.status,
+    registrationOpensAt: e.registrationOpensAt,
+    registrationClosesAt: e.registrationClosesAt,
+    description: e.description || '',
+  }))
+  return pageOf(mapped, query)
+})
 
 on('GET', '/public/contents', ({ query }) => {
   let items = contents.filter((c) => c.status === 'PUBLISHED')
@@ -2686,25 +2526,7 @@ on('GET', '/public/statistics/goals', ({ query }) => {
     const teamIds = teams.filter((t) => t.category === query.groupCategory).map((t) => t.id)
     items = items.filter((r) => teamIds.includes(r.teamId))
   }
-  return { rows: items, generatedAt: now() }
-})
-
-on('GET', '/public/publications', ({ query }) => {
-  let items = publications.filter((p) => p.active)
-  if (query.targetType) items = items.filter((p) => p.targetType === query.targetType)
-  if (query.groupName) items = items.filter((p) => contains(p.groupName, str(query.groupName)))
-  if (query.cityName) items = items.filter((p) => contains(p.cityName, str(query.cityName)))
-  if (query.keyword) items = items.filter((p) => contains(p.targetName, str(query.keyword)) || contains(p.teamName, str(query.keyword)))
-  const mapped = items.map((p) => ({
-    publicationId: p.id,
-    targetType: p.targetType,
-    displayName: p.targetName,
-    teamName: p.teamName,
-    cityName: p.cityName,
-    groupName: p.groupName,
-    publicPhotoUrl: '',
-  }))
-  return pageOf(mapped, query)
+  return pageOf(items, query)
 })
 
 on('POST', '/public/policy-questions', ({ body }) => {

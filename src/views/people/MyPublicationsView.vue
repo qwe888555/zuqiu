@@ -1,38 +1,52 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import dayjs from 'dayjs'
 import { Medal, Refresh, View } from '@element-plus/icons-vue'
-import { meApi, publicationApi } from '../../api'
-import type { Person, Publication } from '../../api/types'
+import { meApi, publicApi } from '../../api'
+import { publicityApi } from '../../api/selection'
+import type { Person, PublicityRecord } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
-import StatusTag from '../../components/common/StatusTag.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const person = ref<Person | null>(null)
-const rows = ref<Publication[]>([])
+const rows = ref<PublicityRecord[]>([])
 const activeFilter = ref<'all' | 'active' | 'cancelled'>('all')
 
-const mine = computed(() => {
-  const personId = person.value?.id
-  if (!personId) return []
-  return rows.value.filter((item) => item.targetId === personId)
-})
-
 const filtered = computed(() => {
-  if (activeFilter.value === 'active') return mine.value.filter((item) => item.active)
-  if (activeFilter.value === 'cancelled') return mine.value.filter((item) => !item.active)
-  return mine.value
+  if (activeFilter.value === 'active') return rows.value.filter((item) => item.status === 'PUBLISHED')
+  if (activeFilter.value === 'cancelled') return rows.value.filter((item) => item.status === 'CANCELLED')
+  return rows.value
 })
 
-const activeCount = computed(() => mine.value.filter((item) => item.active).length)
+const activeCount = computed(() => rows.value.filter((item) => item.status === 'PUBLISHED').length)
 
 async function load() {
   loading.value = true
   try {
     person.value = await meApi.profile()
-    const res = await publicationApi.list({ page: 1, pageSize: 200 })
-    rows.value = res.items
+    const current = person.value
+    // 门户列表只含公示中的记录，本人页面还需要已撤销记录，所以走 CMS 管理列表。
+    // sourceId 是报名档案（名册/教练关系/报名单）的主键，不是人员 ID，不能用来归属；
+    // 运动员与教练公示都带脱敏证件号，用它和本人档案比对，缺失时再退回姓名 + 学校。
+    const matchesSelf = (item: PublicityRecord) => {
+      if (item.publicityType === 'TEAM') return false
+      if (item.idCardMasked) {
+        return !!current.maskedIdNumber && item.idCardMasked === current.maskedIdNumber
+      }
+      return item.name === current.realName && item.schoolName === current.schoolName
+    }
+    const events = await publicApi.events({ page: 1, pageSize: 100 })
+    const collected: PublicityRecord[] = []
+    for (const event of events.items) {
+      const res = await publicityApi.manageList({
+        eventId: event.id,
+        keyword: current.realName,
+        page: 1,
+        size: 100,
+      })
+      collected.push(...res.items.filter(matchesSelf))
+    }
+    rows.value = collected.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
   } catch {
     rows.value = []
   } finally {
@@ -79,19 +93,19 @@ onMounted(load)
       <div v-loading="loading" class="publication-list">
         <article v-for="item in filtered" :key="item.id" class="publication-card">
           <div class="publication-card__head">
-            <span class="publication-card__tag">
-              {{ item.targetType === 'ATHLETE' ? '运动员' : item.targetType === 'COACH' ? '教练员' : '参赛单位' }}
-            </span>
-            <StatusTag :status="item.active" kind="publication" />
+            <span class="publication-card__tag">{{ item.publicityTypeLabel }}</span>
+            <el-tag :type="item.status === 'PUBLISHED' ? 'success' : 'info'" size="small" effect="plain">
+              {{ item.statusLabel }}
+            </el-tag>
           </div>
-          <h3>{{ item.targetName || person?.realName || '—' }}</h3>
-          <p>{{ item.teamName || '球队未登记' }} · {{ item.groupName || '组别未登记' }}</p>
+          <h3>{{ item.name || person?.realName || '—' }}</h3>
+          <p>{{ item.teamName || '球队未登记' }} · {{ item.groupTypeLabel || '组别未登记' }}</p>
           <div class="publication-card__meta">
-            <span>市州：{{ item.cityName || '—' }}</span>
-            <span>公示时间：{{ item.publishedAt ? dayjs(item.publishedAt).format('YYYY-MM-DD') : '—' }}</span>
+            <span>市州：{{ item.city || '—' }}</span>
+            <span>公示时间：{{ item.publishedAt || '—' }}</span>
           </div>
-          <div v-if="!item.active" class="publication-card__cancelled">
-            撤销于 {{ item.cancelledAt ? dayjs(item.cancelledAt).format('YYYY-MM-DD') : '—' }}
+          <div v-if="item.status === 'CANCELLED'" class="publication-card__cancelled">
+            撤销于 {{ item.cancelledAt || '—' }}{{ item.cancelReason ? ` · ${item.cancelReason}` : '' }}
           </div>
         </article>
         <el-empty v-if="!loading && !filtered.length" description="暂无公示记录" :image-size="90" />

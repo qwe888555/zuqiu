@@ -52,7 +52,13 @@ const form = reactive({
   referees: [] as { name: string; role: string; level?: string }[],
 })
 
-const refereeRoles = ['主裁判', '助理裁判', '第四官员', '比赛监督']
+// 后端只接受岗位枚举，展示名在 labels 中映射。
+const refereeRoles = [
+  { value: 'REFEREE', label: '主裁判' },
+  { value: 'ASSISTANT', label: '助理裁判' },
+  { value: 'FOURTH_OFFICIAL', label: '第四官员' },
+  { value: 'OTHER', label: '比赛监督' },
+]
 
 async function load() {
   loading.value = true
@@ -62,7 +68,8 @@ async function load() {
       pageSize: pageSize.value,
       eventId: filters.eventId || undefined,
       status: filters.status || undefined,
-      keyword: filters.keyword || undefined,
+      // 成员5 对阵列表支持 teamName 模糊筛选，没有 keyword 参数。
+      teamName: filters.keyword || undefined,
     })
     rows.value = res.items
     total.value = res.total
@@ -141,7 +148,7 @@ async function openEdit(row: Match) {
 }
 
 function addReferee() {
-  form.referees.push({ name: '', role: '主裁判', level: '' })
+  form.referees.push({ name: '', role: 'REFEREE', level: '' })
 }
 
 async function saveMatch() {
@@ -174,10 +181,22 @@ async function saveMatch() {
 async function togglePublish(row: Match) {
   try {
     if (row.published) {
-      await matchApi.unpublish(row.id)
-      ElMessage.success('已取消发布')
+      const { value } = await ElMessageBox.prompt(
+        '下线后该对阵将从门户移除，请填写下线原因（会写入审计日志）。',
+        '下线对阵',
+        {
+          confirmButtonText: '确认下线',
+          cancelButtonText: '取消',
+          type: 'warning',
+          inputType: 'textarea',
+          inputPlaceholder: '例如：开球时间调整，重新编排',
+          inputValidator: (val) => (val && val.trim().length >= 2 ? true : '请填写下线原因'),
+        },
+      )
+      await matchApi.unpublish(row.id, row.version, value.trim())
+      ElMessage.success('已下线该对阵')
     } else {
-      await matchApi.publish(row.id)
+      await matchApi.publish(row.id, row.version)
       ElMessage.success('比赛已发布至门户')
     }
     await load()
@@ -369,7 +388,12 @@ onMounted(() => {
             <div v-for="(referee, index) in form.referees" :key="index" class="referee-row">
               <el-input v-model="referee.name" placeholder="姓名" />
               <el-select v-model="referee.role" style="width: 130px">
-                <el-option v-for="role in refereeRoles" :key="role" :label="role" :value="role" />
+                <el-option
+                  v-for="role in refereeRoles"
+                  :key="role.value"
+                  :label="role.label"
+                  :value="role.value"
+                />
               </el-select>
               <el-input v-model="referee.level" placeholder="等级（选填）" style="width: 130px" />
               <el-button link type="danger" :icon="Delete" @click="form.referees.splice(index, 1)" />

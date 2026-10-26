@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
@@ -10,6 +10,7 @@ import type { EnrollmentAttachment, ReviewRecord } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import { reviewActionLabel } from '../../config/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -58,7 +59,8 @@ async function load() {
   reviews.value = []
   try {
     detail.value = await enrollmentApi.get(enrollmentId.value)
-    reviews.value = await enrollmentApi.reviews(enrollmentId.value)
+    const reviewPage = await enrollmentApi.reviews(enrollmentId.value)
+    reviews.value = reviewPage.items
   } catch {
     detail.value = null
   } finally {
@@ -86,7 +88,7 @@ async function approve() {
       { confirmButtonText: '确认通过', cancelButtonText: '再核对一下', type: 'success' },
     )
     reviewing.value = true
-    await enrollmentApi.review(detail.value.id, { decision: 'APPROVE' })
+    await enrollmentApi.review(detail.value.id, detail.value.version, { decision: 'APPROVE' })
     ElMessage.success('审核已通过')
     goBack()
   } catch {
@@ -110,7 +112,7 @@ async function reject() {
       },
     )
     reviewing.value = true
-    await enrollmentApi.review(detail.value.id, { decision: 'REJECT', reason: value })
+    await enrollmentApi.review(detail.value.id, detail.value.version, { decision: 'REJECT', reason: value })
     ElMessage.success('已驳回并通知报送学校')
     goBack()
   } catch {
@@ -169,7 +171,7 @@ watch(enrollmentId, load)
             <div><span>赛事 / 组别</span><strong>{{ detail.eventName }} · {{ detail.groupName }}</strong></div>
             <div><span>联系人</span><strong>{{ detail.contactName }}</strong></div>
             <div><span>联系电话</span><strong>{{ detail.maskedContactPhone || '—' }}</strong></div>
-            <div><span>球员人数</span><strong class="num">{{ detail.playerCount }}</strong></div>
+            <div><span>球员人数</span><strong class="num">{{ detail.playerCount ?? detail.players?.length ?? '—' }}</strong></div>
             <div><span>提交次数</span><strong class="num">{{ detail.submissionNo }}</strong></div>
             <div><span>最后更新</span><strong>{{ dayjs(detail.updatedAt).format('YYYY-MM-DD HH:mm') }}</strong></div>
           </div>
@@ -211,9 +213,9 @@ watch(enrollmentId, load)
               <div v-for="record in reviews" :key="record.id" class="history-row">
                 <span class="history-row__dot" :class="`is-${(record.action || '').toLowerCase()}`" />
                 <div>
-                  <strong>{{ record.action === 'APPROVE' ? '审核通过' : record.action === 'REJECT' ? '审核驳回' : record.action === 'WITHDRAW' ? '撤回' : '提交' }}</strong>
+                  <strong>{{ reviewActionLabel(record.action) }}</strong>
                   <p v-if="record.reason">{{ record.reason }}</p>
-                  <small>{{ record.operatorName }} · {{ dayjs(record.createdAt).format('YYYY-MM-DD HH:mm') }}</small>
+                  <small>{{ record.operatorName || record.operatorAccountId || '—' }} · {{ dayjs(record.createdAt).format('YYYY-MM-DD HH:mm') }}</small>
                 </div>
               </div>
               <el-empty v-if="!reviews.length" description="暂无审核记录" :image-size="60" />

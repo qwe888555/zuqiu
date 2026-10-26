@@ -1,4 +1,4 @@
-import { http } from './http'
+import { http, newIdempotencyKey } from './http'
 import type {
   Account,
   AuditLog,
@@ -30,18 +30,14 @@ import type {
   PolicyAnswer,
   PortalResource,
   PrecheckResult,
-  Publication,
   PublicContent,
+  PublicEvent,
   PublicLiveFeed,
   PublicLivePost,
   PublicMatch,
   PublicResource,
   ReviewRecord,
   RosterItem,
-  SelectionResult,
-  SelectionRule,
-  SelectionScore,
-  SelectionSummary,
   StatRow,
   Team,
   TeamCoach,
@@ -51,7 +47,9 @@ import type {
 type Query = Record<string, unknown>
 
 export const authApi = {
-  login: (data: { username: string; password: string }) => http.post<LoginResult>('/auth/login', data),
+  login: (data: { username: string; password: string }) =>
+    // 登录失败由 auth store 统一给出提示，避免把后端的字段校验文案抛给用户。
+    http.post<LoginResult>('/auth/login', data, { silentError: true }),
   register: (data: Query) => http.post<{ success: boolean }>('/auth/registrations', data),
   logout: () => http.post<{ success: boolean }>('/auth/logout'),
 }
@@ -76,11 +74,24 @@ export const meApi = {
 
 export const accountApi = {
   list: (params: Query) => http.get<PageResult<Account>>('/accounts', params),
+  get: (id: string) => http.get<Account>(`/accounts/${id}`),
   create: (data: Query) => http.post<Account>('/accounts', data),
   update: (id: string, data: Query) => http.put<Account>(`/accounts/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/accounts/${id}`, { version }),
-  resetPassword: (id: string) => http.post<{ success: boolean }>(`/accounts/${id}/password-reset`),
-  invite: () => http.post<{ registrationToken: string; expiresAt: string }>('/accounts/registration-invitations'),
+  resetPassword: (
+    id: string,
+    data: { version: number; newPassword: string; forceChangeOnNextLogin?: boolean },
+  ) => http.post<{ success: boolean }>(`/accounts/${id}/password-reset`, data),
+  invite: (data: {
+    kind: 'ATHLETE' | 'COACH'
+    orgId: string
+    personId?: string
+    expiresInMinutes?: number
+  }) =>
+    http.post<{ registrationToken: string; expiresAt: string }>(
+      '/accounts/registration-invitations',
+      data,
+    ),
 }
 
 export const orgApi = {
@@ -111,8 +122,20 @@ export const fileApi = {
     form.append('category', category)
     return http.postForm<FileRecord>('/files', form)
   },
+  /** 批量上传：一次最多 20 个文件，返回与单文件同构的记录数组 */
+  uploadBatch: (files: File[], ownerType = 'PERSON', ownerId = '', category = 'MATERIAL') => {
+    const form = new FormData()
+    files.forEach((file) => form.append('files', file))
+    form.append('ownerType', ownerType)
+    form.append('ownerId', ownerId)
+    form.append('category', category)
+    return http.postForm<FileRecord[]>('/files/batch', form)
+  },
+  meta: (fileId: string) => http.get<FileRecord>(`/files/${fileId}`),
+  thumbnail: (fileId: string) => http.get<{ url: string }>(`/files/${fileId}/thumbnail`),
   download: (fileId: string, fileName: string) =>
     http.download(`/files/${fileId}/content`, fileName),
+  remove: (fileId: string) => http.delete<{ success: boolean }>(`/files/${fileId}`),
 }
 
 export const personApi = {
@@ -164,9 +187,16 @@ export const eventApi = {
   create: (data: Query) => http.post<Event>('/events', data),
   update: (id: string, data: Query) => http.put<Event>(`/events/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/events/${id}`, { version }),
-  groups: (id: string) => http.get<PageResult<EventGroup>>(`/events/${id}/groups`),
-  availableGroups: (id: string) =>
-    http.get<EventGroup[]>(`/available-events/${id}/groups`),
+  groups: (id: string) =>
+    http.get<PageResult<EventGroup>>(`/events/${id}/groups`, { page: 1, pageSize: 100 }),
+  /** 后端返回分页信封，这里统一拍平成数组，调用方无需关心 page/pageSize。 */
+  availableGroups: async (id: string) => {
+    const res = await http.get<PageResult<EventGroup>>(`/available-events/${id}/groups`, {
+      page: 1,
+      pageSize: 100,
+    })
+    return res.items
+  },
   createGroup: (id: string, data: Query) => http.post<EventGroup>(`/events/${id}/groups`, data),
   updateGroup: (id: string, groupId: string, data: Query) =>
     http.put<EventGroup>(`/events/${id}/groups/${groupId}`, data),
@@ -181,99 +211,206 @@ export interface EnrollmentDetail extends Enrollment {
   attachments?: EnrollmentAttachment[]
 }
 
+/** 报名接口只返回 ID 与 teamName；名称缺失时回退到 ID，人数由名单推导。 */
+function normalizeEnrollment<T extends Enrollment>(raw: T & { players?: RosterItem[] }): T {
+  return {
+    ...raw,
+    eventName: raw.eventName || raw.eventId,
+    groupName: raw.groupName || raw.groupId,
+    playerCount:
+      typeof raw.playerCount === 'number'
+        ? raw.playerCount
+        : Array.isArray(raw.players)
+          ? raw.players.length
+          : undefined,
+  }
+}
+
 export const enrollmentApi = {
-  list: (params: Query) => http.get<PageResult<Enrollment>>('/enrollments', params),
-  get: (id: string) => http.get<EnrollmentDetail>(`/enrollments/${id}`),
+  list: async (params: Query) => {
+    const page = await http.get<PageResult<Enrollment>>('/enrollments', params)
+    return { ...page, items: page.items.map((item) => normalizeEnrollment(item)) }
+  },
+  get: async (id: string) =>
+    normalizeEnrollment(await http.get<EnrollmentDetail>(`/enrollments/${id}`)),
   create: (data: Query) => http.post<Enrollment>('/enrollments', data),
   update: (id: string, data: Query) => http.put<Enrollment>(`/enrollments/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/enrollments/${id}`, { version }),
   players: (id: string, params?: Query) =>
     http.get<PageResult<RosterItem>>(`/enrollments/${id}/players`, params),
+  player: (id: string, rid: string) => http.get<RosterItem>(`/enrollments/${id}/players/${rid}`),
   addPlayer: (id: string, data: Query) => http.post<RosterItem>(`/enrollments/${id}/players`, data),
   updatePlayer: (id: string, rid: string, data: Query) =>
     http.put<RosterItem>(`/enrollments/${id}/players/${rid}`, data),
   removePlayer: (id: string, rid: string, version?: number) =>
     http.delete<{ success: boolean }>(`/enrollments/${id}/players/${rid}`, { version }),
-  precheck: (id: string) => http.post<PrecheckResult>(`/enrollments/${id}/precheck`),
-  submit: (id: string) => http.post<Enrollment>(`/enrollments/${id}/submit`),
-  withdraw: (id: string, reason: string) => http.post<Enrollment>(`/enrollments/${id}/withdraw`, { reason }),
-  reviews: (id: string) => http.get<ReviewRecord[]>(`/enrollments/${id}/reviews`),
-  review: (id: string, data: { decision: 'APPROVE' | 'REJECT'; reason?: string }) =>
-    http.post<Enrollment>(`/enrollments/${id}/reviews`, data),
-  attachments: (id: string) => http.get<EnrollmentAttachment[]>(`/enrollments/${id}/attachments`),
+  /** 预检为纯规则校验，需带当前报名单版本，结果中的 checkedVersion 用于提交前核对 */
+  precheck: (id: string, version: number) =>
+    http.post<PrecheckResult>(`/enrollments/${id}/precheck`, { version }),
+  /** 提交需带 version 与 Idempotency-Key，避免重复冻结快照 */
+  submit: (id: string, version: number) =>
+    http.postIdempotent<Enrollment>(`/enrollments/${id}/submit`, { version }, newIdempotencyKey('submit')),
+  withdraw: (id: string, version: number, reason: string) =>
+    http.post<Enrollment>(`/enrollments/${id}/withdraw`, { version, reason }),
+  reviews: (id: string) => http.get<PageResult<ReviewRecord>>(`/enrollments/${id}/reviews`),
+  /** 审核结论仅 APPROVE / REJECT / RETURN_FOR_CORRECTION，层级由后端按角色与状态推导 */
+  review: (
+    id: string,
+    version: number,
+    data: { decision: 'APPROVE' | 'REJECT' | 'RETURN_FOR_CORRECTION'; reason?: string },
+  ) =>
+    http.postIdempotent<Enrollment>(
+      `/enrollments/${id}/reviews`,
+      { version, ...data },
+      newIdempotencyKey('review'),
+    ),
+  snapshot: (id: string, snapshotId: string) =>
+    http.get<Record<string, unknown>>(`/enrollments/${id}/snapshots/${snapshotId}`),
+  attachments: (id: string, params?: Query) =>
+    http.get<PageResult<EnrollmentAttachment>>(`/enrollments/${id}/attachments`, params),
   addAttachment: (id: string, data: Query) =>
     http.post<EnrollmentAttachment>(`/enrollments/${id}/attachments`, data),
   removeAttachment: (id: string, aid: string, version?: number) =>
     http.delete<{ success: boolean }>(`/enrollments/${id}/attachments/${aid}`, { version }),
-  importPlayers: (id: string, mode: 'VALIDATE_ONLY' | 'APPLY_VALID_ROWS', file?: File) => {
-    if (file) {
-      const form = new FormData()
-      form.append('mode', mode)
-      form.append('file', file)
-      return http.postForm<ImportReport>(`/enrollments/${id}/imports/players`, form)
-    }
-    return http.post<ImportReport>(`/enrollments/${id}/imports/players`, { mode })
+  importPlayers: (
+    id: string,
+    version: number,
+    mode: 'VALIDATE_ONLY' | 'APPLY_VALID_ROWS',
+    file: File,
+  ) => {
+    const form = new FormData()
+    form.append('mode', mode)
+    form.append('file', file)
+    return http.postForm<ImportReport>(`/enrollments/${id}/imports/players?version=${version}`, form)
   },
-  importPhotos: (id: string, file?: File) => {
-    if (file) {
-      const form = new FormData()
-      form.append('file', file)
-      return http.postForm<ImportReport>(`/enrollments/${id}/imports/photos`, form)
-    }
-    return http.post<ImportReport>(`/enrollments/${id}/imports/photos`)
+  importPhotos: (id: string, version: number, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return http.postForm<ImportReport>(`/enrollments/${id}/imports/photos?version=${version}`, form)
   },
   downloadRosterTemplate: () =>
     http.download('/imports/templates/roster.xlsx', '球员名单导入模板.xlsx'),
   downloadImportErrors: (batchId: string) =>
     http.download(`/imports/${batchId}/errors.csv`, `导入错误清单-${batchId}.csv`),
-  statistics: (params: Query) => http.get<StatRow[]>('/enrollment-statistics', params),
-  downloadRegistration: (id: string, enrollmentNo?: string) =>
+  statistics: (params: Query) =>
+    http.get<PageResult<StatRow>>('/enrollment-statistics', params),
+  downloadRegistration: (id: string, enrollmentNo?: string, snapshotId?: string) =>
     http.download(
       `/enrollments/${id}/documents/registration.pdf`,
       `报名表-${enrollmentNo || id}.pdf`,
+      'get',
+      undefined,
+      snapshotId ? { snapshotId } : undefined,
     ),
   downloadPlayers: (id: string, enrollmentNo?: string) =>
     http.download(
       `/enrollments/${id}/documents/players.docx`,
       `球员信息表-${enrollmentNo || id}.docx`,
     ),
-  exportRegistrations: (params: Query) =>
-    http.download('/enrollment-exports/registrations.xlsx', '赛事报名情况.xlsx', 'post', params),
-  exportDocuments: (params: Query) =>
-    http.download('/enrollment-exports/documents.zip', '报名资料打包.zip', 'post', params),
+  /** 导出按文档要求以 filters + scope 提交，避免把筛选参数拼到 URL */
+  exportRegistrations: (payload: ExportPayload) =>
+    http.download('/enrollment-exports/registrations.xlsx', '赛事报名情况.xlsx', 'post', payload),
+  exportDocuments: (payload: ExportPayload) =>
+    http.download('/enrollment-exports/documents.zip', '报名资料打包.zip', 'post', payload),
+}
+
+export interface ExportPayload {
+  filters: {
+    eventId: string
+    groupId?: string
+    cityOrgId?: string
+    teamName?: string
+    subjectType?: string
+    status?: string
+  }
+  scope: 'FILTERED' | 'SELECTED'
+  enrollmentIds?: string[]
+}
+
+/**
+ * 成员5 文档「待接入项」明确：队名/赛事名暂用 ID 占位，等成员6 公示名册落地。
+ * 这里做前端兜底，避免模板对 undefined 做 slice() 导致白屏。
+ */
+function normalizeMatch(raw: Match): Match {
+  return {
+    ...raw,
+    eventName: raw.eventName || raw.eventId,
+    groupName: raw.groupName || raw.groupId,
+    homeTeamName: raw.homeTeamName || raw.homeTeamId || '主队',
+    awayTeamName: raw.awayTeamName || raw.awayTeamId || '客队',
+  }
+}
+
+function normalizeMatchPage(page: PageResult<Match>): PageResult<Match> {
+  return { ...page, items: page.items.map(normalizeMatch) }
+}
+
+/** 成员5 的列表类接口均返回分页对象，部分页面按数组消费。 */
+function unwrapPage<T>(payload: PageResult<T> | T[]): T[] {
+  return Array.isArray(payload) ? payload : payload.items
 }
 
 export const matchApi = {
-  list: (params: Query) => http.get<PageResult<Match>>('/matches', params),
-  get: (id: string) => http.get<Match>(`/matches/${id}`),
-  create: (data: Query) => http.post<Match>('/matches', data),
-  update: (id: string, data: Query) => http.put<Match>(`/matches/${id}`, data),
+  list: async (params: Query) => normalizeMatchPage(await http.get<PageResult<Match>>('/matches', params)),
+  get: async (id: string) => normalizeMatch(await http.get<Match>(`/matches/${id}`)),
+  create: async (data: Query) => normalizeMatch(await http.post<Match>('/matches', data)),
+  update: async (id: string, data: Query) =>
+    normalizeMatch(await http.put<Match>(`/matches/${id}`, data)),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/matches/${id}`, { version }),
-  publish: (id: string) => http.post<{ success: boolean }>(`/matches/${id}/publish`),
-  unpublish: (id: string) => http.post<{ success: boolean }>(`/matches/${id}/unpublish`),
+  publish: (id: string, version: number) =>
+    http.post<{ success: boolean }>(`/matches/${id}/publish`, { version }),
+  /** 下线需填写原因并带 version，后端会写入审计 */
+  unpublish: (id: string, version: number, reason: string) =>
+    http.post<{ success: boolean }>(`/matches/${id}/unpublish`, { version, reason }),
   events: (id: string, params?: Query) =>
     http.get<PageResult<MatchEvent>>(`/matches/${id}/events`, params),
-  addEvent: (id: string, data: Query) => http.post<MatchEvent>(`/matches/${id}/events`, data),
-  updateEvent: (id: string, eid: string, data: Query) =>
-    http.put<MatchEvent>(`/matches/${id}/events/${eid}`, data),
-  removeEvent: (id: string, eid: string) =>
-    http.delete<{ success: boolean }>(`/matches/${id}/events/${eid}`),
-  documents: (id: string) => http.get<MatchDocument[]>(`/matches/${id}/documents`),
-  addDocument: (id: string, data: Query) => http.post<MatchDocument>(`/matches/${id}/documents`, data),
+  /** 事件录入必带 Idempotency-Key，重复提交不会重复计分 */
+  addEvent: (id: string, data: Query) =>
+    http.postIdempotent<MatchEvent>(`/matches/${id}/events`, data, newIdempotencyKey('event')),
+  /** 修改事件的后端信封是 { version, event: {...} }，不是平铺字段。 */
+  updateEvent: (id: string, eid: string, data: Query) => {
+    const { version, ...event } = data
+    return http.put<MatchEvent>(`/matches/${id}/events/${eid}`, { version, event })
+  },
+  /** 撤销事件需同时带事件版本与比赛版本，后端重算比分 */
+  removeEvent: (id: string, eid: string, version: number, matchVersion: number) =>
+    http.delete<{ success: boolean }>(`/matches/${id}/events/${eid}`, { version, matchVersion }),
+  documents: async (id: string) => {
+    const page = await http.get<PageResult<MatchDocument>>(`/matches/${id}/documents`)
+    return {
+      ...page,
+      // 成员5 只返回 fileId，没有 fileName；下载时用 fileId 兜底。
+      items: page.items.map((item) => ({ ...item, fileName: item.fileName || item.fileId || '' })),
+    }
+  },
+  addDocument: async (id: string, data: Query) => {
+    const doc = await http.post<MatchDocument>(`/matches/${id}/documents`, data)
+    return { ...doc, fileName: doc.fileName || doc.fileId || '' }
+  },
   livePosts: (id: string, params?: Query) =>
     http.get<PageResult<LivePost>>(`/matches/${id}/live-posts`, params),
   addLivePost: (id: string, data: Query) => http.post<LivePost>(`/matches/${id}/live-posts`, data),
-  removeLivePost: (id: string, pid: string) =>
-    http.delete<{ success: boolean }>(`/matches/${id}/live-posts/${pid}`),
-  liveLinks: (id: string) => http.get<LiveLink[]>(`/matches/${id}/live-links`),
+  updateLivePost: (id: string, pid: string, data: Query) =>
+    http.put<LivePost>(`/matches/${id}/live-posts/${pid}`, data),
+  removeLivePost: (id: string, pid: string, version?: number) =>
+    http.delete<{ success: boolean }>(`/matches/${id}/live-posts/${pid}`, { version }),
+  liveLinks: async (id: string) =>
+    unwrapPage(await http.get<PageResult<LiveLink> | LiveLink[]>(`/matches/${id}/live-links`)),
   addLiveLink: (id: string, data: Query) => http.post<LiveLink>(`/matches/${id}/live-links`, data),
-  removeLiveLink: (id: string, lid: string) =>
-    http.delete<{ success: boolean }>(`/matches/${id}/live-links/${lid}`),
+  updateLiveLink: (id: string, lid: string, data: Query) =>
+    http.put<LiveLink>(`/matches/${id}/live-links/${lid}`, data),
+  removeLiveLink: (id: string, lid: string, version?: number) =>
+    http.delete<{ success: boolean }>(`/matches/${id}/live-links/${lid}`, { version }),
   result: (id: string) => http.get<MatchResult>(`/matches/${id}/result`),
   saveResult: (id: string, data: Query) => http.put<MatchResult>(`/matches/${id}/result`, data),
-  publishResult: (id: string) => http.post<{ success: boolean }>(`/matches/${id}/result/publish`),
-  goals: (params: Query) =>
-    http.get<{ rows: GoalRankingRow[]; generatedAt: string }>('/statistics/goals', params),
+  publishResult: (id: string, version: number) =>
+    http.post<{ success: boolean }>(`/matches/${id}/result/publish`, { version }),
+  revokeResult: (id: string, version: number) =>
+    http.delete<{ success: boolean }>(`/matches/${id}/result`, { version }),
+  goals: async (params: Query) => {
+    const res = await http.get<PageResult<GoalRankingRow>>('/statistics/goals', params)
+    return { rows: res.items, generatedAt: '' }
+  },
 }
 
 export const contentApi = {
@@ -282,8 +419,10 @@ export const contentApi = {
   create: (data: Query) => http.post<Content>('/contents', data),
   update: (id: string, data: Query) => http.put<Content>(`/contents/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/contents/${id}`, { version }),
-  publish: (id: string) => http.post<Content>(`/contents/${id}/publish`),
-  unpublish: (id: string) => http.post<Content>(`/contents/${id}/unpublish`),
+  publish: (id: string, version: number) =>
+    http.post<Content>(`/contents/${id}/publish`, { version }),
+  unpublish: (id: string, version: number, reason: string) =>
+    http.post<Content>(`/contents/${id}/unpublish`, { version, reason }),
 }
 
 export const resourceApi = {
@@ -293,57 +432,44 @@ export const resourceApi = {
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/portal-resources/${id}`, { version }),
 }
 
-export const publicationApi = {
-  list: (params: Query) => http.get<PageResult<Publication>>('/publications', params),
-  create: (data: Query) => http.post<Publication>('/publications', data),
-  cancel: (id: string, data: { version: number; reason: string }) =>
-    http.post<{ success: boolean }>(`/publications/${id}/cancel`, data),
-}
-
-export const selectionApi = {
-  rules: (params: Query) => http.get<PageResult<SelectionRule>>('/selection-rules', params),
-  rule: (id: string) => http.get<SelectionRule>(`/selection-rules/${id}`),
-  createRule: (data: Query) => http.post<SelectionRule>('/selection-rules', data),
-  updateRule: (id: string, data: Query) => http.put<SelectionRule>(`/selection-rules/${id}`, data),
-  scores: (params: Query) => http.get<PageResult<SelectionScore>>('/selection-scores', params),
-  createScore: (data: Query) => http.post<SelectionScore>('/selection-scores', data),
-  updateScore: (id: string, data: Query) => http.put<SelectionScore>(`/selection-scores/${id}`, data),
-  summary: (ruleId: string) => http.get<SelectionSummary>('/selection-summaries', { ruleId }),
-  exportSummary: (ruleId: string) =>
-    http.download('/selection-summaries/export.xlsx', '遴选排名汇总.xlsx', 'get', undefined, {
-      ruleId,
-    }),
-  results: (params: Query) => http.get<PageResult<SelectionResult>>('/selection-results', params),
-  result: (id: string) => http.get<SelectionResult>(`/selection-results/${id}`),
-  generate: (ruleId: string) => http.post<SelectionResult>('/selection-results/generate', { ruleId }),
-  dossiers: (data: Query) => http.post<Record<string, unknown>[]>('/selection-dossiers/search', data),
-  dossier: (athleteId: string) =>
-    http.get<Record<string, unknown>>(`/selection-dossiers/${athleteId}`),
-}
-
 export const identityApi = {
-  list: (params: Query) => http.get<PageResult<IdentityCheck>>('/identity-checks', params),
+  /** 成员2 文档中的列表路径是 /identity-checks/list，不是 /identity-checks。 */
+  /** 后端只支持 enrollmentId / athleteId 过滤，按状态筛选需在前端本地完成。 */
+  list: (params: {
+    page?: number
+    pageSize?: number
+    enrollmentId?: string
+    athleteId?: string
+  }) => http.get<PageResult<IdentityCheck>>('/identity-checks/list', params),
   get: (id: string) => http.get<IdentityCheck>(`/identity-checks/${id}`),
-  create: (data: Query) => http.post<IdentityCheck>('/identity-checks', data),
-  review: (id: string, data: { decision: 'CONFIRM_IDENTITY' | 'REJECT_IDENTITY'; reason?: string }) =>
-    http.post<IdentityCheck>(`/identity-checks/${id}/manual-review`, data),
+  /** 创建按幂等契约要求携带 Idempotency-Key。 */
+  create: (data: Query) =>
+    http.postIdempotent<IdentityCheck>('/identity-checks', data, newIdempotencyKey('identity')),
+  review: (
+    id: string,
+    data: {
+      version: number
+      decision: 'CONFIRM_IDENTITY' | 'REJECT_IDENTITY'
+      reason: string
+    },
+  ) => http.post<IdentityCheck>(`/identity-checks/${id}/manual-review`, data),
 }
 
 export const publicApi = {
+  events: (params?: Query) => http.get<PageResult<PublicEvent>>('/public/events', params),
   contents: (params: Query) => http.get<PageResult<PublicContent>>('/public/contents', params),
   content: (id: string) => http.get<PublicContent>(`/public/contents/${id}`),
   resources: (params?: Query) => http.get<{ items: PublicResource[] }>('/public/resources', params),
   matches: (params: Query) => http.get<PageResult<PublicMatch>>('/public/matches', params),
   match: (id: string) => http.get<PublicMatch & { events: MatchEvent[]; referees?: Match['referees'] }>(`/public/matches/${id}`),
-  liveFeed: (id: string) => http.get<PublicLiveFeed>(`/public/matches/${id}/live-feed`),
-  liveLinks: (id: string) => http.get<LiveLink[]>(`/public/matches/${id}/live-links`),
-  goals: (params: Query) =>
-    http.get<{ rows: GoalRankingRow[]; generatedAt: string }>('/public/statistics/goals', params),
-  publications: (params: Query) =>
-    http.get<PageResult<{ publicationId: string; targetType: 'ATHLETE' | 'COACH' | 'ENROLLMENT'; displayName: string; teamName?: string; cityName?: string; groupName?: string; publicPhotoUrl?: string }>>(
-      '/public/publications',
-      params,
-    ),
+  liveFeed: (id: string, afterRevision = 0) =>
+    http.get<PublicLiveFeed>(`/public/matches/${id}/live-feed`, { afterRevision }),
+  liveLinks: async (id: string) =>
+    unwrapPage(await http.get<PageResult<LiveLink> | LiveLink[]>(`/public/matches/${id}/live-links`)),
+  goals: async (params: Query) => {
+    const res = await http.get<PageResult<GoalRankingRow>>('/public/statistics/goals', params)
+    return { rows: res.items, generatedAt: '' }
+  },
   askPolicy: (question: string) => http.post<PolicyAnswer>('/public/policy-questions', { question }),
 }
 

@@ -98,7 +98,7 @@ export interface Organization {
   id: string
   parentId?: string
   name: string
-  orgType: 'PROVINCE' | 'CITY' | 'SCHOOL' | 'TEAM'
+  orgType: 'PROVINCE' | 'CITY' | 'SCHOOL' | 'UNIVERSITY' | 'TEAM'
   code: string
   enabled: boolean
   version: number
@@ -307,7 +307,8 @@ export interface Enrollment {
   remarks?: string
   editable: boolean
   snapshotId?: string
-  playerCount: number
+  /** 列表接口不返回人数；详情可由 players 长度补出。 */
+  playerCount?: number
   version: number
   createdAt?: string
   updatedAt?: string
@@ -343,10 +344,11 @@ export interface ReviewRecord {
   enrollmentId: string
   submissionNo?: number
   stage?: 'CITY' | 'PROVINCE' | 'SUBMISSION'
-  action?: 'SUBMIT' | 'APPROVE' | 'REJECT' | 'WITHDRAW'
+  action?: 'SUBMIT' | 'APPROVE' | 'REJECT' | 'RETURN_FOR_CORRECTION' | 'WITHDRAW'
   fromStatus?: EnrollmentStatus
   toStatus?: EnrollmentStatus
   reason?: string
+  operatorAccountId?: string
   operatorName?: string
   createdAt?: string
 }
@@ -404,6 +406,8 @@ export interface MatchEvent {
   athleteName?: string
   penaltyType?: 'YELLOW_CARD' | 'RED_CARD' | 'PENALTY_KICK' | 'OTHER'
   reason?: string
+  outAthleteId?: string
+  inAthleteId?: string
   outAthleteName?: string
   inAthleteName?: string
   note?: string
@@ -415,6 +419,7 @@ export interface LivePost {
   id: string
   matchId: string
   text: string
+  imageFileIds?: string[]
   imageUrls?: string[]
   minute?: number
   cursor?: number
@@ -603,21 +608,25 @@ export interface SelectionResult {
 export interface IdentityCheck {
   id: string
   matchId: string
-  matchLabel?: string
   enrollmentId: string
   athleteId: string
-  athleteName: string
-  teamName?: string
   mode: 'FACE_COMPARE' | 'MANUAL'
   machineStatus: 'NOT_RUN' | 'MATCH' | 'MISMATCH' | 'UNAVAILABLE'
   machineVerified: boolean
   manualStatus: 'NOT_REVIEWED' | 'PENDING' | 'CONFIRMED' | 'REJECTED'
   manualReason?: string
-  capturedPhotoUrl?: string
-  reviewerName?: string
+  reviewerAccountId?: string
   reviewedAt?: string
   version: number
   createdAt?: string
+  updatedAt?: string
+  /** 展示字段：后端投影只返回 ID，以下字段由页面用比赛/报名/账号接口补全。 */
+  athleteName?: string
+  teamName?: string
+  groupName?: string
+  matchLabel?: string
+  capturedPhotoUrl?: string
+  reviewerName?: string
 }
 
 export interface PublicContent {
@@ -631,6 +640,18 @@ export interface PublicContent {
   groupId?: string
   publishedAt?: string
   revision: number
+}
+
+/** 门户公开赛事投影：不含 version/groupCount/teamCount 等内部字段。 */
+export interface PublicEvent {
+  id: string
+  name: string
+  season: string
+  eventCategory?: string
+  status: Event['status']
+  registrationOpensAt: string
+  registrationClosesAt: string
+  description?: string
 }
 
 export interface PublicMatch {
@@ -735,4 +756,124 @@ export interface StatRow {
 export interface OptionItem {
   value: string
   label: string
+}
+
+/* ---------------------------------------------------------------------------
+ * 成员6 遴选评分与报名公示（/api/selection）
+ * ------------------------------------------------------------------------- */
+
+export type SelectionGroupType = 'MIDDLE' | 'PRIMARY'
+export type SelectionRound = 'INITIAL' | 'FINAL'
+export type PublicityType = 'ATHLETE' | 'COACH' | 'TEAM'
+export type PublicityStatus = 'PUBLISHED' | 'CANCELLED'
+
+export interface TemplateDimension {
+  id?: string
+  code: string
+  name: string
+  weight: number
+  maxScore: number
+  sortNo?: number
+}
+
+export interface SelectionTemplate {
+  id: string
+  name: string
+  groupType: SelectionGroupType
+  groupTypeLabel?: string
+  round: SelectionRound
+  roundLabel?: string
+  status: number
+  dimensions: TemplateDimension[]
+  createdBy?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ScoreDimensionValue {
+  id?: string
+  code: string
+  name: string
+  weight: number
+  maxScore: number
+  score: number
+  sortNo?: number
+}
+
+export interface SelectionScoreRecord {
+  id: string
+  eventId: string
+  groupType: SelectionGroupType
+  groupTypeLabel?: string
+  round: SelectionRound
+  roundLabel?: string
+  templateId: string
+  candidateId: string
+  candidateName: string
+  teamName?: string
+  position?: string
+  totalScore: number
+  version: number
+  createdBy?: string
+  createdAt?: string
+  updatedAt?: string
+  items: ScoreDimensionValue[]
+  rankNo?: number
+}
+
+export interface SelectionResultItem {
+  rankNo: number
+  candidateId: string
+  candidateName: string
+  teamName?: string
+  position?: string
+  initialScore?: number
+  finalScore?: number
+  compositeScore: number
+  detail?: Record<string, unknown>
+}
+
+export interface SelectionResultBatch {
+  id: string
+  eventId: string
+  groupType: SelectionGroupType
+  groupTypeLabel?: string
+  resultRound: SelectionRound
+  resultRoundLabel?: string
+  quota: number
+  initialWeight: number
+  finalWeight: number
+  formulaSnapshot?: string
+  versionNo: number
+  active: boolean
+  stale: boolean
+  generatedBy?: string
+  generatedAt?: string
+  items: SelectionResultItem[]
+  itemCount?: number
+}
+
+export interface PublicityRecord {
+  id: string
+  eventId: string
+  groupType?: SelectionGroupType
+  groupTypeLabel?: string
+  city?: string
+  publicityType: PublicityType
+  publicityTypeLabel?: string
+  name: string
+  teamName?: string
+  schoolName?: string
+  idCardMasked?: string
+  fields?: Record<string, unknown>
+  status: PublicityStatus
+  statusLabel?: string
+  publishedAt?: string
+  sourceId?: string
+  publishedBy?: string
+  cancelledBy?: string
+  cancelledAt?: string
+  cancelReason?: string
+  createdAt?: string
+  updatedAt?: string
 }

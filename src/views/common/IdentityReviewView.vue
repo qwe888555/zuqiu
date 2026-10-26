@@ -3,8 +3,9 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Camera, Check, Close, Plus, Refresh, UploadFilled, VideoCamera } from '@element-plus/icons-vue'
-import { enrollmentApi, fileApi, identityApi, matchApi } from '../../api'
-import type { Enrollment, IdentityCheck, Match, RosterItem } from '../../api/types'
+import { accountApi, enrollmentApi, eventApi, fileApi, identityApi, matchApi } from '../../api'
+import type { EnrollmentDetail } from '../../api'
+import type { Account, Enrollment, IdentityCheck, Match, RosterItem } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
@@ -13,10 +14,87 @@ import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<IdentityCheck[]>([])
+/** 状态筛选为本地筛选：后端列表只支持 enrollmentId / athleteId。 */
+const statsRows = ref<IdentityCheck[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const filters = reactive({ manualStatus: '', machineStatus: '' })
+const filterTruncated = ref(false)
+const LOCAL_FILTER_LIMIT = 2000
+
+/** 列表投影只有 ID，展示用信息按 ID 缓存补齐，避免同一条比赛/报名重复请求。 */
+const matchCache = new Map<string, Promise<Match | null>>()
+const enrollmentCache = new Map<string, Promise<EnrollmentDetail | null>>()
+const accountCache = new Map<string, Promise<Account | null>>()
+const groupNames = ref<Record<string, string>>({})
+
+function fetchMatch(id: string) {
+  let pending = matchCache.get(id)
+  if (!pending) {
+    pending = matchApi.get(id).catch(() => null)
+    matchCache.set(id, pending)
+  }
+  return pending
+}
+
+function fetchEnrollment(id: string) {
+  let pending = enrollmentCache.get(id)
+  if (!pending) {
+    pending = enrollmentApi.get(id).catch(() => null)
+    enrollmentCache.set(id, pending)
+  }
+  return pending
+}
+
+function fetchAccount(id: string) {
+  let pending = accountCache.get(id)
+  if (!pending) {
+    pending = accountApi.get(id).catch(() => null)
+    accountCache.set(id, pending)
+  }
+  return pending
+}
+
+function shortId(id?: string) {
+  return id ? id.slice(-6) : '—'
+}
+
+async function enrichCheck(check: IdentityCheck): Promise<IdentityCheck> {
+  const [match, enrollment, reviewer] = await Promise.all([
+    check.matchId ? fetchMatch(check.matchId) : Promise.resolve(null),
+    check.enrollmentId ? fetchEnrollment(check.enrollmentId) : Promise.resolve(null),
+    check.reviewerAccountId ? fetchAccount(check.reviewerAccountId) : Promise.resolve(null),
+  ])
+  const athlete = enrollment?.players?.find((item) => item.athleteId === check.athleteId)
+  const groupName =
+    match?.groupName ||
+    (enrollment && enrollment.groupName !== enrollment.groupId ? enrollment.groupName : undefined)
+  return {
+    ...check,
+    athleteName: athlete?.athleteName,
+    teamName: enrollment?.teamName,
+    groupName,
+    matchLabel: match ? `${match.homeTeamName} vs ${match.awayTeamName}` : undefined,
+    reviewerName: reviewer?.displayName || reviewer?.username,
+  }
+}
+
+async function fetchAllChecks() {
+  const batch = 100
+  const first = await identityApi.list({ page: 1, pageSize: batch })
+  const pages = Math.min(
+    Math.max(Math.ceil(first.total / batch) - 1, 0),
+    Math.ceil(LOCAL_FILTER_LIMIT / batch) - 1,
+  )
+  const rest = await Promise.all(
+    Array.from({ length: pages }, (_, index) =>
+      identityApi.list({ page: index + 2, pageSize: batch }),
+    ),
+  )
+  filterTruncated.value = first.total > LOCAL_FILTER_LIMIT
+  return [first, ...rest].flatMap((result) => result.items).slice(0, LOCAL_FILTER_LIMIT)
+}
 
 const drawerVisible = ref(false)
 const reviewing = ref(false)
@@ -51,23 +129,40 @@ const modeLabel: Record<string, string> = {
   MANUAL: '人工核验',
 }
 
-const confirmedCount = computed(() => rows.value.filter((row) => row.manualStatus === 'CONFIRMED').length)
-const pendingCount = computed(() => rows.value.filter((row) => row.manualStatus === 'PENDING' || row.manualStatus === 'NOT_REVIEWED').length)
-const mismatchCount = computed(() => rows.value.filter((row) => row.machineStatus === 'MISMATCH').length)
+const confirmedCount = computed(() => statsRows.value.filter((row) => row.manualStatus === 'CONFIRMED').length)
+const pendingCount = computed(() => statsRows.value.filter((row) => row.manualStatus === 'PENDING' || row.manualStatus === 'NOT_REVIEWED').length)
+const mismatchCount = computed(() => statsRows.value.filter((row) => row.machineStatus === 'MISMATCH').length)
+const filterSummary = computed(
+  () =>
+    `共 ${total.value} 条记录${filterTruncated.value ? `（状态筛选仅覆盖前 ${LOCAL_FILTER_LIMIT} 条）` : ''}`,
+)
 
 async function load() {
   loading.value = true
   try {
-    const res = await identityApi.list({
-      page: page.value,
-      pageSize: pageSize.value,
-      manualStatus: filters.manualStatus || undefined,
-      machineStatus: filters.machineStatus || undefined,
-    })
-    rows.value = res.items
-    total.value = res.total
+    if (filters.manualStatus || filters.machineStatus) {
+      const all = await fetchAllChecks()
+      const matched = all.filter(
+        (row) =>
+          (!filters.manualStatus || row.manualStatus === filters.manualStatus) &&
+          (!filters.machineStatus || row.machineStatus === filters.machineStatus),
+      )
+      total.value = matched.length
+      statsRows.value = matched
+      const start = (page.value - 1) * pageSize.value
+      rows.value = await Promise.all(
+        matched.slice(start, start + pageSize.value).map(enrichCheck),
+      )
+    } else {
+      filterTruncated.value = false
+      const res = await identityApi.list({ page: page.value, pageSize: pageSize.value })
+      total.value = res.total
+      statsRows.value = res.items
+      rows.value = await Promise.all(res.items.map(enrichCheck))
+    }
   } catch {
     rows.value = []
+    statsRows.value = []
   } finally {
     loading.value = false
   }
@@ -82,7 +177,7 @@ async function openDetail(row: IdentityCheck) {
   drawerVisible.value = true
   detail.value = null
   try {
-    detail.value = await identityApi.get(row.id)
+    detail.value = await enrichCheck(await identityApi.get(row.id))
   } catch {
     drawerVisible.value = false
   }
@@ -93,7 +188,7 @@ async function review(decision: 'CONFIRM_IDENTITY' | 'REJECT_IDENTITY') {
   if (decision === 'CONFIRM_IDENTITY') {
     try {
       await ElMessageBox.confirm(
-        `确认「${detail.value.athleteName}」与报名档案为同一人？确认后允许参赛。`,
+        `确认「${detail.value.athleteName || `运动员 ${shortId(detail.value.athleteId)}`}」与报名档案为同一人？确认后允许参赛。`,
         '确认身份',
         { confirmButtonText: '确认身份', cancelButtonText: '取消', type: 'success' },
       )
@@ -102,7 +197,11 @@ async function review(decision: 'CONFIRM_IDENTITY' | 'REJECT_IDENTITY') {
     }
     reviewing.value = true
     try {
-      await identityApi.review(detail.value.id, { decision })
+      await identityApi.review(detail.value.id, {
+        version: detail.value.version,
+        decision,
+        reason: '现场核验确认人证一致',
+      })
       ElMessage.success('已确认身份')
       drawerVisible.value = false
       await load()
@@ -122,7 +221,11 @@ async function review(decision: 'CONFIRM_IDENTITY' | 'REJECT_IDENTITY') {
       inputValidator: (val) => (val && val.trim().length >= 4 ? true : '请至少填写 4 个字符'),
     })
     reviewing.value = true
-    await identityApi.review(detail.value.id, { decision, reason: value })
+    await identityApi.review(detail.value.id, {
+      version: detail.value.version,
+      decision,
+      reason: value,
+    })
     ElMessage.success('已驳回并记录原因')
     drawerVisible.value = false
     await load()
@@ -156,17 +259,23 @@ async function onMatchChange() {
   createForm.athleteId = ''
   enrollmentOptions.value = []
   rosterOptions.value = []
+  groupNames.value = {}
   const match = matches.value.find((item) => item.id === createForm.matchId)
   if (!match) return
   loadingEnrollments.value = true
-  try {
-    const res = await enrollmentApi.list({ page: 1, pageSize: 100, eventId: match.eventId })
-    enrollmentOptions.value = res.items.filter((item) => item.status === 'APPROVED')
-  } catch {
-    enrollmentOptions.value = []
-  } finally {
-    loadingEnrollments.value = false
+  // 报名列表只返回 groupId，组别名称需从赛事组别接口补全。
+  const [enrollments, groups] = await Promise.allSettled([
+    enrollmentApi.list({ page: 1, pageSize: 100, eventId: match.eventId }),
+    eventApi.groups(match.eventId),
+  ])
+  enrollmentOptions.value =
+    enrollments.status === 'fulfilled'
+      ? enrollments.value.items.filter((item) => item.status === 'APPROVED')
+      : []
+  if (groups.status === 'fulfilled') {
+    groupNames.value = Object.fromEntries(groups.value.items.map((group) => [group.id, group.name]))
   }
+  loadingEnrollments.value = false
 }
 
 async function onEnrollmentChange() {
@@ -235,13 +344,13 @@ onMounted(load)
 
     <div class="stat-grid">
       <StatCard label="核验记录" :value="total" hint="当前筛选范围" :icon="VideoCamera" tone="green" />
-      <StatCard label="已确认" :value="confirmedCount" hint="允许参赛" :icon="Check" tone="lime" />
-      <StatCard label="待人工复核" :value="pendingCount" hint="需现场处理" :icon="Camera" tone="amber" />
-      <StatCard label="比对不一致" :value="mismatchCount" hint="重点核查" :icon="Close" tone="blue" />
+      <StatCard label="已确认" :value="confirmedCount" hint="当前范围" :icon="Check" tone="lime" />
+      <StatCard label="待人工复核" :value="pendingCount" hint="当前范围" :icon="Camera" tone="amber" />
+      <StatCard label="比对不一致" :value="mismatchCount" hint="当前范围" :icon="Close" tone="blue" />
     </div>
 
     <section class="page-card">
-      <FilterBar :summary="'共 ' + total + ' 条记录'">
+      <FilterBar :summary="filterSummary">
         <el-select v-model="filters.manualStatus" placeholder="人工核验状态" clearable @change="search">
           <el-option label="未复核" value="NOT_REVIEWED" />
           <el-option label="待核验" value="PENDING" />
@@ -260,9 +369,9 @@ onMounted(load)
         <el-table-column label="运动员" min-width="180">
           <template #default="{ row }">
             <div class="person-cell">
-              <span class="person-cell__avatar">{{ row.athleteName.slice(0, 1) }}</span>
+              <span class="person-cell__avatar">{{ (row.athleteName || '员').slice(0, 1) }}</span>
               <div>
-                <strong>{{ row.athleteName }}</strong>
+                <strong>{{ row.athleteName || `运动员 ${shortId(row.athleteId)}` }}</strong>
                 <small>{{ row.teamName || '球队未登记' }}</small>
               </div>
             </div>
@@ -315,7 +424,7 @@ onMounted(load)
       <div v-if="detail" class="identity-detail">
         <header class="detail-head">
           <span class="detail-head__eyebrow">身份核验</span>
-          <h2>{{ detail.athleteName }}</h2>
+          <h2>{{ detail.athleteName || `运动员 ${shortId(detail.athleteId)}` }}</h2>
           <p>{{ detail.matchLabel || '比赛未登记' }} · {{ detail.teamName || '球队未登记' }}</p>
           <StatusTag :status="detail.manualStatus" kind="identity" size="default" />
         </header>
@@ -324,8 +433,8 @@ onMounted(load)
           <img v-if="detail.capturedPhotoUrl" :src="detail.capturedPhotoUrl" alt="现场照片" />
           <div v-else class="capture__placeholder">
             <el-icon :size="30"><Camera /></el-icon>
-            <span>暂无现场采集照片</span>
-            <small>正式环境由记录员现场拍照上传</small>
+            <span>现场照片暂不可查看</span>
+            <small>核验记录未返回照片地址，请以证件原件为准</small>
           </div>
           <span class="capture__label">现场采集</span>
         </div>
@@ -334,7 +443,10 @@ onMounted(load)
           <div><span>核验方式</span><strong>{{ modeLabel[detail.mode] }}</strong></div>
           <div><span>人脸比对</span><strong>{{ machineLabel[detail.machineStatus] }}</strong></div>
           <div><span>采集时间</span><strong>{{ dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm') }}</strong></div>
-          <div><span>复核人</span><strong>{{ detail.reviewerName || '—' }}</strong></div>
+          <div>
+            <span>复核人</span>
+            <strong>{{ detail.reviewerName || (detail.reviewerAccountId ? `账号 ${shortId(detail.reviewerAccountId)}` : '—') }}</strong>
+          </div>
         </div>
 
         <div v-if="detail.manualReason" class="reason-box">
@@ -393,7 +505,7 @@ onMounted(load)
             <el-option
               v-for="item in enrollmentOptions"
               :key="item.id"
-              :label="`${item.teamName} · ${item.groupName}`"
+              :label="`${item.teamName} · ${groupNames[item.groupId] || item.groupName || item.groupId}`"
               :value="item.id"
             />
           </el-select>

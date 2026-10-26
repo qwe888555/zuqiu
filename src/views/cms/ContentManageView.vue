@@ -276,10 +276,18 @@ async function save() {
 async function togglePublish(row: Content) {
   try {
     if (row.status === 'PUBLISHED') {
-      await contentApi.unpublish(row.id)
+      const { value } = await ElMessageBox.prompt('下线后内容将从门户与列表中移除，请填写下线原因。', '下线内容', {
+        confirmButtonText: '确认下线',
+        cancelButtonText: '取消',
+        type: 'warning',
+        inputType: 'textarea',
+        inputPlaceholder: '例如：内容需要补充最新赛程信息',
+        inputValidator: (val) => (val && val.trim().length >= 2 ? true : '请填写下线原因'),
+      })
+      await contentApi.unpublish(row.id, row.version, value.trim())
       ElMessage.success('内容已下线')
     } else {
-      await contentApi.publish(row.id)
+      await contentApi.publish(row.id, row.version)
       ElMessage.success('内容已发布至门户')
     }
     await load()
@@ -416,9 +424,6 @@ onMounted(() => {
               {{ dayjs(row.publishedAt || row.createdAt).format('YYYY-MM-DD HH:mm') }}
             </span>
           </template>
-        </el-table-column>
-        <el-table-column label="阅读" width="80" align="center">
-          <template #default="{ row }"><span class="num">{{ row.viewCount || 0 }}</span></template>
         </el-table-column>
         <el-table-column label="操作" width="270" fixed="right">
           <template #default="{ row }">

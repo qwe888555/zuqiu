@@ -35,6 +35,31 @@ export const CATEGORY_GROUP_LABELS: Record<GroupCategory, string> = {
   MIDDLE: '中学组',
 }
 
+/** 成员5 对阵接口的裁判岗位枚举。 */
+export const REFEREE_ROLE_LABELS: Record<string, string> = {
+  REFEREE: '主裁判',
+  ASSISTANT: '助理裁判',
+  FOURTH_OFFICIAL: '第四官员',
+  OTHER: '比赛监督',
+}
+
+export function refereeRoleLabel(role?: string): string {
+  return role ? REFEREE_ROLE_LABELS[role] || role : '裁判'
+}
+
+/** 报名审核记录动作（报名与审核文档 2.1）。 */
+export const REVIEW_ACTION_LABELS: Record<string, string> = {
+  SUBMIT: '提交报名',
+  APPROVE: '审核通过',
+  REJECT: '审核驳回',
+  RETURN_FOR_CORRECTION: '退回补正',
+  WITHDRAW: '撤回',
+}
+
+export function reviewActionLabel(action?: string): string {
+  return action ? REVIEW_ACTION_LABELS[action] || action : '提交报名'
+}
+
 export const COACH_CATEGORY_LABELS: Record<CoachCategory, string> = {
   HEAD_COACH: '主教练',
   ASSISTANT_COACH: '助理教练',

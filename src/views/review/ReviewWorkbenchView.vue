@@ -11,6 +11,7 @@ import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
+import { reviewActionLabel } from '../../config/labels'
 
 const auth = useAuthStore()
 const loading = ref(false)
@@ -114,7 +115,8 @@ async function openReview(row: Enrollment) {
   reviews.value = []
   try {
     detail.value = await enrollmentApi.get(row.id)
-    reviews.value = await enrollmentApi.reviews(row.id)
+    const reviewPage = await enrollmentApi.reviews(row.id)
+    reviews.value = reviewPage.items
   } catch {
     drawerVisible.value = false
   } finally {
@@ -133,7 +135,7 @@ async function approve() {
       { confirmButtonText: '确认通过', cancelButtonText: '再核对一下', type: 'success' },
     )
     reviewing.value = true
-    await enrollmentApi.review(detail.value.id, { decision: 'APPROVE' })
+    await enrollmentApi.review(detail.value.id, detail.value.version, { decision: 'APPROVE' })
     ElMessage.success('审核已通过')
     drawerVisible.value = false
     await Promise.all([load(), loadCounts()])
@@ -154,7 +156,7 @@ async function reject() {
       inputValidator: (val) => (val && val.trim().length >= 6 ? true : '请至少填写 6 个字符'),
     })
     reviewing.value = true
-    await enrollmentApi.review(detail.value.id, { decision: 'REJECT', reason: value })
+    await enrollmentApi.review(detail.value.id, detail.value.version, { decision: 'REJECT', reason: value })
     ElMessage.success('已驳回并通知报送学校')
     drawerVisible.value = false
     await Promise.all([load(), loadCounts()])
@@ -245,7 +247,7 @@ async function batchApprove() {
     let failCount = 0
     for (const row of selectedRows.value) {
       try {
-        await enrollmentApi.review(row.id, { decision: 'APPROVE' })
+        await enrollmentApi.review(row.id, row.version, { decision: 'APPROVE' })
         successCount += 1
       } catch {
         failCount += 1
@@ -283,7 +285,7 @@ async function batchReject() {
     let failCount = 0
     for (const row of selectedRows.value) {
       try {
-        await enrollmentApi.review(row.id, { decision: 'REJECT', reason: value })
+        await enrollmentApi.review(row.id, row.version, { decision: 'REJECT', reason: value })
         successCount += 1
       } catch {
         failCount += 1
@@ -417,7 +419,7 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="cityName" label="市州" width="110" />
         <el-table-column label="球员" width="80" align="center">
-          <template #default="{ row }"><span class="num">{{ row.playerCount }}</span></template>
+          <template #default="{ row }"><span class="num">{{ row.playerCount ?? '—' }}</span></template>
         </el-table-column>
         <el-table-column label="状态" width="130">
           <template #default="{ row }"><StatusTag :status="row.status" kind="enrollment" /></template>
@@ -474,7 +476,7 @@ onMounted(() => {
               <div><span>校区 / 分校</span><strong>{{ detail.campusName || '本部' }}</strong></div>
               <div><span>联系人</span><strong>{{ detail.contactName }}</strong></div>
               <div><span>联系电话</span><strong>{{ detail.maskedContactPhone || '—' }}</strong></div>
-              <div><span>球员人数</span><strong class="num">{{ detail.playerCount }}</strong></div>
+              <div><span>球员人数</span><strong class="num">{{ detail.playerCount ?? detail.players?.length ?? '—' }}</strong></div>
               <div><span>提交次数</span><strong class="num">{{ detail.submissionNo }}</strong></div>
               <div><span>最后更新</span><strong>{{ dayjs(detail.updatedAt).format('YYYY-MM-DD HH:mm') }}</strong></div>
             </div>
@@ -515,9 +517,9 @@ onMounted(() => {
               <div v-for="record in reviews" :key="record.id" class="history-row">
                 <span class="history-row__dot" :class="`is-${(record.action || '').toLowerCase()}`" />
                 <div>
-                  <strong>{{ record.action === 'APPROVE' ? '审核通过' : record.action === 'REJECT' ? '审核驳回' : record.action === 'WITHDRAW' ? '撤回' : '提交' }}</strong>
+                  <strong>{{ reviewActionLabel(record.action) }}</strong>
                   <p v-if="record.reason">{{ record.reason }}</p>
-                  <small>{{ record.operatorName }} · {{ dayjs(record.createdAt).format('YYYY-MM-DD HH:mm') }}</small>
+                  <small>{{ record.operatorName || record.operatorAccountId || '—' }} · {{ dayjs(record.createdAt).format('YYYY-MM-DD HH:mm') }}</small>
                 </div>
               </div>
               <el-empty v-if="!reviews.length" description="暂无审核记录" :image-size="60" />

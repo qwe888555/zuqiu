@@ -44,17 +44,20 @@ const eventForm = reactive({
   eventType: 'GOAL',
   teamId: '',
   minute: 1,
-  scorerName: '',
+  // 成员5 的事件接口只接受球员 ID；成员4 人员接口尚未提供，暂无姓名选择器。
+  scorerAthleteId: '',
   ownGoal: false,
-  athleteName: '',
+  athleteId: '',
   penaltyType: 'YELLOW_CARD',
   reason: '',
-  outAthleteName: '',
-  inAthleteName: '',
+  outAthleteId: '',
+  inAthleteId: '',
   note: '',
 })
 
-const postForm = reactive({ text: '', minute: 1, withImage: false })
+const postForm = reactive({ text: '', minute: 1 })
+const postImages = ref<string[]>([])
+const uploadingImage = ref(false)
 const posting = ref(false)
 const linkVisible = ref(false)
 const linkForm = reactive({ title: '', url: '' })
@@ -104,11 +107,13 @@ const homeTally = computed(() => teamTally(match.value?.homeTeamId))
 const awayTally = computed(() => teamTally(match.value?.awayTeamId))
 
 function eventSummary(event: MatchEvent) {
-  if (event.eventType === 'GOAL') return `${event.scorerName || '未知球员'} 进球${event.ownGoal ? '（乌龙）' : ''}`
-  if (event.eventType === 'PENALTY') {
-    return `${event.athleteName || '—'} ${penaltyLabel[event.penaltyType || 'OTHER']}`
+  if (event.eventType === 'GOAL') {
+    return `${event.scorerName || event.scorerAthleteId || '未知球员'} 进球${event.ownGoal ? '（乌龙）' : ''}`
   }
-  return `${event.outAthleteName || '—'} → ${event.inAthleteName || '—'}`
+  if (event.eventType === 'PENALTY') {
+    return `${event.athleteName || event.athleteId || '—'} ${penaltyLabel[event.penaltyType || 'OTHER']}`
+  }
+  return `${event.outAthleteName || event.outAthleteId || '—'} → ${event.inAthleteName || event.inAthleteId || '—'}`
 }
 
 function closeBigScreen() {
@@ -140,7 +145,7 @@ async function loadAll() {
     events.value = ev.items
     livePosts.value = posts.items
     links.value = ls
-    documents.value = docs
+    documents.value = docs.items
     result.value = res
     resultForm.resultType = res.resultType
     resultForm.manualHomeScore = res.homeScore
@@ -170,13 +175,13 @@ function openEvent(type = 'GOAL', teamId?: string) {
   eventForm.eventType = type
   eventForm.teamId = teamId || match.value?.homeTeamId || ''
   eventForm.minute = 1
-  eventForm.scorerName = ''
+  eventForm.scorerAthleteId = ''
   eventForm.ownGoal = false
-  eventForm.athleteName = ''
+  eventForm.athleteId = ''
   eventForm.penaltyType = 'YELLOW_CARD'
   eventForm.reason = ''
-  eventForm.outAthleteName = ''
-  eventForm.inAthleteName = ''
+  eventForm.outAthleteId = ''
+  eventForm.inAthleteId = ''
   eventForm.note = ''
   eventVisible.value = true
 }
@@ -187,34 +192,39 @@ function editEvent(event: MatchEvent) {
   eventForm.eventType = event.eventType
   eventForm.teamId = event.teamId || match.value?.homeTeamId || ''
   eventForm.minute = event.minute ?? 1
-  eventForm.scorerName = event.scorerName || ''
+  eventForm.scorerAthleteId = event.scorerAthleteId || ''
   eventForm.ownGoal = Boolean(event.ownGoal)
-  eventForm.athleteName = event.athleteName || ''
+  eventForm.athleteId = event.athleteId || ''
   eventForm.penaltyType = event.penaltyType || 'YELLOW_CARD'
   eventForm.reason = event.reason || ''
-  eventForm.outAthleteName = event.outAthleteName || ''
-  eventForm.inAthleteName = event.inAthleteName || ''
+  eventForm.outAthleteId = event.outAthleteId || ''
+  eventForm.inAthleteId = event.inAthleteId || ''
   eventForm.note = event.note || ''
   eventVisible.value = true
 }
 
 async function saveEvent() {
   if (!eventForm.teamId) return ElMessage.warning('请选择所属球队')
-  if (eventForm.eventType === 'GOAL' && !eventForm.scorerName.trim()) return ElMessage.warning('请填写进球球员')
-  if (eventForm.eventType === 'PENALTY' && !eventForm.athleteName.trim()) return ElMessage.warning('请填写判罚球员')
-  if (eventForm.eventType === 'SUBSTITUTION' && (!eventForm.outAthleteName.trim() || !eventForm.inAthleteName.trim())) {
-    return ElMessage.warning('请填写换下与换上球员')
+  if (eventForm.eventType === 'GOAL' && !eventForm.scorerAthleteId.trim()) {
+    return ElMessage.warning('请填写进球球员 ID')
+  }
+  if (eventForm.eventType === 'PENALTY' && !eventForm.athleteId.trim()) {
+    return ElMessage.warning('请填写判罚球员 ID')
+  }
+  if (eventForm.eventType === 'SUBSTITUTION' && (!eventForm.outAthleteId.trim() || !eventForm.inAthleteId.trim())) {
+    return ElMessage.warning('请填写换下与换上球员 ID')
   }
   savingEvent.value = true
   try {
     if (editingEventId.value) {
       await matchApi.updateEvent(matchId, editingEventId.value, {
         ...eventForm,
+        matchVersion: match.value?.version,
         version: editingEventVersion.value,
       })
       ElMessage.success('比赛事件已更新')
     } else {
-      await matchApi.addEvent(matchId, { ...eventForm })
+      await matchApi.addEvent(matchId, { ...eventForm, matchVersion: match.value?.version })
       ElMessage.success('比赛事件已记录')
     }
     eventVisible.value = false
@@ -233,11 +243,25 @@ async function removeEvent(event: MatchEvent) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await matchApi.removeEvent(matchId, event.id)
+    await matchApi.removeEvent(matchId, event.id, event.version, match.value?.version || 0)
     ElMessage.success('事件已删除')
     await refreshMatch()
   } catch {
     // 取消
+  }
+}
+
+async function uploadLiveImage(options: UploadRequestOptions) {
+  uploadingImage.value = true
+  try {
+    // 直播图片走成员2 文件接口，类别 CAPTURE_PHOTO，归属当前比赛。
+    const record = await fileApi.upload(options.file, 'MATCH', matchId, 'CAPTURE_PHOTO')
+    postImages.value.push(record.id)
+    ElMessage.success('图片已上传，发布后生效')
+  } catch {
+    // 拦截器提示
+  } finally {
+    uploadingImage.value = false
   }
 }
 
@@ -248,10 +272,10 @@ async function submitPost() {
     await matchApi.addLivePost(matchId, {
       text: postForm.text,
       minute: postForm.minute,
-      imageFileIds: postForm.withImage ? [`file_live_${Date.now()}`] : [],
+      imageFileIds: [...postImages.value],
     })
     postForm.text = ''
-    postForm.withImage = false
+    postImages.value = []
     const res = await matchApi.livePosts(matchId, { page: 1, pageSize: 50 })
     livePosts.value = res.items
     ElMessage.success('直播动态已发布')
@@ -269,7 +293,7 @@ async function removePost(post: LivePost) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await matchApi.removeLivePost(matchId, post.id)
+    await matchApi.removeLivePost(matchId, post.id, post.version)
     livePosts.value = livePosts.value.filter((item) => item.id !== post.id)
     ElMessage.success('已删除')
   } catch {
@@ -293,7 +317,7 @@ async function addLink() {
 
 async function removeLink(link: LiveLink) {
   try {
-    await matchApi.removeLiveLink(matchId, link.id)
+    await matchApi.removeLiveLink(matchId, link.id, link.version)
     links.value = links.value.filter((item) => item.id !== link.id)
     ElMessage.success('链接已删除')
   } catch {
@@ -329,7 +353,7 @@ async function addDocument() {
     docForm.fileId = ''
     docForm.fileName = ''
     docVisible.value = false
-    documents.value = await matchApi.documents(matchId)
+    documents.value = (await matchApi.documents(matchId)).items
     ElMessage.success('比赛文件已登记')
   } catch {
     // 拦截器提示
@@ -350,6 +374,7 @@ async function saveResult() {
   savingResult.value = true
   try {
     result.value = await matchApi.saveResult(matchId, {
+      version: match.value?.version,
       resultType: resultForm.resultType,
       manualHomeScore: resultForm.manualHomeScore,
       manualAwayScore: resultForm.manualAwayScore,
@@ -371,7 +396,7 @@ async function publishResult() {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await matchApi.publishResult(matchId)
+    await matchApi.publishResult(matchId, match.value?.version || 0)
     ElMessage.success('赛果已发布')
     await loadAll()
   } catch {
@@ -551,15 +576,15 @@ onMounted(loadAll)
                   <span class="timeline-row__no">#{{ index + 1 }}</span>
                 </div>
                 <p v-if="event.eventType === 'GOAL'">
-                  {{ event.scorerName || '未填写球员' }}
+                  {{ event.scorerName || event.scorerAthleteId || '未填写球员' }}
                   <span v-if="event.ownGoal" class="own-goal">（乌龙球）</span>
                 </p>
                 <p v-else-if="event.eventType === 'PENALTY'">
-                  {{ event.athleteName || '—' }}<template v-if="event.reason"> · {{ event.reason }}</template>
+                  {{ event.athleteName || event.athleteId || '—' }}<template v-if="event.reason"> · {{ event.reason }}</template>
                 </p>
                 <p v-else>
-                  {{ event.outAthleteName || '—' }} <span class="muted">换下</span>
-                  {{ event.inAthleteName || '—' }} <span class="muted">换上</span>
+                  {{ event.outAthleteName || event.outAthleteId || '—' }} <span class="muted">换下</span>
+                  {{ event.inAthleteName || event.inAthleteId || '—' }} <span class="muted">换上</span>
                 </p>
                 <small v-if="event.note">{{ event.note }}</small>
               </div>
@@ -580,7 +605,16 @@ onMounted(loadAll)
             <div class="post-composer__row">
               <el-input-number v-model="postForm.minute" :min="0" :max="130" controls-position="right" />
               <span class="muted">分钟</span>
-              <el-checkbox v-model="postForm.withImage">附带现场图片</el-checkbox>
+              <el-upload
+                :show-file-list="false"
+                :http-request="uploadLiveImage"
+                accept="image/jpeg,image/png"
+              >
+                <el-button size="small" plain :icon="UploadFilled" :loading="uploadingImage">
+                  现场图片
+                </el-button>
+              </el-upload>
+              <span v-if="postImages.length" class="muted">已上传 {{ postImages.length }} 张</span>
               <span class="post-composer__spacer" />
               <el-button type="primary" :loading="posting" @click="submitPost">发布直播</el-button>
             </div>
@@ -601,6 +635,9 @@ onMounted(loadAll)
                 <div v-if="post.imageUrls?.length" class="live-item__images">
                   <img v-for="url in post.imageUrls" :key="url" :src="url" alt="直播图片" />
                 </div>
+                <small v-else-if="post.imageFileIds?.length" class="muted">
+                  附图 {{ post.imageFileIds.length }} 张（门户展示）
+                </small>
                 <small>{{ dayjs(post.createdAt).format('HH:mm:ss') }}</small>
               </div>
               <el-button link type="danger" :icon="Delete" @click="removePost(post)" />
@@ -740,8 +777,8 @@ onMounted(loadAll)
         </el-form-item>
 
         <template v-if="eventForm.eventType === 'GOAL'">
-          <el-form-item label="进球球员">
-            <el-input v-model="eventForm.scorerName" placeholder="输入球员姓名" />
+          <el-form-item label="进球球员 ID">
+            <el-input v-model="eventForm.scorerAthleteId" placeholder="输入成员4 运动员档案 ID" />
           </el-form-item>
           <el-form-item>
             <el-checkbox v-model="eventForm.ownGoal">该进球为乌龙球</el-checkbox>
@@ -757,8 +794,8 @@ onMounted(loadAll)
               <el-option label="其他" value="OTHER" />
             </el-select>
           </el-form-item>
-          <el-form-item label="球员">
-            <el-input v-model="eventForm.athleteName" placeholder="输入球员姓名" />
+          <el-form-item label="球员 ID">
+            <el-input v-model="eventForm.athleteId" placeholder="输入成员4 运动员档案 ID" />
           </el-form-item>
           <el-form-item label="判罚原因">
             <el-input v-model="eventForm.reason" placeholder="如：战术犯规" />
@@ -767,11 +804,11 @@ onMounted(loadAll)
 
         <template v-else>
           <div class="form-grid">
-            <el-form-item label="换下球员">
-              <el-input v-model="eventForm.outAthleteName" placeholder="球员姓名" />
+            <el-form-item label="换下球员 ID">
+              <el-input v-model="eventForm.outAthleteId" placeholder="成员4 档案 ID" />
             </el-form-item>
-            <el-form-item label="换上球员">
-              <el-input v-model="eventForm.inAthleteName" placeholder="球员姓名" />
+            <el-form-item label="换上球员 ID">
+              <el-input v-model="eventForm.inAthleteId" placeholder="成员4 档案 ID" />
             </el-form-item>
           </div>
         </template>
