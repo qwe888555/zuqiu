@@ -16,7 +16,7 @@ export function useConsoleEntry() {
   const loggedIn = computed(() => Boolean(auth.token))
   const enrollable = computed(() => Boolean(auth.token) && canEnroll(auth.roles))
   const consoleLabel = computed(() =>
-    auth.user ? `进入${workspaceLabelForRoles(auth.roles)}` : '账号登录',
+    auth.user ? `进入${workspaceLabelForRoles(auth.roles)}` : '登录',
   )
 
   async function goConsole() {

@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { ArrowRight, Close, Lock, User, WarningFilled } from '@element-plus/icons-vue'
+import { Close, Lock, User, WarningFilled } from '@element-plus/icons-vue'
 import { loginErrorMessage, useAuthStore } from '../../stores/auth'
 import { canEnroll, canOpenEnrollment, homeForRoles, workspaceLabelForRoles } from '../../utils/roles'
 import { useLoginDialog } from '../../composables/useLoginDialog'
@@ -138,8 +138,8 @@ async function continueCurrent() {
         </button>
 
         <div class="login-hero__title">
-          <span class="eyebrow">ACCOUNT LOGIN</span>
-          <h2>账号登录</h2>
+          <span class="eyebrow">LOGIN</span>
+          <h2>登录</h2>
           <p>使用组委会发放的账号登录，系统将按角色进入对应工作台。</p>
         </div>
       </header>
@@ -196,7 +196,6 @@ async function continueCurrent() {
 
           <el-button type="primary" size="large" class="submit-btn" :loading="auth.loading" @click="submit">
             登录
-            <el-icon><ArrowRight /></el-icon>
           </el-button>
         </el-form>
 
@@ -475,10 +474,6 @@ async function continueCurrent() {
   border-radius: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
-}
-
-.submit-btn .el-icon {
-  margin-left: 4px;
 }
 
 .login-foot {
