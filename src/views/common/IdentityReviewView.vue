@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Camera, Check, Close, Plus, Refresh, UploadFilled, VideoCamera } from '@element-plus/icons-vue'
@@ -14,19 +14,18 @@ import FilterBar from '../../components/common/FilterBar.vue'
 
 const loading = ref(false)
 const rows = ref<IdentityCheck[]>([])
-/** 状态筛选为本地筛选：后端列表只支持 enrollmentId / athleteId。 */
+/** 后端已支持状态筛选，统计基于当前筛选结果的首屏数据。 */
 const statsRows = ref<IdentityCheck[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const filters = reactive({ manualStatus: '', machineStatus: '' })
-const filterTruncated = ref(false)
-const LOCAL_FILTER_LIMIT = 2000
 
 /** 列表投影只有 ID，展示用信息按 ID 缓存补齐，避免同一条比赛/报名重复请求。 */
 const matchCache = new Map<string, Promise<Match | null>>()
 const enrollmentCache = new Map<string, Promise<EnrollmentDetail | null>>()
 const accountCache = new Map<string, Promise<Account | null>>()
+const photoUrlCache = new Map<string, string>()
 const groupNames = ref<Record<string, string>>({})
 
 function fetchMatch(id: string) {
@@ -76,24 +75,24 @@ async function enrichCheck(check: IdentityCheck): Promise<IdentityCheck> {
     teamName: enrollment?.teamName,
     groupName,
     matchLabel: match ? `${match.homeTeamName} vs ${match.awayTeamName}` : undefined,
-    reviewerName: reviewer?.displayName || reviewer?.username,
+    reviewerName:
+      reviewer?.displayName || reviewer?.username || check.reviewerName,
   }
 }
 
-async function fetchAllChecks() {
-  const batch = 100
-  const first = await identityApi.list({ page: 1, pageSize: batch })
-  const pages = Math.min(
-    Math.max(Math.ceil(first.total / batch) - 1, 0),
-    Math.ceil(LOCAL_FILTER_LIMIT / batch) - 1,
-  )
-  const rest = await Promise.all(
-    Array.from({ length: pages }, (_, index) =>
-      identityApi.list({ page: index + 2, pageSize: batch }),
-    ),
-  )
-  filterTruncated.value = first.total > LOCAL_FILTER_LIMIT
-  return [first, ...rest].flatMap((result) => result.items).slice(0, LOCAL_FILTER_LIMIT)
+/** 现场照片是私有文件，按 fileId 换取 object URL 后再放进 img。 */
+async function attachPhoto(check: IdentityCheck): Promise<IdentityCheck> {
+  if (!check.capturedPhotoFileId || check.capturedPhotoUrl) return check
+  let url = photoUrlCache.get(check.capturedPhotoFileId)
+  if (!url) {
+    try {
+      url = await fileApi.contentObjectUrl(check.capturedPhotoFileId)
+      if (url) photoUrlCache.set(check.capturedPhotoFileId, url)
+    } catch {
+      return check
+    }
+  }
+  return { ...check, capturedPhotoUrl: url }
 }
 
 const drawerVisible = ref(false)
@@ -132,34 +131,20 @@ const modeLabel: Record<string, string> = {
 const confirmedCount = computed(() => statsRows.value.filter((row) => row.manualStatus === 'CONFIRMED').length)
 const pendingCount = computed(() => statsRows.value.filter((row) => row.manualStatus === 'PENDING' || row.manualStatus === 'NOT_REVIEWED').length)
 const mismatchCount = computed(() => statsRows.value.filter((row) => row.machineStatus === 'MISMATCH').length)
-const filterSummary = computed(
-  () =>
-    `共 ${total.value} 条记录${filterTruncated.value ? `（状态筛选仅覆盖前 ${LOCAL_FILTER_LIMIT} 条）` : ''}`,
-)
+const filterSummary = computed(() => `共 ${total.value} 条记录`)
 
 async function load() {
   loading.value = true
   try {
-    if (filters.manualStatus || filters.machineStatus) {
-      const all = await fetchAllChecks()
-      const matched = all.filter(
-        (row) =>
-          (!filters.manualStatus || row.manualStatus === filters.manualStatus) &&
-          (!filters.machineStatus || row.machineStatus === filters.machineStatus),
-      )
-      total.value = matched.length
-      statsRows.value = matched
-      const start = (page.value - 1) * pageSize.value
-      rows.value = await Promise.all(
-        matched.slice(start, start + pageSize.value).map(enrichCheck),
-      )
-    } else {
-      filterTruncated.value = false
-      const res = await identityApi.list({ page: page.value, pageSize: pageSize.value })
-      total.value = res.total
-      statsRows.value = res.items
-      rows.value = await Promise.all(res.items.map(enrichCheck))
-    }
+    const res = await identityApi.list({
+      page: page.value,
+      pageSize: pageSize.value,
+      manualStatus: filters.manualStatus || undefined,
+      machineStatus: filters.machineStatus || undefined,
+    })
+    total.value = res.total
+    statsRows.value = res.items
+    rows.value = await Promise.all(res.items.map(enrichCheck))
   } catch {
     rows.value = []
     statsRows.value = []
@@ -177,7 +162,7 @@ async function openDetail(row: IdentityCheck) {
   drawerVisible.value = true
   detail.value = null
   try {
-    detail.value = await enrichCheck(await identityApi.get(row.id))
+    detail.value = await attachPhoto(await enrichCheck(await identityApi.get(row.id)))
   } catch {
     drawerVisible.value = false
   }
@@ -328,6 +313,11 @@ async function createCheck() {
 }
 
 onMounted(load)
+
+onBeforeUnmount(() => {
+  photoUrlCache.forEach((url) => URL.revokeObjectURL(url))
+  photoUrlCache.clear()
+})
 </script>
 
 <template>
@@ -344,9 +334,9 @@ onMounted(load)
 
     <div class="stat-grid">
       <StatCard label="核验记录" :value="total" hint="当前筛选范围" :icon="VideoCamera" tone="green" />
-      <StatCard label="已确认" :value="confirmedCount" hint="当前范围" :icon="Check" tone="lime" />
-      <StatCard label="待人工复核" :value="pendingCount" hint="当前范围" :icon="Camera" tone="amber" />
-      <StatCard label="比对不一致" :value="mismatchCount" hint="当前范围" :icon="Close" tone="blue" />
+      <StatCard label="已确认" :value="confirmedCount" hint="当前页" :icon="Check" tone="lime" />
+      <StatCard label="待人工复核" :value="pendingCount" hint="当前页" :icon="Camera" tone="amber" />
+      <StatCard label="比对不一致" :value="mismatchCount" hint="当前页" :icon="Close" tone="blue" />
     </div>
 
     <section class="page-card">

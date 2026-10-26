@@ -625,6 +625,8 @@ export interface IdentityCheck {
   teamName?: string
   groupName?: string
   matchLabel?: string
+  /** 现场照片文件 ID；页面用受控下载接口换取 object URL。 */
+  capturedPhotoFileId?: string
   capturedPhotoUrl?: string
   reviewerName?: string
 }

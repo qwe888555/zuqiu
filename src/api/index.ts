@@ -135,6 +135,11 @@ export const fileApi = {
   thumbnail: (fileId: string) => http.get<{ url: string }>(`/files/${fileId}/thumbnail`),
   download: (fileId: string, fileName: string) =>
     http.download(`/files/${fileId}/content`, fileName),
+  /** 读取私有文件并生成可直接放进 img src 的 object URL（调用方负责 revoke）。 */
+  contentObjectUrl: async (fileId: string) => {
+    const blob = await http.getBlob(`/files/${fileId}/content`)
+    return blob instanceof Blob ? URL.createObjectURL(blob) : ''
+  },
   remove: (fileId: string) => http.delete<{ success: boolean }>(`/files/${fileId}`),
 }
 
@@ -434,12 +439,15 @@ export const resourceApi = {
 
 export const identityApi = {
   /** 成员2 文档中的列表路径是 /identity-checks/list，不是 /identity-checks。 */
-  /** 后端只支持 enrollmentId / athleteId 过滤，按状态筛选需在前端本地完成。 */
+  /** 状态与比赛筛选已由后端支持，分页与统计都基于服务端结果。 */
   list: (params: {
     page?: number
     pageSize?: number
+    matchId?: string
     enrollmentId?: string
     athleteId?: string
+    manualStatus?: string
+    machineStatus?: string
   }) => http.get<PageResult<IdentityCheck>>('/identity-checks/list', params),
   get: (id: string) => http.get<IdentityCheck>(`/identity-checks/${id}`),
   /** 创建按幂等契约要求携带 Idempotency-Key。 */

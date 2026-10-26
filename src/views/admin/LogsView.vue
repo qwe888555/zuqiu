@@ -14,8 +14,9 @@ const rows = ref<AuditLog[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
-/** 后端审计列表只支持 logType / objectId / from / to，避免传无效筛选参数。 */
-const filters = reactive({ logType: '' })
+/** 后端审计列表支持关键词、结果、对象、操作人与时间范围筛选。 */
+const filters = reactive({ logType: '', keyword: '', outcome: '' })
+const dateRange = ref<[string, string] | null>(null)
 const accountCache = new Map<string, Promise<Account | null>>()
 
 function fetchAccount(id: string) {
@@ -72,6 +73,14 @@ async function load() {
       page: page.value,
       pageSize: pageSize.value,
       logType: filters.logType || undefined,
+      keyword: filters.keyword.trim() || undefined,
+      outcome: filters.outcome || undefined,
+      from: dateRange.value?.[0]
+        ? dayjs(dateRange.value[0]).startOf('day').toISOString()
+        : undefined,
+      to: dateRange.value?.[1]
+        ? dayjs(dateRange.value[1]).endOf('day').toISOString()
+        : undefined,
     })
     rows.value = await Promise.all(res.items.map(enrichLog))
     total.value = res.total
@@ -115,11 +124,31 @@ onMounted(load)
 
     <section class="page-card">
       <FilterBar :summary="'共 ' + total + ' 条日志'">
+        <el-input
+          v-model="filters.keyword"
+          placeholder="摘要 / 动作 / 对象 / 操作人"
+          clearable
+          style="width: 220px"
+          @keyup.enter="search"
+        />
         <el-select v-model="filters.logType" placeholder="全部日志类型" clearable @change="search">
           <el-option label="操作日志" value="OPERATION" />
           <el-option label="登录日志" value="LOGIN" />
           <el-option label="报名日志" value="ENROLLMENT" />
         </el-select>
+        <el-select v-model="filters.outcome" placeholder="全部结果" clearable @change="search">
+          <el-option label="成功" value="SUCCESS" />
+          <el-option label="失败" value="FAILURE" />
+        </el-select>
+        <el-date-picker
+          v-model="dateRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          style="width: 240px"
+          @change="search"
+        />
         <el-button type="primary" plain @click="search">查询</el-button>
       </FilterBar>
 

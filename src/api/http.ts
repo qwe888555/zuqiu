@@ -106,6 +106,10 @@ export const http = {
   get<T>(url: string, params?: Record<string, unknown>): Promise<T> {
     return request<T>({ method: 'get', url, params })
   },
+  /** 读取受控文件的二进制内容（照片、附件预览），由调用方负责释放 object URL。 */
+  getBlob(url: string, params?: Record<string, unknown>): Promise<Blob> {
+    return request<Blob>({ method: 'get', url, params, responseType: 'blob' })
+  },
   post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     return request<T>({ method: 'post', url, data, ...config })
   },
