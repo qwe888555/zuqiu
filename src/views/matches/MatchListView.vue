@@ -7,12 +7,15 @@ import { Delete, Edit, Monitor, Plus, Refresh, Search, VideoCamera } from '@elem
 import { eventApi, matchApi, teamApi } from '../../api'
 import type { Event, EventGroup, Match, Team } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
+import { useAuthStore } from '../../stores/auth'
+import { MOCK_ENABLED } from '../../api/http'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const router = useRouter()
+const auth = useAuthStore()
 const { can } = usePermission()
 const loading = ref(false)
 const rows = ref<Match[]>([])
@@ -21,6 +24,10 @@ const page = ref(1)
 const pageSize = ref(10)
 const events = ref<Event[]>([])
 const teams = ref<Team[]>([])
+/** 球队数据范围一期仅 ADMIN；非管理员不再请求，避免必然 403 的全局错误提示。 */
+const teamsUnavailable = ref(false)
+/** 编辑已有对阵时用行上的队名回显，球队下拉不可用时也不会只剩 ID。 */
+const editingTeams = ref<{ id: string; name: string }[]>([])
 const groups = ref<EventGroup[]>([])
 const createVisible = ref(false)
 const creating = ref(false)
@@ -81,18 +88,30 @@ async function load() {
 }
 
 async function loadBase() {
+  // 赛事只读对所有业务角色开放；球队列表一期仍受 ADMIN 数据范围限制。
+  // 两者必须独立降级，且非管理员不再发必然 403 的球队请求。
   try {
-    const [eventRes, teamRes] = await Promise.all([
-      eventApi.list({ page: 1, pageSize: 50 }),
-      teamApi.list({ page: 1, pageSize: 100 }),
-    ])
-    events.value = eventRes.items
-    teams.value = teamRes.items
+    const res = await eventApi.list({ page: 1, pageSize: 50 })
+    events.value = res.items
   } catch {
     events.value = []
+  }
+
+  teamsUnavailable.value = !MOCK_ENABLED && !auth.isAdmin
+  if (teamsUnavailable.value) {
     teams.value = []
+    return
+  }
+  try {
+    const res = await teamApi.list({ page: 1, pageSize: 100 })
+    teams.value = res.items
+  } catch {
+    teams.value = []
+    teamsUnavailable.value = true
   }
 }
+
+const teamOptions = computed(() => (teamsUnavailable.value ? editingTeams.value : teams.value))
 
 async function loadGroups() {
   groups.value = []
@@ -123,6 +142,7 @@ function resetForm() {
   form.referees = []
   editingId.value = ''
   editingVersion.value = 0
+  editingTeams.value = []
 }
 
 function openCreate() {
@@ -134,6 +154,10 @@ function openCreate() {
 async function openEdit(row: Match) {
   editingId.value = row.id
   editingVersion.value = row.version
+  editingTeams.value = [
+    { id: row.homeTeamId, name: row.homeTeamName },
+    { id: row.awayTeamId, name: row.awayTeamName },
+  ]
   form.eventId = row.eventId
   form.homeTeamId = row.homeTeamId
   form.awayTeamId = row.awayTeamId
@@ -340,6 +364,15 @@ onMounted(() => {
     </section>
 
     <el-dialog v-model="createVisible" :title="editingId ? '编辑比赛' : '新建比赛'" width="640px">
+      <el-alert
+        v-if="teamsUnavailable"
+        class="team-scope-alert"
+        type="info"
+        :closable="false"
+        show-icon
+        title="球队下拉不可用"
+        description="球队档案查询当前仅管理员可用。新建对阵需要先由管理员维护球队档案；编辑已有对阵时仍可保留原有对阵双方。"
+      />
       <el-form :model="form" label-position="top">
         <div class="form-grid">
           <el-form-item label="赛事">
@@ -354,12 +387,12 @@ onMounted(() => {
           </el-form-item>
           <el-form-item label="主队">
             <el-select v-model="form.homeTeamId" placeholder="选择主队" filterable style="width: 100%">
-              <el-option v-for="team in teams" :key="team.id" :label="team.name" :value="team.id" />
+              <el-option v-for="team in teamOptions" :key="team.id" :label="team.name" :value="team.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="客队">
             <el-select v-model="form.awayTeamId" placeholder="选择客队" filterable style="width: 100%">
-              <el-option v-for="team in teams" :key="team.id" :label="team.name" :value="team.id" />
+              <el-option v-for="team in teamOptions" :key="team.id" :label="team.name" :value="team.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="开赛时间">
@@ -413,6 +446,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.team-scope-alert {
+  margin-bottom: 14px;
+}
+
 .match-cell__teams {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

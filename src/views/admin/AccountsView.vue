@@ -3,8 +3,9 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Edit, Key, Link, Plus, Refresh, Search } from '@element-plus/icons-vue'
-import { accountApi, orgApi, teamApi } from '../../api'
-import type { Account, Organization, RoleCode, Team } from '../../api/types'
+import { accountApi, orgApi, personApi, teamApi } from '../../api'
+import { MOCK_ENABLED } from '../../api/http'
+import type { Account, Organization, Person, RoleCode, Team } from '../../api/types'
 import { ROLE_LABELS } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -38,13 +39,25 @@ const saving = ref(false)
 const inviteVisible = ref(false)
 const inviteLoading = ref(false)
 const inviteInfo = ref<{ registrationToken: string; expiresAt: string } | null>(null)
-const inviteForm = reactive({ kind: 'ATHLETE' as 'ATHLETE' | 'COACH', orgId: '' })
+const inviteLink = computed(() =>
+  inviteInfo.value
+    ? `${window.location.origin}/register?token=${encodeURIComponent(inviteInfo.value.registrationToken)}`
+    : '',
+)
+const inviteForm = reactive({
+  kind: 'ATHLETE' as 'ATHLETE' | 'COACH',
+  orgId: '',
+  personId: '',
+})
+const personOptions = ref<Person[]>([])
+const personLoading = ref(false)
 const form = reactive({
   username: '',
   displayName: '',
   roles: ['TEAM'] as RoleCode[],
   orgId: '',
   teamIds: [] as string[],
+  personId: '',
   enabled: true,
 })
 
@@ -71,7 +84,12 @@ async function load() {
 }
 
 async function loadBase() {
-  // 球队档案接口在部分部署中不存在，不能因此连带丢掉组织下拉。
+  // 组织架构与球队档案接口均为 ADMIN 专用；省审核员仅管理账号，不再发必然 403 的请求。
+  if (!MOCK_ENABLED && !auth.isAdmin) {
+    orgs.value = []
+    teams.value = []
+    return
+  }
   const [orgRes, teamRes] = await Promise.allSettled([
     orgApi.list({ page: 1, pageSize: 500 }),
     teamApi.list({ page: 1, pageSize: 300 }),
@@ -85,6 +103,39 @@ function search() {
   load()
 }
 
+function personLabel(person: Person) {
+  return [person.realName, person.maskedIdNumber].filter(Boolean).join(' · ')
+}
+
+async function searchPersons(keyword: string) {
+  // 人员检索一期仅 ADMIN 数据范围可用；省审核员可建账号，但补绑人员需管理员操作。
+  if (!auth.isAdmin) return
+  personLoading.value = true
+  try {
+    const res = await personApi.list({
+      page: 1,
+      pageSize: 20,
+      keyword: keyword.trim() || undefined,
+    })
+    personOptions.value = res.items
+  } catch {
+    personOptions.value = []
+  } finally {
+    personLoading.value = false
+  }
+}
+
+/** 编辑旧账号时把已绑定人员补进选项，避免下拉只显示一个裸 ID。 */
+async function ensurePersonOption(personId?: string) {
+  if (!personId || personOptions.value.some((person) => person.id === personId)) return
+  try {
+    const person = await personApi.get(personId)
+    personOptions.value = [person, ...personOptions.value]
+  } catch {
+    // 人员已删除或无权限时保留原 personId，不阻断编辑
+  }
+}
+
 function openCreate() {
   editingId.value = null
   editingRow.value = null
@@ -94,6 +145,7 @@ function openCreate() {
     roles: ['TEAM'],
     orgId: '',
     teamIds: [],
+    personId: '',
     enabled: true,
   })
   dialogVisible.value = true
@@ -109,8 +161,10 @@ function openEdit(row: Account) {
     roles: [...row.roles],
     orgId: row.orgId || '',
     teamIds: [...(row.teamIds || [])],
+    personId: row.personId || '',
     enabled: row.enabled,
   })
+  void ensurePersonOption(row.personId)
   dialogVisible.value = true
 }
 
@@ -142,6 +196,7 @@ async function save() {
         roles: [...form.roles],
         orgId: form.orgId,
         teamIds: [...form.teamIds],
+        personId: form.personId || undefined,
         enabled: form.enabled,
       })
       ElMessage.success('账号已更新')
@@ -152,6 +207,7 @@ async function save() {
         roles: [...form.roles],
         orgId: form.orgId,
         teamIds: [...form.teamIds],
+        personId: form.personId || undefined,
         enabled: form.enabled,
       })
       ElMessage.success('账号已创建，初始密码为登录账号，首次登录需修改')
@@ -225,6 +281,7 @@ function invite() {
   inviteLoading.value = false
   inviteForm.kind = 'ATHLETE'
   inviteForm.orgId = ''
+  inviteForm.personId = ''
 }
 
 async function generateInvite() {
@@ -234,6 +291,7 @@ async function generateInvite() {
     inviteInfo.value = await accountApi.invite({
       kind: inviteForm.kind,
       orgId: inviteForm.orgId,
+      personId: inviteForm.personId || undefined,
       expiresInMinutes: 1440,
     })
   } catch {
@@ -243,19 +301,29 @@ async function generateInvite() {
   }
 }
 
-async function copyToken() {
-  if (!inviteInfo.value) return
+async function copyText(text: string, success: string) {
   try {
-    await navigator.clipboard.writeText(inviteInfo.value.registrationToken)
-    ElMessage.success('注册令牌已复制')
+    await navigator.clipboard.writeText(text)
+    ElMessage.success(success)
   } catch {
-    ElMessage.warning('复制失败，请手动选择令牌文本')
+    ElMessage.warning('复制失败，请手动选择文本')
   }
+}
+
+function copyToken() {
+  if (!inviteInfo.value) return
+  copyText(inviteInfo.value.registrationToken, '注册令牌已复制')
+}
+
+function copyLink() {
+  if (!inviteLink.value) return
+  copyText(inviteLink.value, '注册链接已复制')
 }
 
 onMounted(() => {
   load()
   loadBase()
+  void searchPersons('')
 })
 </script>
 
@@ -267,10 +335,20 @@ onMounted(() => {
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button :icon="Link" @click="invite">生成注册邀请</el-button>
+        <el-button v-if="auth.isAdmin" :icon="Link" @click="invite">生成注册邀请</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建账号</el-button>
       </template>
     </PageHeader>
+
+    <el-alert
+      v-if="!MOCK_ENABLED && !auth.isAdmin"
+      class="scope-alert"
+      type="info"
+      :closable="false"
+      show-icon
+      title="组织与球队下拉仅管理员可用"
+      description="当前可查看账号列表与重置密码；新建账号时的组织、球队归属需由管理员补充。"
+    />
 
     <div class="stat-grid">
       <StatCard label="账号总数" :value="total" hint="当前筛选范围" :icon="Key" tone="green" />
@@ -317,6 +395,13 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="orgName" label="所属机构" min-width="170">
           <template #default="{ row }">{{ row.orgName || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="人员档案" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.personId ? 'success' : 'info'" size="small" effect="plain">
+              {{ row.personId ? '已绑定' : '未绑定' }}
+            </el-tag>
+          </template>
         </el-table-column>
         <el-table-column label="绑定球队" width="100" align="center">
           <template #default="{ row }">{{ row.teamIds?.length || 0 }}</template>
@@ -386,6 +471,28 @@ onMounted(() => {
             <el-option v-for="team in teams" :key="team.id" :label="team.name" :value="team.id" />
           </el-select>
         </el-form-item>
+        <el-form-item v-if="auth.isAdmin" label="关联人员档案">
+          <el-select
+            v-model="form.personId"
+            filterable
+            remote
+            clearable
+            :remote-method="searchPersons"
+            :loading="personLoading"
+            style="width: 100%"
+            placeholder="运动员 / 教练账号建议绑定，否则个人中心无法读取档案"
+          >
+            <el-option
+              v-for="person in personOptions"
+              :key="person.id"
+              :label="personLabel(person)"
+              :value="person.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-else label="关联人员档案">
+          <span class="muted">人员检索当前仅管理员可用；如需绑定人员档案，请联系管理员补绑。</span>
+        </el-form-item>
         <el-form-item label="账号状态">
           <el-switch v-model="form.enabled" active-text="启用" inactive-text="停用" />
         </el-form-item>
@@ -417,15 +524,36 @@ onMounted(() => {
               <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
             </el-select>
           </el-form-item>
+          <el-form-item label="关联人员档案">
+            <el-select
+              v-model="inviteForm.personId"
+              filterable
+              remote
+              clearable
+              :remote-method="searchPersons"
+              :loading="personLoading"
+              style="width: 100%"
+              placeholder="可选，绑定后注册账号即可读取本人档案与球队"
+            >
+              <el-option
+                v-for="person in personOptions"
+                :key="person.id"
+                :label="personLabel(person)"
+                :value="person.id"
+              />
+            </el-select>
+          </el-form-item>
           <p class="muted invite-tip">令牌 24 小时内有效且仅可使用一次，请通过安全渠道发送给受邀人。</p>
         </el-form>
         <template v-else>
-          <p class="muted">请将注册令牌发送给受邀单位，令牌 24 小时内有效且仅可使用一次。</p>
-          <div class="token-box">{{ inviteInfo.registrationToken }}</div>
+          <p class="muted">请把注册链接发送给受邀人，链接 24 小时内有效且仅可使用一次。</p>
+          <div class="token-box">{{ inviteLink }}</div>
           <div class="invite-meta">
             <span>有效期至</span>
             <strong>{{ dayjs(inviteInfo.expiresAt).format('YYYY-MM-DD HH:mm') }}</strong>
           </div>
+          <p class="muted invite-tip">仅需令牌时：</p>
+          <div class="token-box">{{ inviteInfo.registrationToken }}</div>
         </template>
       </div>
       <template #footer>
@@ -433,13 +561,20 @@ onMounted(() => {
         <el-button v-if="!inviteInfo" type="primary" :loading="inviteLoading" @click="generateInvite">
           生成令牌
         </el-button>
-        <el-button v-else type="primary" @click="copyToken">复制令牌</el-button>
+        <template v-else>
+          <el-button @click="copyToken">复制令牌</el-button>
+          <el-button type="primary" @click="copyLink">复制注册链接</el-button>
+        </template>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
+.scope-alert {
+  margin-bottom: 16px;
+}
+
 .account-cell {
   display: flex;
   align-items: center;

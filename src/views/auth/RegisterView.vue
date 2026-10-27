@@ -1,198 +1,53 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { authApi } from '../../api'
+import { onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { openLoginDialog } from '../../composables/useLoginDialog'
 
+const route = useRoute()
 const router = useRouter()
-const formRef = ref<FormInstance>()
-const submitting = ref(false)
-const form = reactive({
-  registrationToken: '',
-  username: '',
-  realName: '',
-  idNumber: '',
-  phone: '',
-  password: '',
-  confirmPassword: '',
+
+/**
+ * 注册已并入门户上的登录弹窗（同一弹窗内切换登录/注册）。
+ * 保留 /register 路由只用于接收邀请链接，打开注册弹窗后回到门户。
+ */
+onMounted(() => {
+  const token = typeof route.query.token === 'string' ? route.query.token : ''
+  openLoginDialog({ register: true, token })
+  router.replace('/')
 })
-
-const validateConfirm = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
-  if (value !== form.password) callback(new Error('两次输入的密码不一致'))
-  else callback()
-}
-
-const validatePhone = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
-  if (!value || /^1\d{10}$/.test(value)) callback()
-  else callback(new Error('请输入 11 位手机号'))
-}
-
-const rules: FormRules = {
-  registrationToken: [{ required: true, message: '请填写注册邀请凭证', trigger: 'blur' }],
-  username: [
-    { required: true, message: '请设置登录账号', trigger: 'blur' },
-    { min: 4, max: 32, message: '账号长度为 4-32 位', trigger: 'blur' },
-  ],
-  realName: [{ required: true, message: '请填写真实姓名', trigger: 'blur' }],
-  idNumber: [
-    { required: true, message: '请填写身份证号', trigger: 'blur' },
-    { pattern: /^\d{17}[\dXx]$/, message: '请输入 18 位身份证号', trigger: 'blur' },
-  ],
-  phone: [{ validator: validatePhone, trigger: 'blur' }],
-  password: [
-    { required: true, message: '请设置密码', trigger: 'blur' },
-    { min: 8, message: '密码至少 8 位', trigger: 'blur' },
-  ],
-  confirmPassword: [{ required: true, validator: validateConfirm, trigger: 'blur' }],
-}
-
-async function submit() {
-  if (!formRef.value) return
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
-  submitting.value = true
-  try {
-    await authApi.register({
-      registrationToken: form.registrationToken.trim(),
-      username: form.username.trim(),
-      password: form.password,
-      realName: form.realName.trim(),
-      idNumber: form.idNumber.trim(),
-      ...(form.phone.trim() ? { phone: form.phone.trim() } : {}),
-    })
-    ElMessage.success('注册成功，请使用新账号登录')
-    router.push('/login')
-  } catch {
-    // 错误提示由拦截器统一处理
-  } finally {
-    submitting.value = false
-  }
-}
 </script>
 
 <template>
-  <div class="register-page">
-    <div class="register-card">
-      <router-link to="/" class="brand-line">← 返回门户</router-link>
-      <header>
-        <span class="kicker">仅限邀请注册</span>
-        <h1>账号注册</h1>
-        <p>本平台账号由组委会统一邀请开通，请使用邀请链接中附带的注册凭证完成注册。</p>
-      </header>
-
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" size="large">
-        <el-form-item label="注册邀请凭证" prop="registrationToken">
-          <el-input v-model="form.registrationToken" placeholder="粘贴邀请链接中的注册凭证" />
-        </el-form-item>
-        <div class="form-grid">
-          <el-form-item label="登录账号" prop="username">
-            <el-input v-model="form.username" placeholder="4-32 位字母或数字" />
-          </el-form-item>
-          <el-form-item label="真实姓名" prop="realName">
-            <el-input v-model="form.realName" placeholder="与身份证一致" />
-          </el-form-item>
-          <el-form-item label="身份证号" prop="idNumber">
-            <el-input v-model="form.idNumber" maxlength="18" placeholder="18 位身份证号" />
-          </el-form-item>
-          <el-form-item label="手机号（选填）" prop="phone">
-            <el-input v-model="form.phone" maxlength="11" placeholder="用于接收赛事通知" />
-          </el-form-item>
-          <el-form-item label="登录密码" prop="password">
-            <el-input v-model="form.password" type="password" show-password placeholder="至少 8 位" />
-          </el-form-item>
-          <el-form-item label="确认密码" prop="confirmPassword">
-            <el-input v-model="form.confirmPassword" type="password" show-password placeholder="再次输入密码" />
-          </el-form-item>
-        </div>
-        <el-button type="primary" size="large" class="submit" :loading="submitting" @click="submit">
-          完成注册
-        </el-button>
-      </el-form>
-
-      <p class="foot">
-        已有账号？<router-link to="/login">返回登录</router-link>
-      </p>
-    </div>
+  <div class="register-redirect">
+    <span class="register-redirect__mark" />
+    <p>正在打开注册窗口…</p>
   </div>
 </template>
 
 <style scoped>
-.register-page {
+.register-redirect {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
   min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 40px 20px;
   background: var(--brand-900);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
 }
 
-.register-card {
-  width: min(600px, 100%);
-  padding: 34px 36px;
-  border-radius: var(--radius-lg);
-  background: #fff;
-  border-top: 3px solid var(--brand-700);
-  box-shadow: 0 10px 30px rgba(3, 32, 22, 0.22);
+.register-redirect__mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-top-color: var(--lime);
+  animation: register-spin 0.8s linear infinite;
 }
 
-.brand-line {
-  font-size: 12px;
-  color: var(--ink-500);
-}
-
-header {
-  margin: 22px 0 26px;
-}
-
-.kicker {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--brand-700);
-}
-
-header h1 {
-  margin-top: 7px;
-  font-size: 28px;
-}
-
-header p {
-  margin-top: 9px;
-  font-size: 12.5px;
-  line-height: 1.8;
-  color: var(--ink-500);
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 16px;
-}
-
-.submit {
-  width: 100%;
-  height: 44px;
-  margin-top: 8px;
-  border-radius: var(--radius-sm);
-}
-
-.foot {
-  margin-top: 20px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--ink-300);
-}
-
-.foot a {
-  color: var(--brand-700);
-  font-weight: 600;
-}
-
-@media (max-width: 560px) {
-  .register-card {
-    padding: 28px 22px;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
+@keyframes register-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

@@ -351,8 +351,8 @@ function normalizeEnrollment<T extends Enrollment>(raw: T & { players?: RosterIt
 }
 
 export const enrollmentApi = {
-  list: async (params: Query) => {
-    const page = await http.get<PageResult<Enrollment>>('/enrollments', params)
+  list: async (params: Query, options?: RequestOptions) => {
+    const page = await http.get<PageResult<Enrollment>>('/enrollments', params, options)
     return { ...page, items: page.items.map((item) => normalizeEnrollment(item)) }
   },
   get: async (id: string) =>

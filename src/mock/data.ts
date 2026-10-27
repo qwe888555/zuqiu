@@ -331,7 +331,7 @@ teamSeeds.forEach((t, ti) => {
       photoUrl: person.avatarUrl || '',
       effectiveFrom: '2025-09-01',
       active: true,
-      status: i === 0 ? 'PENDING' : 'APPROVED',
+      status: 'CURRENT',
       version: 1,
     })
   }

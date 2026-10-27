@@ -274,9 +274,11 @@ export interface TeamMember {
   avatarFileId?: string
   photoUrl?: string
   effectiveFrom?: string
+  /** 后端 member_out 不输出 effectiveTo（无冻结列），保留仅为兼容旧 mock。 */
   effectiveTo?: string
   active?: boolean
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  /** 后端冻结枚举：CURRENT=现役，EXITED=已离队（不是审核状态）。 */
+  status: 'CURRENT' | 'EXITED'
   version: number
 }
 

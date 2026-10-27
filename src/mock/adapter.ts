@@ -1280,7 +1280,7 @@ on('POST', '/teams/:id/members', ({ params, body }) => {
     photoUrl: person?.avatarUrl || '',
     effectiveFrom: body.effectiveFrom || now().slice(0, 10),
     active: true,
-    status: 'PENDING' as const,
+    status: 'CURRENT' as const,
     version: 1,
   }
   teamMembers.push(member)

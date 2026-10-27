@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { personApi, teamApi } from '../../api'
+import { MOCK_ENABLED } from '../../api/http'
 import type { CoachCategory, Person, TeamCoach } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import { COACH_CATEGORY_LABELS, coachCategoryLabel } from '../../config/labels'
@@ -33,6 +34,12 @@ const approvedCount = computed(() => rows.value.filter((c) => c.reviewStatus ===
 const pendingCount = computed(() => rows.value.filter((c) => c.reviewStatus === 'PENDING').length)
 
 async function load() {
+  if (!MOCK_ENABLED) {
+    // 后端 coaches 路由尚未实现，真实模式直接展示空态，不发必然 404 的请求。
+    rows.value = []
+    total.value = 0
+    return
+  }
   if (!teamId.value) return
   loading.value = true
   try {
@@ -62,6 +69,10 @@ function resetFilters() {
 }
 
 function openAdd() {
+  if (!MOCK_ENABLED) {
+    ElMessage.info('教练关联接口暂未开放')
+    return
+  }
   dialogVisible.value = true
   searchKeyword.value = ''
   candidates.value = []
@@ -139,9 +150,21 @@ onMounted(async () => {
           <el-option v-for="item in teams" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openAdd">添加教练</el-button>
+        <el-button v-if="MOCK_ENABLED" type="primary" :icon="Plus" @click="openAdd">
+          添加教练
+        </el-button>
       </template>
     </PageHeader>
+
+    <el-alert
+      v-if="!MOCK_ENABLED"
+      class="coach-unavailable"
+      type="info"
+      :closable="false"
+      show-icon
+      title="教练团队接口暂未开放"
+      description="后端 teams coaches 接口尚未交付，当前页面仅展示空态；球员名单、球队资料与材料不受影响。"
+    />
 
     <div class="stat-grid">
       <StatCard label="教练人数" :value="total" hint="包含保障人员" :icon="Plus" tone="green" />
@@ -257,6 +280,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.coach-unavailable {
+  margin-bottom: 16px;
+}
+
 .coach-cell {
   display: flex;
   align-items: center;

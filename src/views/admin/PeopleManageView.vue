@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Delete, Document, Edit, Plus, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
 import { fileApi, materialApi, orgApi, personApi } from '../../api'
+import { MOCK_ENABLED } from '../../api/http'
+import { useAuthStore } from '../../stores/auth'
 import type { Material, Organization, Person, PersonKind } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
+
+const auth = useAuthStore()
+/** 人员与组织接口一期仅 ADMIN；真实模式下非管理员不再发必然 403 的请求。 */
+const scopeLimited = computed(() => !MOCK_ENABLED && !auth.isAdmin)
 
 const loading = ref(false)
 const rows = ref<Person[]>([])
@@ -44,6 +50,11 @@ const form = reactive({
 })
 
 async function load() {
+  if (scopeLimited.value) {
+    rows.value = []
+    total.value = 0
+    return
+  }
   loading.value = true
   try {
     const res = await personApi.list({
@@ -63,6 +74,10 @@ async function load() {
 }
 
 async function loadOrgs() {
+  if (scopeLimited.value) {
+    orgs.value = []
+    return
+  }
   try {
     const res = await orgApi.list({ page: 1, pageSize: 500 })
     orgs.value = res.items.filter((org) => org.enabled)
@@ -245,9 +260,19 @@ onMounted(() => {
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建人员</el-button>
+        <el-button v-if="!scopeLimited" type="primary" :icon="Plus" @click="openCreate">新建人员</el-button>
       </template>
     </PageHeader>
+
+    <el-alert
+      v-if="scopeLimited"
+      class="scope-alert"
+      type="info"
+      :closable="false"
+      show-icon
+      title="人员档案当前仅管理员可查看"
+      description="人员数据范围一期仅对管理员开放；省审核员可继续使用报名审核、赛事与账号管理功能。"
+    />
 
     <section class="page-card">
       <FilterBar :summary="'共 ' + total + ' 人'">
@@ -456,6 +481,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.scope-alert {
+  margin-bottom: 16px;
+}
+
 .person-cell {
   display: flex;
   align-items: center;

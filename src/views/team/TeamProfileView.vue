@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Edit, Location, Plus, Refresh, UploadFilled, User, UserFilled } from '@element-plus/icons-vue'
 import { fileApi, teamApi } from '../../api'
+import { MOCK_ENABLED } from '../../api/http'
 import type { GroupCategory, Team } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import { usePermission } from '../../composables/usePermission'
@@ -81,7 +82,8 @@ const canEdit = computed(() => can('team.manage'))
 const isSchool = computed(() => auth.roles.includes('UNIVERSITY'))
 // 球队端只维护所属球队；新建、删除球队属于学校端的下级管理能力。
 const canCreateTeam = computed(() => isSchool.value && can('team.manage'))
-const canDeleteTeam = computed(() => isSchool.value && can('team.manage'))
+// DELETE /teams 后端暂缓（成员4文档 §12.1），真实模式先隐藏入口，演示模式保留。
+const canDeleteTeam = computed(() => MOCK_ENABLED && isSchool.value && can('team.manage'))
 
 /** 资料清单只列仍缺失的项；全部补齐后整张「资料完善度」卡片不再出现。 */
 const profileChecklist = computed(() => [
@@ -525,7 +527,12 @@ onMounted(async () => {
               <span>球员名单</span>
               <small>{{ team?.memberCount || 0 }} 人</small>
             </button>
-            <button type="button" class="side-link" @click="router.push('/console/team/coaches')">
+            <button
+              v-if="MOCK_ENABLED"
+              type="button"
+              class="side-link"
+              @click="router.push('/console/team/coaches')"
+            >
               <span>教练团队</span>
               <small>查看</small>
             </button>

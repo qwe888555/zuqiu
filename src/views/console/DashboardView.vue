@@ -18,7 +18,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import { useAppStore } from '../../stores/app'
-import { enrollmentApi, matchApi, meApi, materialApi, teamApi } from '../../api'
+import { enrollmentApi, matchApi, meApi, materialApi } from '../../api'
 import type { Enrollment, Match, Material, Team } from '../../api/types'
 import { categoryLabel } from '../../config/labels'
 import { httpStatusOf } from '../../utils/httpError'
@@ -270,38 +270,45 @@ async function load() {
           schoolTeams.value = []
         }
       }
-      const calls: Promise<unknown>[] = [
-        enrollmentApi.list({ page: 1, pageSize: 5 }),
-        enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_CITY_REVIEW' }),
-        enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_PROVINCE_REVIEW' }),
-        enrollmentApi.list({ page: 1, pageSize: 1, status: 'APPROVED' }),
-        enrollmentApi.list({ page: 1, pageSize: 1, status: 'REJECTED' }),
-        matchApi.list({ page: 1, pageSize: 5, status: isRecorder.value ? undefined : 'SCHEDULED' }),
-      ]
-      const [recent, pc, pv, approved, rejected, matches] = (await Promise.all(calls)) as [
-        { items: Enrollment[]; total: number },
-        { total: number },
-        { total: number },
-        { total: number },
-        { total: number },
-        { items: Match[]; total: number },
-      ]
+      // 报名与比赛是不同权限点：记录员无报名权限时不能让整页数据一起失败。
+      const [recentRes, pcRes, pvRes, approvedRes, rejectedRes, matchesRes] =
+        await Promise.allSettled([
+          enrollmentApi.list({ page: 1, pageSize: 5 }, { silentError: true }),
+          enrollmentApi.list(
+            { page: 1, pageSize: 1, status: 'PENDING_CITY_REVIEW' },
+            { silentError: true },
+          ),
+          enrollmentApi.list(
+            { page: 1, pageSize: 1, status: 'PENDING_PROVINCE_REVIEW' },
+            { silentError: true },
+          ),
+          enrollmentApi.list({ page: 1, pageSize: 1, status: 'APPROVED' }, { silentError: true }),
+          enrollmentApi.list({ page: 1, pageSize: 1, status: 'REJECTED' }, { silentError: true }),
+          matchApi.list({ page: 1, pageSize: 5, status: isRecorder.value ? undefined : 'SCHEDULED' }),
+        ])
+      const recent =
+        recentRes.status === 'fulfilled' ? recentRes.value : { items: [] as Enrollment[], total: 0 }
+      const matches =
+        matchesRes.status === 'fulfilled' ? matchesRes.value : { items: [] as Match[], total: 0 }
       recentEnrollments.value = recent.items
       counts.value = {
         all: recent.total,
-        pendingCity: pc.total,
-        pendingProvince: pv.total,
-        approved: approved.total,
-        rejected: rejected.total,
+        pendingCity: pcRes.status === 'fulfilled' ? pcRes.value.total : 0,
+        pendingProvince: pvRes.status === 'fulfilled' ? pvRes.value.total : 0,
+        approved: approvedRes.status === 'fulfilled' ? approvedRes.value.total : 0,
+        rejected: rejectedRes.status === 'fulfilled' ? rejectedRes.value.total : 0,
       }
 
       if ((isSchool.value || isTeam.value) && !isReviewer.value) {
         // 学校端 / 球队端只应看到本校或本队的赛程，不能把全省赛程当成“我的比赛”。
-        const teamMatchPages = await Promise.all(
-          schoolTeams.value.map((team) => teamApi.matches(team.id, { page: 1, pageSize: 100 })),
+        // /teams/{id}/matches 尚未实现，改用已交付的 /matches?teamId 过滤。
+        const teamMatchPages = await Promise.allSettled(
+          schoolTeams.value.map((team) =>
+            matchApi.list({ teamId: team.id, page: 1, pageSize: 100 }),
+          ),
         )
         const upcoming = teamMatchPages
-          .flatMap((page) => page.items)
+          .flatMap((page) => (page.status === 'fulfilled' ? page.value.items : []))
           .filter((match) => match.status === 'SCHEDULED')
           .filter((match, index, all) => all.findIndex((item) => item.id === match.id) === index)
           .sort((left, right) => dayjs(left.kickoffAt).valueOf() - dayjs(right.kickoffAt).valueOf())

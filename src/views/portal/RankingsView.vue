@@ -223,7 +223,10 @@ onMounted(load)
             v-for="(row, index) in podium"
             :key="row.athleteId"
             class="podium-card"
-            :class="index === 0 ? 'is-leader' : `is-rank-${index + 1}`"
+            :class="[
+              index === 0 ? 'is-leader' : `is-position-${index + 1}`,
+              `is-rank-${row.rank}`,
+            ]"
           >
             <header class="podium-card__head">
               <span class="podium-card__rank">
@@ -547,8 +550,9 @@ onMounted(load)
   margin: 0 auto 16px;
 }
 
-/* 经典领奖台：第二在左、第一居中、第三在右 */
-.podium .is-rank-2 {
+/* 经典领奖台：第二在左、第一居中、第三在右。
+   位置与名次分开，避免并列名次导致两张卡片抢同一个栅格顺序。 */
+.podium .is-position-2 {
   order: 1;
 }
 
@@ -556,7 +560,7 @@ onMounted(load)
   order: 2;
 }
 
-.podium .is-rank-3 {
+.podium .is-position-3 {
   order: 3;
 }
 
@@ -1111,8 +1115,8 @@ onMounted(load)
 
   /* 窄屏改回 1、2、3 的顺序，方便从上往下读 */
   .podium .is-leader,
-  .podium .is-rank-2,
-  .podium .is-rank-3 {
+  .podium .is-position-2,
+  .podium .is-position-3 {
     order: initial;
   }
 

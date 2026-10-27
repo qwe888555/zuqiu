@@ -2,14 +2,15 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Close, Lock, User, WarningFilled } from '@element-plus/icons-vue'
+import { Close, Key, Lock, User, WarningFilled } from '@element-plus/icons-vue'
+import { authApi } from '../../api'
 import { loginErrorMessage, useAuthStore } from '../../stores/auth'
 import { canEnroll, canOpenEnrollment, homeForRoles, workspaceLabelForRoles } from '../../utils/roles'
 import { useLoginDialog } from '../../composables/useLoginDialog'
 
 const router = useRouter()
 const auth = useAuthStore()
-const { visible, redirect } = useLoginDialog()
+const { visible, redirect, mode, registerToken } = useLoginDialog()
 
 const REMEMBER_KEY = 'football.remember-username'
 const remembered = localStorage.getItem(REMEMBER_KEY) || ''
@@ -27,6 +28,64 @@ const rules: FormRules = {
   ],
 }
 
+const registerFormRef = ref<FormInstance>()
+const registering = ref(false)
+const registerForm = reactive({
+  // /register?token=... 直接进入时，弹窗挂载前凭证已经放进 registerToken。
+  registrationToken: registerToken.value,
+  username: '',
+  realName: '',
+  idNumber: '',
+  phone: '',
+  password: '',
+  confirmPassword: '',
+})
+
+const validateRegisterConfirm = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if (value !== registerForm.password) callback(new Error('两次输入的密码不一致'))
+  else callback()
+}
+
+const validateRegisterPhone = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
+  if (!value || /^1\d{10}$/.test(value)) callback()
+  else callback(new Error('请输入 11 位手机号'))
+}
+
+const registerRules: FormRules = {
+  registrationToken: [{ required: true, message: '请填写注册邀请凭证', trigger: 'blur' }],
+  username: [
+    { required: true, message: '请设置登录账号', trigger: 'blur' },
+    { min: 4, max: 32, message: '账号长度为 4-32 位', trigger: 'blur' },
+  ],
+  realName: [{ required: true, message: '请填写真实姓名', trigger: 'blur' }],
+  idNumber: [
+    { required: true, message: '请填写身份证号', trigger: 'blur' },
+    { pattern: /^\d{17}[\dXx]$/, message: '请输入 18 位身份证号', trigger: 'blur' },
+  ],
+  phone: [{ validator: validateRegisterPhone, trigger: 'blur' }],
+  password: [
+    { required: true, message: '请设置密码', trigger: 'blur' },
+    { min: 8, message: '密码至少 8 位', trigger: 'blur' },
+  ],
+  confirmPassword: [{ required: true, validator: validateRegisterConfirm, trigger: 'blur' }],
+}
+
+const hero = computed(() =>
+  mode.value === 'register'
+    ? {
+        eyebrow: 'REGISTER',
+        title: '账号注册',
+        description: '凭邀请链接开通账号，设置登录名与密码。',
+      }
+    : {
+        eyebrow: 'LOGIN',
+        title: '登录',
+        description: '使用组委会发放的账号登录，系统将按角色进入对应工作台。',
+      },
+)
+
+const dialogWidth = computed(() => (mode.value === 'register' ? '600px' : '452px'))
+
 const switching = computed(() => Boolean(auth.token && auth.user))
 const workspaceLabel = computed(() => (auth.user ? workspaceLabelForRoles(auth.roles) : ''))
 
@@ -39,7 +98,23 @@ const open = computed({
 
 watch(visible, (value) => {
   errorText.value = ''
-  if (!value) form.password = ''
+  if (value && mode.value === 'register' && registerToken.value) {
+    registerForm.registrationToken = registerToken.value
+  }
+  if (!value) {
+    form.password = ''
+    registerForm.password = ''
+    registerForm.confirmPassword = ''
+    registerForm.registrationToken = ''
+  }
+})
+
+// 在登录/注册之间切换时，把邀请链接带来的凭证带进表单。
+watch(mode, (value) => {
+  errorText.value = ''
+  if (value === 'register' && registerToken.value) {
+    registerForm.registrationToken = registerToken.value
+  }
 })
 
 // 用户重新输入时收起上一次的失败提示
@@ -92,6 +167,37 @@ async function submit() {
   }
 }
 
+function switchMode(next: 'login' | 'register') {
+  errorText.value = ''
+  mode.value = next
+}
+
+async function submitRegister() {
+  if (!registerFormRef.value) return
+  const valid = await registerFormRef.value.validate().catch(() => false)
+  if (!valid) return
+  registering.value = true
+  try {
+    await authApi.register({
+      registrationToken: registerForm.registrationToken.trim(),
+      username: registerForm.username.trim(),
+      password: registerForm.password,
+      realName: registerForm.realName.trim(),
+      idNumber: registerForm.idNumber.trim(),
+      ...(registerForm.phone.trim() ? { phone: registerForm.phone.trim() } : {}),
+    })
+    ElMessage.success('注册成功，请使用新账号登录')
+    // 注册成功后留在弹窗内切回登录，账号自动填好。
+    form.username = registerForm.username.trim()
+    form.password = ''
+    mode.value = 'login'
+  } catch {
+    // 拦截器提示
+  } finally {
+    registering.value = false
+  }
+}
+
 async function continueCurrent() {
   if (!auth.user) {
     try {
@@ -108,7 +214,7 @@ async function continueCurrent() {
 <template>
   <el-dialog
     v-model="open"
-    width="452px"
+    :width="dialogWidth"
     class="login-dialog"
     modal-class="login-overlay"
     :show-close="false"
@@ -138,68 +244,166 @@ async function continueCurrent() {
         </button>
 
         <div class="login-hero__title">
-          <span class="eyebrow">LOGIN</span>
-          <h2>登录</h2>
-          <p>使用组委会发放的账号登录，系统将按角色进入对应工作台。</p>
+          <span class="eyebrow">{{ hero.eyebrow }}</span>
+          <h2>{{ hero.title }}</h2>
+          <p>{{ hero.description }}</p>
         </div>
       </header>
 
       <div class="login-body">
-        <div v-if="switching" class="session-banner">
-          <span class="session-banner__dot" />
-          <div>
-            <strong>当前已登录：{{ auth.displayName }}</strong>
-            <small>{{ workspaceLabel }} · 可直接继续，或在下方登录其他账号</small>
-          </div>
-          <button type="button" @click="continueCurrent">继续进入</button>
-        </div>
-
-        <el-form
-          ref="formRef"
-          :model="form"
-          :rules="rules"
-          label-position="top"
-          size="large"
-          hide-required-asterisk
-          @submit.prevent="submit"
-        >
-          <el-form-item label="账号" prop="username">
-            <el-input
-              v-model="form.username"
-              :prefix-icon="User"
-              placeholder="请输入账号"
-              autocomplete="username"
-              clearable
-            />
-          </el-form-item>
-          <el-form-item label="密码" prop="password">
-            <el-input
-              v-model="form.password"
-              :prefix-icon="Lock"
-              type="password"
-              show-password
-              placeholder="请输入登录密码"
-              autocomplete="current-password"
-              @keyup.enter="submit"
-            />
-          </el-form-item>
-
-          <div class="form-extra">
-            <el-checkbox v-model="remember">记住账号</el-checkbox>
-            <span>忘记密码请联系组委会管理员重置</span>
+        <template v-if="mode === 'login'">
+          <div v-if="switching" class="session-banner">
+            <span class="session-banner__dot" />
+            <div>
+              <strong>当前已登录：{{ auth.displayName }}</strong>
+              <small>{{ workspaceLabel }} · 可直接继续，或在下方登录其他账号</small>
+            </div>
+            <button type="button" @click="continueCurrent">继续进入</button>
           </div>
 
-          <div v-if="errorText" class="login-alert" role="alert">
-            <el-icon><WarningFilled /></el-icon>
-            <span>{{ errorText }}</span>
-          </div>
+          <el-form
+            ref="formRef"
+            :model="form"
+            :rules="rules"
+            label-position="top"
+            size="large"
+            hide-required-asterisk
+            @submit.prevent="submit"
+          >
+            <el-form-item label="账号" prop="username">
+              <el-input
+                v-model="form.username"
+                :prefix-icon="User"
+                placeholder="请输入账号"
+                autocomplete="username"
+                clearable
+              />
+            </el-form-item>
+            <el-form-item label="密码" prop="password">
+              <el-input
+                v-model="form.password"
+                :prefix-icon="Lock"
+                type="password"
+                show-password
+                placeholder="请输入登录密码"
+                autocomplete="current-password"
+                @keyup.enter="submit"
+              />
+            </el-form-item>
 
-          <el-button type="primary" size="large" class="submit-btn" :loading="auth.loading" @click="submit">
-            登录
-          </el-button>
-        </el-form>
+            <div class="form-extra">
+              <el-checkbox v-model="remember">记住账号</el-checkbox>
+              <span>忘记密码请联系组委会管理员重置</span>
+            </div>
 
-        <p class="login-foot">账号由组委会统一发放，请勿转借他人使用。</p>
+            <div v-if="errorText" class="login-alert" role="alert">
+              <el-icon><WarningFilled /></el-icon>
+              <span>{{ errorText }}</span>
+            </div>
+
+            <el-button type="primary" size="large" class="submit-btn" :loading="auth.loading" @click="submit">
+              登录
+            </el-button>
+          </el-form>
+
+          <p class="login-foot">
+            <span>账号由组委会统一发放，请勿转借他人使用。</span>
+            <button type="button" class="login-foot__link" @click="switchMode('register')">
+              收到邀请？完成账号注册
+            </button>
+          </p>
+        </template>
+
+        <template v-else>
+          <el-form
+            ref="registerFormRef"
+            :model="registerForm"
+            :rules="registerRules"
+            label-position="top"
+            size="large"
+            hide-required-asterisk
+            @submit.prevent="submitRegister"
+          >
+            <el-form-item label="注册邀请凭证" prop="registrationToken">
+              <el-input
+                v-model="registerForm.registrationToken"
+                :prefix-icon="Key"
+                placeholder="粘贴邀请链接中的注册凭证"
+                autocomplete="off"
+              />
+              <p v-if="registerToken" class="invite-hint">
+                <el-icon><Key /></el-icon>
+                已从邀请链接读取注册凭证
+              </p>
+            </el-form-item>
+
+            <div class="register-grid">
+              <el-form-item label="登录账号" prop="username">
+                <el-input
+                  v-model="registerForm.username"
+                  :prefix-icon="User"
+                  placeholder="4-32 位字母或数字"
+                  autocomplete="username"
+                />
+              </el-form-item>
+              <el-form-item label="真实姓名" prop="realName">
+                <el-input
+                  v-model="registerForm.realName"
+                  placeholder="与身份证一致"
+                  autocomplete="name"
+                />
+              </el-form-item>
+              <el-form-item label="身份证号" prop="idNumber">
+                <el-input v-model="registerForm.idNumber" maxlength="18" placeholder="18 位身份证号" />
+              </el-form-item>
+              <el-form-item label="手机号（选填）" prop="phone">
+                <el-input
+                  v-model="registerForm.phone"
+                  maxlength="11"
+                  placeholder="用于接收赛事通知"
+                  autocomplete="tel"
+                />
+              </el-form-item>
+              <el-form-item label="登录密码" prop="password">
+                <el-input
+                  v-model="registerForm.password"
+                  :prefix-icon="Lock"
+                  type="password"
+                  show-password
+                  placeholder="至少 8 位"
+                  autocomplete="new-password"
+                />
+              </el-form-item>
+              <el-form-item label="确认密码" prop="confirmPassword">
+                <el-input
+                  v-model="registerForm.confirmPassword"
+                  :prefix-icon="Lock"
+                  type="password"
+                  show-password
+                  placeholder="再次输入密码"
+                  autocomplete="new-password"
+                />
+              </el-form-item>
+            </div>
+
+            <el-button
+              type="primary"
+              size="large"
+              class="submit-btn"
+              :loading="registering"
+              @click="submitRegister"
+            >
+              完成注册
+            </el-button>
+          </el-form>
+
+          <p class="login-foot">
+            <span>邀请链接 24 小时内有效，仅可使用一次；账号仅限本人使用。</span>
+            <button type="button" class="login-foot__link" @click="switchMode('login')">
+              已有账号？返回登录
+            </button>
+          </p>
+        </template>
       </div>
     </div>
   </el-dialog>
@@ -423,6 +627,31 @@ async function continueCurrent() {
   padding: 2px 12px;
 }
 
+.register-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+}
+
+.register-grid :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.invite-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--brand-700);
+}
+
+.invite-hint .el-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
 .form-extra {
   display: flex;
   align-items: center;
@@ -477,6 +706,10 @@ async function continueCurrent() {
 }
 
 .login-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   margin: 16px 0 0;
   padding-top: 14px;
   border-top: 1px dashed var(--line);
@@ -484,6 +717,20 @@ async function continueCurrent() {
   line-height: 1.6;
   text-align: center;
   color: var(--ink-300);
+}
+
+.login-foot__link {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand-700);
+  cursor: pointer;
+}
+
+.login-foot__link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 520px) {
@@ -511,6 +758,10 @@ async function continueCurrent() {
 
   .form-extra span {
     text-align: left;
+  }
+
+  .register-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -39,8 +39,9 @@ const uploadingPhotoId = ref('')
 
 const positions = ['门将', '后卫', '中场', '前锋']
 
-const approvedCount = computed(() => rows.value.filter((m) => m.status === 'APPROVED').length)
-const pendingCount = computed(() => rows.value.filter((m) => m.status === 'PENDING').length)
+// 成员状态是 CURRENT/EXITED（冻结关系枚举），不是报名或审核状态。
+const currentCount = computed(() => rows.value.filter((m) => m.status === 'CURRENT').length)
+const exitedCount = computed(() => rows.value.filter((m) => m.status === 'EXITED').length)
 const positionStats = computed(() =>
   positions.map((position) => ({
     position,
@@ -217,8 +218,8 @@ onMounted(async () => {
 
     <div class="stat-grid">
       <StatCard label="球队球员" :value="total" hint="当前球队名单" :icon="User" tone="green" />
-      <StatCard label="已通过认证" :value="approvedCount" hint="资格有效" :icon="User" tone="lime" />
-      <StatCard label="待审核" :value="pendingCount" hint="需补充或核验" :icon="User" tone="amber" />
+      <StatCard label="现役成员" :value="currentCount" hint="本页现役人数" :icon="User" tone="lime" />
+      <StatCard label="历史离队" :value="exitedCount" hint="保留履历记录" :icon="User" tone="amber" />
       <StatCard
         label="本页覆盖位置"
         :value="positionStats.filter((p) => p.count > 0).length"
@@ -270,7 +271,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column prop="position" label="位置" width="100" />
         <el-table-column label="资格状态" width="120">
-          <template #default="{ row }"><StatusTag :status="row.status" kind="review" /></template>
+          <template #default="{ row }"><StatusTag :status="row.status" kind="member" /></template>
         </el-table-column>
         <el-table-column label="操作" width="250" align="right">
           <template #default="{ row }">

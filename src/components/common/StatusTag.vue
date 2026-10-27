@@ -6,7 +6,7 @@ type TagType = 'success' | 'warning' | 'danger' | 'info' | 'primary'
 const props = withDefaults(
   defineProps<{
     status?: string | boolean
-    kind?: 'enrollment' | 'match' | 'event' | 'content' | 'review' | 'publication' | 'identity' | 'generic'
+    kind?: 'enrollment' | 'match' | 'event' | 'content' | 'review' | 'publication' | 'identity' | 'member' | 'generic'
     size?: 'small' | 'default' | 'large'
   }>(),
   { status: '', kind: 'generic', size: 'small' },
@@ -42,6 +42,11 @@ const contentMap: Record<string, [string, TagType]> = {
   OFFLINE: ['已下线', 'info'],
 }
 
+const memberMap: Record<string, [string, TagType]> = {
+  CURRENT: ['现役', 'success'],
+  EXITED: ['已离队', 'info'],
+}
+
 const reviewMap: Record<string, [string, TagType]> = {
   PENDING: ['待审核', 'primary'],
   NOT_REVIEWED: ['待复核', 'primary'],
@@ -67,6 +72,7 @@ const label = computed(() => {
   if (props.kind === 'match') return matchMap[value] || [value || '未知', 'info']
   if (props.kind === 'event') return eventMap[value] || [value || '未知', 'info']
   if (props.kind === 'content') return contentMap[value] || [value || '未知', 'info']
+  if (props.kind === 'member') return memberMap[value] || [value || '未知', 'info']
   if (props.kind === 'review' || props.kind === 'identity') return reviewMap[value] || [value || '未知', 'info']
   return [value || '未知', 'info']
 })

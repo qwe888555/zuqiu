@@ -15,8 +15,11 @@ import {
   View,
 } from '@element-plus/icons-vue'
 import { fileApi, materialApi, orgApi, teamApi } from '../../api'
+import { MOCK_ENABLED } from '../../api/http'
 import type { GroupCategory, Match, Material, Organization, Team, TeamCoach, TeamMember } from '../../api/types'
 import { CATEGORY_GROUP_LABELS, coachCategoryLabel } from '../../config/labels'
+import { usePermission } from '../../composables/usePermission'
+import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -24,6 +27,9 @@ import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const router = useRouter()
+const auth = useAuthStore()
+const { can } = usePermission()
+const canManage = computed(() => can('team.manage'))
 
 const categoryLabels = CATEGORY_GROUP_LABELS
 
@@ -147,6 +153,12 @@ async function removeTeam(team: Team) {
 }
 
 async function load() {
+  if (!MOCK_ENABLED && !auth.isAdmin) {
+    // 球队数据范围一期仅 ADMIN；省审核员可进入页面，但不发必然 403 的请求。
+    rows.value = []
+    total.value = 0
+    return
+  }
   loading.value = true
   try {
     const res = await teamApi.list({
@@ -207,18 +219,24 @@ async function openDetail(team: Team) {
   recentMatches.value = []
   materials.value = []
   try {
-    const [teamDetail, memberRes, coachRes, matchRes] = await Promise.all([
+    // 详情与名单必须互不拖累：任一接口失败时另一块仍要展示。
+    const [detailRes, memberRes] = await Promise.allSettled([
       teamApi.get(team.id),
       teamApi.members(team.id, { page: 1, pageSize: 100 }),
-      teamApi.coaches(team.id, { page: 1, pageSize: 100 }),
-      teamApi.matches(team.id, { page: 1, pageSize: 6 }),
     ])
-    detail.value = teamDetail
-    members.value = memberRes.items
-    coaches.value = coachRes.items
-    recentMatches.value = matchRes.items
-  } catch {
-    // 拦截器提示
+    if (detailRes.status === 'fulfilled') detail.value = detailRes.value
+    if (memberRes.status === 'fulfilled') members.value = memberRes.value.items
+
+    // coaches / teams-matches 尚未在成员4后端实现（文档 §8.3、§12.1）；
+    // 真实联调下不再发必然 404 的请求，演示模式保留完整页签。
+    if (MOCK_ENABLED) {
+      const [coachRes, matchRes] = await Promise.allSettled([
+        teamApi.coaches(team.id, { page: 1, pageSize: 100 }),
+        teamApi.matches(team.id, { page: 1, pageSize: 6 }),
+      ])
+      if (coachRes.status === 'fulfilled') coaches.value = coachRes.value.items
+      if (matchRes.status === 'fulfilled') recentMatches.value = matchRes.value.items
+    }
   } finally {
     detailLoading.value = false
   }
@@ -290,6 +308,7 @@ function goMatches() {
 }
 
 onMounted(async () => {
+  if (!MOCK_ENABLED && !auth.isAdmin) return
   await Promise.all([loadCities(), loadSchools(), load()])
 })
 </script>
@@ -302,10 +321,20 @@ onMounted(async () => {
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" plain :icon="Plus" @click="openCreate">新建球队</el-button>
+        <el-button v-if="canManage" type="primary" plain :icon="Plus" @click="openCreate">新建球队</el-button>
         <el-button type="primary" :icon="Trophy" @click="goMatches">前往赛事编排</el-button>
       </template>
     </PageHeader>
+
+    <el-alert
+      v-if="!MOCK_ENABLED && !auth.isAdmin"
+      class="scope-alert"
+      type="info"
+      :closable="false"
+      show-icon
+      title="参赛队伍数据当前仅管理员可查看"
+      description="球队数据范围一期仅对管理员全量开放；省审核员可继续使用赛事与审核功能。"
+    />
 
     <div class="stat-grid">
       <StatCard label="参赛队伍" :value="total" hint="全省已建档球队" :icon="Trophy" tone="green" />
@@ -446,7 +475,7 @@ onMounted(async () => {
               </el-table-column>
               <el-table-column label="状态" width="90">
                 <template #default="{ row }">
-                  <StatusTag :status="row.status" kind="review" />
+                  <StatusTag :status="row.status" kind="member" />
                 </template>
               </el-table-column>
               <template #empty><div class="drawer-empty">暂无球员</div></template>
@@ -467,7 +496,9 @@ onMounted(async () => {
                   <StatusTag :status="row.reviewStatus" kind="review" />
                 </template>
               </el-table-column>
-              <template #empty><div class="drawer-empty">暂无教练</div></template>
+              <template #empty>
+                <div class="drawer-empty">{{ MOCK_ENABLED ? '暂无教练' : '教练团队接口暂未开放' }}</div>
+              </template>
             </el-table>
           </el-tab-pane>
 
@@ -486,7 +517,9 @@ onMounted(async () => {
                 <StatusTag :status="match.status" kind="match" />
               </div>
             </div>
-            <div v-else class="drawer-empty">暂无比赛安排</div>
+            <div v-else class="drawer-empty">
+              {{ MOCK_ENABLED ? '暂无比赛安排' : '球队赛程接口暂未开放' }}
+            </div>
           </el-tab-pane>
 
           <el-tab-pane name="materials">
@@ -556,7 +589,15 @@ onMounted(async () => {
         </el-tabs>
 
         <div class="drawer-actions">
-          <el-button type="danger" plain :icon="Delete" @click="detail && removeTeam(detail)">删除球队</el-button>
+          <el-button
+            v-if="MOCK_ENABLED"
+            type="danger"
+            plain
+            :icon="Delete"
+            @click="detail && removeTeam(detail)"
+          >
+            删除球队
+          </el-button>
           <el-button @click="drawerVisible = false">关闭</el-button>
           <el-button type="primary" :icon="Trophy" @click="goMatches">查看全部赛程</el-button>
         </div>
@@ -607,6 +648,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.scope-alert {
+  margin-bottom: 16px;
+}
+
 .table-card {
   padding: 6px 18px 14px;
 }
