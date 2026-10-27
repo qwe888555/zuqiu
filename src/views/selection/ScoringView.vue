@@ -18,6 +18,7 @@ import type {
   SelectionScoreRecord,
   SelectionTemplate,
 } from '../../api/types'
+import { pickDefaultEventId } from '../../utils/events'
 import PageHeader from '../../components/common/PageHeader.vue'
 
 interface DossierRow {
@@ -62,7 +63,7 @@ async function loadEvents() {
   try {
     const res = await eventApi.list({ page: 1, pageSize: 50 })
     events.value = res.items
-    if (!eventId.value) eventId.value = events.value[0]?.id || ''
+    if (!eventId.value) eventId.value = pickDefaultEventId(events.value)
   } catch {
     events.value = []
   }

@@ -6,6 +6,7 @@ import { ElMessage } from 'element-plus'
 import { enrollmentApi, eventApi } from '../../api'
 import type { Event, StatRow } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
+import { pickDefaultEventId } from '../../utils/events'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import CityHeatMap from '../../components/stats/CityHeatMap.vue'
@@ -63,12 +64,12 @@ const totalApproved = computed(() => rows.value.reduce((sum, row) => sum + (row.
 const maxTeamCount = computed(() => Math.max(1, ...rows.value.map((row) => row.teamCount)))
 
 const dimensionLabel = computed(
-  () => ({ CITY: '市州', UNIVERSITY: '高校', GROUP: '组别' })[dimension.value],
+  () => ({ CITY: '市州', UNIVERSITY: '学校', GROUP: '组别' })[dimension.value],
 )
 
 const emptyEventDescription = computed(() =>
   can('event.manage')
-    ? '当前后端尚未返回任何赛事数据。请先在「赛事与组别」创建赛事并配置组别，回到本页点击刷新后即可选择赛事、导出 Excel 或打包报名资料。'
+    ? '当前后端尚未返回任何赛事数据。'
     : '当前账号数据范围内没有可统计的赛事。请联系赛事管理员创建或开放赛事后重试。',
 )
 
@@ -79,7 +80,7 @@ async function load() {
   }
   loading.value = true
   try {
-    // 统计接口分页返回，默认 pageSize=20；市州/高校维度可能超过一页，这里按 total 取全量。
+    // 统计接口分页返回，默认 pageSize=20；市州/学校维度可能超过一页，这里按 total 取全量。
     const collected: StatRow[] = []
     let page = 1
     let total = 0
@@ -112,7 +113,7 @@ async function loadEvents() {
       : await eventApi.available({ page: 1, pageSize: 100 })
     events.value = res.items
     if (!eventId.value || !events.value.some((event) => event.id === eventId.value)) {
-      eventId.value = events.value[0]?.id || ''
+      eventId.value = pickDefaultEventId(events.value)
     }
   } catch {
     events.value = []
@@ -197,7 +198,7 @@ onMounted(refresh)
       </el-select>
       <el-radio-group v-model="dimension" @change="changeDimension">
         <el-radio-button value="CITY">按市州</el-radio-button>
-        <el-radio-button value="UNIVERSITY">按高校</el-radio-button>
+        <el-radio-button value="UNIVERSITY">按学校</el-radio-button>
         <el-radio-button value="GROUP">按组别</el-radio-button>
       </el-radio-group>
       <span class="filter-card__spacer" />

@@ -171,38 +171,41 @@ onMounted(load)
 
     <div class="container ranking-body">
       <div class="ranking-toolbar">
-        <el-select
-          v-model="eventId"
-          size="large"
-          placeholder="选择赛事"
-          class="event-select"
-          @change="changeEvent"
-        >
-          <el-option
-            v-for="event in events"
-            :key="event.id"
-            :label="event.name"
-            :value="event.id"
-          />
-        </el-select>
-        <div class="scope-tabs" role="tablist" aria-label="选择组别">
-          <button
-            v-for="item in categories"
-            :key="item.value"
-            type="button"
-            role="tab"
-            class="scope-tab"
-            :class="{ 'is-active': category === item.value }"
-            :aria-selected="category === item.value"
-            @click="switchCategory(item.value)"
+        <div class="toolbar-controls">
+          <el-select
+            v-model="eventId"
+            size="large"
+            placeholder="选择赛事"
+            class="event-select"
+            @change="changeEvent"
           >
-            {{ item.label }}
-          </button>
+            <el-option
+              v-for="event in events"
+              :key="event.id"
+              :label="event.name"
+              :value="event.id"
+            />
+          </el-select>
+          <span class="toolbar-divider" aria-hidden="true" />
+          <div class="scope-tabs" role="tablist" aria-label="选择组别">
+            <button
+              v-for="item in categories"
+              :key="item.value"
+              type="button"
+              role="tab"
+              class="scope-tab"
+              :class="{ 'is-active': category === item.value }"
+              :aria-selected="category === item.value"
+              @click="switchCategory(item.value)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
         </div>
         <div class="toolbar-meta">
           <span class="scope-note">
             <i />
-            {{ currentCategoryLabel }} · 组内排名，不与其它年龄组混排
+            {{ currentCategoryLabel }} · 组内排名
           </span>
           <span v-if="generatedTime" class="updated">
             统计生成于 {{ generatedTime }} · 以记录台确认数据为准
@@ -433,33 +436,49 @@ onMounted(load)
   flex-wrap: wrap;
   width: min(100%, var(--ranking-width));
   margin: 0 auto 16px;
-  padding: 9px 16px 9px 10px;
+  padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: var(--shadow-card);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fff 0%, #fbfcfa 100%);
+  box-shadow: 0 6px 18px rgba(7, 59, 44, 0.045);
+}
+
+.toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .event-select {
-  width: 230px;
+  width: 280px;
   flex-shrink: 0;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 22px;
+  flex-shrink: 0;
+  background: var(--line);
 }
 
 .scope-tabs {
   display: inline-flex;
   gap: 3px;
   padding: 3px;
-  border-radius: 8px;
-  background: var(--paper);
+  border: 1px solid #e7eee5;
+  border-radius: 9px;
+  background: #f3f7f2;
 }
 
 .scope-tab {
-  min-height: 36px;
-  padding: 0 22px;
+  min-height: 34px;
+  padding: 0 20px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--ink-500);
   cursor: pointer;
   transition: background 0.18s, color 0.18s, box-shadow 0.18s;
@@ -467,7 +486,7 @@ onMounted(load)
 
 .scope-tab:hover {
   color: var(--ink-900);
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .scope-tab.is-active {
@@ -480,30 +499,36 @@ onMounted(load)
 .toolbar-meta {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 
 .scope-note {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--ink-500);
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--brand-50);
+  font-size: 11.5px;
+  color: var(--brand-700);
+  white-space: nowrap;
 }
 
 .scope-note i {
   width: 5px;
   height: 5px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: var(--brand-500);
-  box-shadow: 0 0 0 3px var(--brand-50);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7);
 }
 
 .updated {
-  padding-left: 16px;
+  padding-left: 14px;
   border-left: 1px solid var(--line);
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--ink-300);
 }
 
@@ -537,10 +562,17 @@ onMounted(load)
 
 .podium--1 {
   grid-template-columns: minmax(0, 460px);
+  justify-content: center;
 }
 
+/* 只有两名球员时不做高低台阶，两张卡片等高对齐，避免左侧出现悬空缺口。 */
 .podium--2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.podium--2 .podium-card {
+  min-height: 292px;
 }
 
 .podium-card {
@@ -960,8 +992,10 @@ onMounted(load)
 }
 
 .list-row__bar {
-  flex: 1;
+  display: block;
+  width: 100%;
   height: 5px;
+  flex: none;
   overflow: hidden;
   border-radius: 3px;
   background: var(--paper);
@@ -1006,7 +1040,9 @@ onMounted(load)
 }
 
 .empty-card {
-  padding: 24px;
+  width: min(100%, var(--ranking-width));
+  margin: 0 auto;
+  padding: 18px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
@@ -1038,7 +1074,8 @@ onMounted(load)
     padding: 14px 16px 13px;
   }
 
-  .podium-card.is-leader {
+  .podium-card.is-leader,
+  .podium--2 .podium-card {
     min-height: 272px;
   }
 
@@ -1080,7 +1117,8 @@ onMounted(load)
   }
 
   .podium-card,
-  .podium-card.is-leader {
+  .podium-card.is-leader,
+  .podium--2 .podium-card {
     min-height: 0;
   }
 
@@ -1093,16 +1131,32 @@ onMounted(load)
   }
 }
 
+@media (max-width: 980px) {
+  .toolbar-meta {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
 @media (max-width: 760px) {
   .ranking-toolbar {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
     padding: 9px;
+  }
+
+  .toolbar-controls {
+    width: 100%;
+    gap: 9px;
   }
 
   .event-select,
   .scope-tabs {
     width: 100%;
+  }
+
+  .toolbar-divider {
+    display: none;
   }
 
   .scope-tab {
@@ -1113,7 +1167,7 @@ onMounted(load)
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
-    padding: 0 6px;
+    padding: 0 3px;
   }
 
   .updated {

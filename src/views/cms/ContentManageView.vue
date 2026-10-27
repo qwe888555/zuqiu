@@ -218,8 +218,8 @@ async function openEdit(row: Content) {
 
 async function pickCover(options: UploadRequestOptions) {
   const file = options.file
-  if (!/\.(jpg|jpeg|png|webp)$/i.test(file.name) && !file.type.startsWith('image/')) {
-    ElMessage.warning('请选择 JPG、PNG 或 WebP 图片')
+  if (!/\.(jpg|jpeg|png)$/i.test(file.name)) {
+    ElMessage.warning('请选择 JPG 或 PNG 图片')
     return
   }
   coverFile.value = file
@@ -503,7 +503,7 @@ onMounted(() => {
             <el-upload
               :show-file-list="false"
               :http-request="pickCover"
-              accept=".jpg,.jpeg,.png,.webp"
+              accept=".jpg,.jpeg,.png"
             >
               <div class="cover-upload__box">
                 <img v-if="coverPreview" :src="coverPreview" alt="封面预览" />

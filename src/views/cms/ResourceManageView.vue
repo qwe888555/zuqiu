@@ -160,8 +160,9 @@ async function openEdit(row: PortalResource) {
 
 async function pickImage(options: UploadRequestOptions) {
   const file = options.file
-  if (!file.type.startsWith('image/')) {
-    ElMessage.warning('请选择图片文件')
+  // 后端 CMS_IMAGE 只接受 jpg/jpeg/png，webp 会在上传阶段被拒。
+  if (!/\.(jpg|jpeg|png)$/i.test(file.name)) {
+    ElMessage.warning('请选择 JPG 或 PNG 图片')
     return
   }
   imageFile.value = file
@@ -336,7 +337,7 @@ onMounted(() => {
         </el-form-item>
         <el-form-item label="资源图片">
           <div class="image-upload">
-            <el-upload :show-file-list="false" :http-request="pickImage" accept=".jpg,.jpeg,.png,.webp">
+            <el-upload :show-file-list="false" :http-request="pickImage" accept=".jpg,.jpeg,.png">
               <div class="image-upload__box">
                 <img v-if="imagePreview" :src="imagePreview" alt="资源图片预览" />
                 <template v-else>

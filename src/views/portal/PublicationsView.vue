@@ -10,6 +10,7 @@ import {
   groupPublications,
   publicationCountUnit,
 } from '../../utils/publications'
+import { pickDefaultEventId } from '../../utils/events'
 
 const loading = ref(false)
 const allItems = ref<PublicityRecord[]>([])
@@ -62,7 +63,7 @@ async function loadEvents() {
     // /public/events 免登录，匿名访客也能选择公示所属赛事。
     const res = await publicApi.events({ page: 1, pageSize: 50 })
     events.value = res.items
-    if (!eventId.value) eventId.value = events.value[0]?.id || ''
+    if (!eventId.value) eventId.value = pickDefaultEventId(events.value)
   } catch {
     events.value = []
   }

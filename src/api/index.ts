@@ -49,6 +49,8 @@ import type {
 } from './types'
 
 type Query = Record<string, unknown>
+/** 单个请求的提示控制：可选接口失败时由页面决定是否展示提示。 */
+type RequestOptions = { silentError?: boolean }
 
 export const authApi = {
   login: (data: { username: string; password: string }) =>
@@ -65,7 +67,7 @@ export const meApi = {
   messages: (params: Query) => http.get<PageResult<Message>>('/me/messages', params),
   message: (id: string) => http.get<Message>(`/me/messages/${id}`),
   readMessage: (id: string) => http.post<{ success: boolean }>(`/me/messages/${id}/read`),
-  profile: () => http.get<Person>('/me/profile'),
+  profile: (options?: RequestOptions) => http.get<Person>('/me/profile', undefined, options),
   /** 本人档案更新：version 必填（乐观锁），缺失后端返回 400 INVALID_ARGUMENT。 */
   updateProfile: (data: Partial<Person> & { version: number }) =>
     http.put<Person>('/me/profile', data),
@@ -73,8 +75,9 @@ export const meApi = {
   confirmProfile: (version: number) =>
     http.post<Person>('/me/profile-confirmation', { version }),
   profileMatch: () => http.get<Record<string, unknown>>('/me/profile-match'),
-  teams: () => http.get<Team[]>('/me/teams'),
-  affiliations: (params: Query) => http.get<PageResult<MyAffiliation>>('/me/team-affiliations', params),
+  teams: (options?: RequestOptions) => http.get<Team[]>('/me/teams', undefined, options),
+  affiliations: (params: Query, options?: RequestOptions) =>
+    http.get<PageResult<MyAffiliation>>('/me/team-affiliations', params, options),
   addAffiliation: (data: Query) => http.post<MyAffiliation>('/me/team-affiliations', data),
   updateAffiliation: (id: string, data: Query) =>
     http.put<MyAffiliation>(`/me/team-affiliations/${id}`, data),
@@ -268,7 +271,8 @@ export const personApi = {
 }
 
 export const materialApi = {
-  list: (params: Query) => http.get<PageResult<Material>>('/materials', params),
+  list: (params: Query, options?: RequestOptions) =>
+    http.get<PageResult<Material>>('/materials', params, options),
   create: (data: Query) => http.post<Material>('/materials', data),
   update: (id: string, data: Query) => http.put<Material>(`/materials/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/materials/${id}`, { version }),

@@ -1,0 +1,1051 @@
+{
+  "regions": {
+    "province": {
+      "id": 13,
+      "name": "四川省",
+      "code": "510000",
+      "level": 1,
+      "parentId": null,
+      "sortOrder": 10,
+      "isActive": true,
+      "createdAt": "2026-10-27T02:18:28.871Z",
+      "updatedAt": "2026-10-27T02:20:49.181Z"
+    },
+    "chengdu": {
+      "id": 14,
+      "name": "示例市州",
+      "code": "510100",
+      "level": 2,
+      "parentId": 13,
+      "sortOrder": 20,
+      "isActive": true,
+      "createdAt": "2026-10-27T02:18:29.096Z",
+      "updatedAt": "2026-10-27T02:20:49.363Z"
+    },
+    "mianyang": {
+      "id": 16,
+      "name": "绵阳市",
+      "code": "510700",
+      "level": 2,
+      "parentId": 13,
+      "sortOrder": 2,
+      "isActive": true,
+      "createdAt": "2026-10-27T02:25:36.195Z",
+      "updatedAt": "2026-10-27T02:25:36.195Z"
+    },
+    "jinjiang": {
+      "id": 17,
+      "name": "锦江区",
+      "code": "510104",
+      "level": 3,
+      "parentId": 14,
+      "sortOrder": 1,
+      "isActive": true,
+      "createdAt": "2026-10-27T02:25:54.049Z",
+      "updatedAt": "2026-10-27T02:25:54.049Z"
+    },
+    "fucheng": {
+      "id": 18,
+      "name": "涪城区",
+      "code": "510703",
+      "level": 3,
+      "parentId": 16,
+      "sortOrder": 1,
+      "isActive": true,
+      "createdAt": "2026-10-27T02:26:11.983Z",
+      "updatedAt": "2026-10-27T02:26:11.983Z"
+    }
+  },
+  "schools": {
+    "SCH001": {
+      "id": 9,
+      "name": "示例第一中学",
+      "code": "SCH001",
+      "schoolType": "SENIOR",
+      "regionId": 14,
+      "regionName": "示例市州",
+      "address": "示例市州学府路1号",
+      "isActive": true,
+      "createdAt": "2026-10-27T02:18:29.545Z",
+      "updatedAt": "2026-10-27T02:20:49.701Z"
+    },
+    "SCH002": {
+      "id": 10,
+      "name": "示例第二中学",
+      "code": "SCH002",
+      "schoolType": "JUNIOR",
+      "regionId": 15,
+      "regionName": "示例市州二",
+      "address": "示例市州二文华路2号",
+      "isActive": true,
+      "createdAt": "2026-10-27T02:18:29.777Z",
+      "updatedAt": "2026-10-27T02:20:49.883Z"
+    },
+    "UNI001": {
+      "id": 11,
+      "name": "示例大学",
+      "code": "UNI001",
+      "schoolType": "COMPLETE",
+      "regionId": 17,
+      "regionName": "锦江区",
+      "address": "四川省成都市锦江区大学路 01 号",
+      "isActive": true,
+      "createdAt": "2026-10-27T02:27:13.385Z",
+      "updatedAt": "2026-10-27T02:27:13.386Z"
+    }
+  },
+  "groups": {
+    "event": {
+      "id": "evt_aa0f24635584488ea831",
+      "name": "2026年四川省青少年校园足球联赛",
+      "season": "2026",
+      "eventCategory": "校园足球",
+      "registrationOpensAt": "2026-09-01T00:00:00+08:00",
+      "registrationClosesAt": "2026-12-31T23:59:59+08:00",
+      "status": "REGISTRATION_OPEN",
+      "description": "由四川省教育厅主办的全省青少年校园足球联赛，设小学、初中、高中三个学段男女组别，覆盖全省 21 个市州。",
+      "version": 0,
+      "createdAt": "2026-10-27T02:27:26.937Z",
+      "updatedAt": "2026-10-27T02:27:26.937Z"
+    },
+    "小学男子组（U12）": {
+      "id": "evg_d293793843794504915c",
+      "eventId": "evt_aa0f24635584488ea831",
+      "name": "小学男子组（U12）",
+      "category": "PRIMARY",
+      "gender": "MALE",
+      "quota": 24,
+      "maxPlayers": 18,
+      "requiredMaterialTypes": [
+        "STAMPED_FORM",
+        "STUDENT_STATUS"
+      ],
+      "version": 0,
+      "createdAt": "2026-10-27T02:27:44.956Z",
+      "updatedAt": "2026-10-27T02:27:44.956Z",
+      "minAge": 10,
+      "maxAge": 12
+    },
+    "小学女子组（U12）": {
+      "id": "evg_3a2e820735fb4a069af2",
+      "eventId": "evt_aa0f24635584488ea831",
+      "name": "小学女子组（U12）",
+      "category": "PRIMARY",
+      "gender": "FEMALE",
+      "quota": 24,
+      "maxPlayers": 18,
+      "requiredMaterialTypes": [
+        "STAMPED_FORM",
+        "STUDENT_STATUS"
+      ],
+      "version": 0,
+      "createdAt": "2026-10-27T02:27:54.094Z",
+      "updatedAt": "2026-10-27T02:27:54.094Z",
+      "minAge": 10,
+      "maxAge": 12
+    },
+    "初中男子组（U15）": {
+      "id": "evg_e47db6f16b6a45f68d55",
+      "eventId": "evt_aa0f24635584488ea831",
+      "name": "初中男子组（U15）",
+      "category": "MIDDLE",
+      "gender": "MALE",
+      "quota": 20,
+      "maxPlayers": 20,
+      "requiredMaterialTypes": [
+        "STAMPED_FORM",
+        "STUDENT_STATUS"
+      ],
+      "version": 0,
+      "createdAt": "2026-10-27T02:28:03.624Z",
+      "updatedAt": "2026-10-27T02:28:03.624Z",
+      "minAge": 13,
+      "maxAge": 15
+    },
+    "初中女子组（U15）": {
+      "id": "evg_72dad8f90753436299db",
+      "eventId": "evt_aa0f24635584488ea831",
+      "name": "初中女子组（U15）",
+      "category": "MIDDLE",
+      "gender": "FEMALE",
+      "quota": 20,
+      "maxPlayers": 20,
+      "requiredMaterialTypes": [
+        "STAMPED_FORM",
+        "STUDENT_STATUS"
+      ],
+      "version": 0,
+      "createdAt": "2026-10-27T02:28:12.000Z",
+      "updatedAt": "2026-10-27T02:28:12.000Z",
+      "minAge": 13,
+      "maxAge": 15
+    },
+    "高中男子组（U18）": {
+      "id": "evg_a61bf05cf95a4e79b04a",
+      "eventId": "evt_aa0f24635584488ea831",
+      "name": "高中男子组（U18）",
+      "category": "MIDDLE",
+      "gender": "MALE",
+      "quota": 16,
+      "maxPlayers": 22,
+      "requiredMaterialTypes": [
+        "STAMPED_FORM",
+        "STUDENT_STATUS"
+      ],
+      "version": 0,
+      "createdAt": "2026-10-27T02:28:21.107Z",
+      "updatedAt": "2026-10-27T02:28:21.107Z",
+      "minAge": 16,
+      "maxAge": 18
+    },
+    "高中女子组（U18）": {
+      "id": "evg_02856042233a40b2a423",
+      "eventId": "evt_aa0f24635584488ea831",
+      "name": "高中女子组（U18）",
+      "category": "MIDDLE",
+      "gender": "FEMALE",
+      "quota": 16,
+      "maxPlayers": 22,
+      "requiredMaterialTypes": [
+        "STAMPED_FORM",
+        "STUDENT_STATUS"
+      ],
+      "version": 0,
+      "createdAt": "2026-10-27T02:28:30.028Z",
+      "updatedAt": "2026-10-27T02:28:30.028Z",
+      "minAge": 16,
+      "maxAge": 18
+    }
+  },
+  "teams": {
+    "示例第一中学男子足球队": {
+      "id": "17",
+      "teamNo": "T202600000017",
+      "name": "示例第一中学男子足球队",
+      "category": "U15",
+      "schoolName": "示例第一中学",
+      "cityName": "示例市州",
+      "intro": "示例第一中学男子足球队（演示数据）",
+      "coachName": "唐雨泽",
+      "memberCount": 24,
+      "status": "APPROVED",
+      "version": 1793067656696116,
+      "createdAt": "2026-10-27T02:18:39.146727+00:00"
+    },
+    "示例第一中学女子足球队": {
+      "id": "19",
+      "teamNo": "T202600000019",
+      "name": "示例第一中学女子足球队",
+      "category": "U12",
+      "schoolName": "示例第一中学",
+      "cityName": "示例市州",
+      "intro": "示例第一中学女子足球队（演示数据）",
+      "coachName": "韩雅婷",
+      "memberCount": 24,
+      "status": "APPROVED",
+      "version": 1793067678793135,
+      "createdAt": "2026-10-27T02:19:10.210893+00:00"
+    },
+    "示例第二中学男子足球队": {
+      "id": "18",
+      "teamNo": "T202600000018",
+      "name": "示例第二中学男子足球队",
+      "category": "U15",
+      "schoolName": "示例第二中学",
+      "cityName": "示例市州二",
+      "intro": "示例第二中学男子足球队（演示数据）",
+      "coachName": "王铭轩",
+      "memberCount": 24,
+      "status": "APPROVED",
+      "version": 1793067667774248,
+      "createdAt": "2026-10-27T02:18:54.808965+00:00"
+    },
+    "示例第二中学女子足球队": {
+      "id": "20",
+      "teamNo": "T202600000020",
+      "name": "示例第二中学女子足球队",
+      "category": "U12",
+      "schoolName": "示例第二中学",
+      "cityName": "示例市州二",
+      "intro": "示例第二中学女子足球队（演示数据）",
+      "coachName": "张梦琪",
+      "memberCount": 24,
+      "status": "APPROVED",
+      "version": 1793067690270305,
+      "createdAt": "2026-10-27T02:19:25.763366+00:00"
+    }
+  },
+  "contents": {
+    "news": {
+      "id": "cnt_5e995cb1526f433bbaf0",
+      "contentType": "NEWS",
+      "title": "2026年四川省青少年校园足球联赛报名启动",
+      "summary": "全省中小学与高校球队即日起可通过平台完成赛事报名。",
+      "bodyHtml": "<p>2026年四川省青少年校园足球联赛报名工作正式启动。请各参赛学校在规定时间内完成球队注册、运动员名单填报与材料上传。</p><p>报名截止时间为 2026 年 12 月 31 日，逾期不再受理。</p>",
+      "coverFileId": "",
+      "eventId": "evt_aa0f24635584488ea831",
+      "groupId": "",
+      "policyDocumentNo": "",
+      "pinned": true,
+      "status": "PUBLISHED",
+      "revision": 1,
+      "bodyText": "2026年四川省青少年校园足球联赛报名工作正式启动。请各参赛学校在规定时间内完成球队注册、运动员名单填报与材料上传。报名截止时间为 2026 年 12 月 31 日，逾期不再受理。",
+      "version": 1,
+      "createdAt": "2026-10-27T02:32:34.092Z",
+      "updatedAt": "2026-10-27T02:32:41.584Z",
+      "policyEffectiveFrom": null,
+      "policyEffectiveTo": null,
+      "publishedAt": "2026-10-27T02:32:41.584Z"
+    },
+    "policy": {
+      "id": "cnt_84f44b6eaa6b44478d98",
+      "contentType": "POLICY",
+      "title": "四川省青少年校园足球竞赛管理办法（2026年修订）",
+      "summary": "明确参赛资格、赛风赛纪与申诉流程。",
+      "bodyHtml": "<p>为规范全省青少年校园足球竞赛组织工作，现将《四川省青少年校园足球竞赛管理办法（2026年修订）》予以公布。</p><p>各参赛单位应严格遵守报名资格与赛风赛纪要求。</p>",
+      "coverFileId": "",
+      "eventId": "",
+      "groupId": "",
+      "policyDocumentNo": "川教体〔2026〕12号",
+      "pinned": false,
+      "status": "PUBLISHED",
+      "revision": 1,
+      "bodyText": "为规范全省青少年校园足球竞赛组织工作，现将《四川省青少年校园足球竞赛管理办法（2026年修订）》予以公布。各参赛单位应严格遵守报名资格与赛风赛纪要求。",
+      "version": 1,
+      "createdAt": "2026-10-27T02:32:50.524Z",
+      "updatedAt": "2026-10-27T02:32:59.611Z",
+      "policyEffectiveFrom": "2026-09-01",
+      "policyEffectiveTo": "2027-08-31",
+      "publishedAt": "2026-10-27T02:32:59.611Z"
+    },
+    "highlight": {
+      "id": "cnt_7486eef090224646ae58",
+      "contentType": "HIGHLIGHT",
+      "title": "决赛集锦：示例第一中学 2:1 示例第二中学",
+      "summary": "比赛第 67 分钟绝杀，示例第一中学夺得初中男子组冠军。",
+      "bodyHtml": "<p>在 2026 年 10 月 20 日进行的初中男子组决赛中，示例第一中学以 2:1 战胜示例第二中学。</p><p>双方在雨战中奉献了精彩的攻防转换，现场观众超过 800 人。</p>",
+      "coverFileId": "",
+      "eventId": "evt_aa0f24635584488ea831",
+      "groupId": "",
+      "policyDocumentNo": "",
+      "pinned": false,
+      "status": "PUBLISHED",
+      "revision": 1,
+      "bodyText": "在 2026 年 10 月 20 日进行的初中男子组决赛中，示例第一中学以 2:1 战胜示例第二中学。双方在雨战中奉献了精彩的攻防转换，现场观众超过 800 人。",
+      "version": 1,
+      "createdAt": "2026-10-27T02:33:08.520Z",
+      "updatedAt": "2026-10-27T02:33:17.624Z",
+      "policyEffectiveFrom": null,
+      "policyEffectiveTo": null,
+      "publishedAt": "2026-10-27T02:33:17.623Z"
+    }
+  },
+  "resources": {
+    "partner1": {
+      "id": "pres_d4b2f793d102462aa15c",
+      "resourceType": "PARTNER",
+      "title": "四川省校园足球协会",
+      "imageFileId": "",
+      "targetContentId": "",
+      "targetUrl": "https://www.scjy.gov.cn/",
+      "sortOrder": 1,
+      "enabled": true,
+      "version": 0,
+      "createdAt": "2026-10-27T02:33:46.605Z",
+      "updatedAt": "2026-10-27T02:33:46.605Z"
+    },
+    "partner2": {
+      "id": "pres_7c1233f203e74f759716",
+      "resourceType": "PARTNER",
+      "title": "四川省学生体育艺术协会",
+      "imageFileId": "",
+      "targetContentId": "",
+      "targetUrl": "",
+      "sortOrder": 2,
+      "enabled": true,
+      "version": 0,
+      "createdAt": "2026-10-27T02:33:55.474Z",
+      "updatedAt": "2026-10-27T02:33:55.474Z"
+    },
+    "carousel": {
+      "id": "pres_e1100779ef6245469de6",
+      "resourceType": "CAROUSEL",
+      "title": "2026年四川省青少年校园足球联赛",
+      "imageFileId": "file_d8bca28b0f7446009784",
+      "targetContentId": "cnt_5e995cb1526f433bbaf0",
+      "targetUrl": "",
+      "sortOrder": 0,
+      "enabled": true,
+      "version": 0,
+      "createdAt": "2026-10-27T02:38:29.429Z",
+      "updatedAt": "2026-10-27T02:38:29.429Z"
+    }
+  },
+  "selectionTemplates": {
+    "middle-initial": {
+      "id": 1,
+      "name": "初中组初选评分模板",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "INITIAL",
+      "round_label": "初选",
+      "status": 1,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:35:20",
+      "updated_at": "2026-10-27 10:35:20",
+      "items": [
+        {
+          "id": 1,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 30,
+          "max_score": 100,
+          "sort_no": 0
+        },
+        {
+          "id": 2,
+          "dimension_code": "MATCH",
+          "dimension_name": "比赛表现",
+          "weight": 30,
+          "max_score": 100,
+          "sort_no": 1
+        },
+        {
+          "id": 3,
+          "dimension_code": "PHYSICAL",
+          "dimension_name": "身体素质",
+          "weight": 20,
+          "max_score": 100,
+          "sort_no": 2
+        },
+        {
+          "id": 4,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 20,
+          "max_score": 100,
+          "sort_no": 3
+        }
+      ]
+    },
+    "middle-final": {
+      "id": 2,
+      "name": "初中组复选评分模板",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "FINAL",
+      "round_label": "复选",
+      "status": 1,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:35:29",
+      "updated_at": "2026-10-27 10:35:29",
+      "items": [
+        {
+          "id": 5,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 25,
+          "max_score": 100,
+          "sort_no": 0
+        },
+        {
+          "id": 6,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 25,
+          "max_score": 100,
+          "sort_no": 1
+        },
+        {
+          "id": 7,
+          "dimension_code": "FITNESS",
+          "dimension_name": "体能状态",
+          "weight": 25,
+          "max_score": 100,
+          "sort_no": 2
+        },
+        {
+          "id": 8,
+          "dimension_code": "MENTAL",
+          "dimension_name": "心理素质",
+          "weight": 25,
+          "max_score": 100,
+          "sort_no": 3
+        }
+      ]
+    }
+  },
+  "selectionScores": {
+    "INITIAL|417": {
+      "id": 1,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "INITIAL",
+      "round_label": "初选",
+      "template_id": 1,
+      "candidate_id": "417",
+      "candidate_name": "王伟磊",
+      "team_name": "示例第一中学男子足球队",
+      "position": "GK",
+      "total_score": 92,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:35:57",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:35:57",
+      "items": [
+        {
+          "id": 1,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 30,
+          "max_score": 100,
+          "score": 94,
+          "sort_no": 0
+        },
+        {
+          "id": 2,
+          "dimension_code": "MATCH",
+          "dimension_name": "比赛表现",
+          "weight": 30,
+          "max_score": 100,
+          "score": 90,
+          "sort_no": 1
+        },
+        {
+          "id": 3,
+          "dimension_code": "PHYSICAL",
+          "dimension_name": "身体素质",
+          "weight": 20,
+          "max_score": 100,
+          "score": 94,
+          "sort_no": 2
+        },
+        {
+          "id": 4,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 20,
+          "max_score": 100,
+          "score": 90,
+          "sort_no": 3
+        }
+      ]
+    },
+    "INITIAL|418": {
+      "id": 2,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "INITIAL",
+      "round_label": "初选",
+      "template_id": 1,
+      "candidate_id": "418",
+      "candidate_name": "李子轩",
+      "team_name": "示例第一中学男子足球队",
+      "position": "DF",
+      "total_score": 88,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:36:06",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:36:06",
+      "items": [
+        {
+          "id": 5,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 30,
+          "max_score": 100,
+          "score": 90,
+          "sort_no": 0
+        },
+        {
+          "id": 6,
+          "dimension_code": "MATCH",
+          "dimension_name": "比赛表现",
+          "weight": 30,
+          "max_score": 100,
+          "score": 86,
+          "sort_no": 1
+        },
+        {
+          "id": 7,
+          "dimension_code": "PHYSICAL",
+          "dimension_name": "身体素质",
+          "weight": 20,
+          "max_score": 100,
+          "score": 90,
+          "sort_no": 2
+        },
+        {
+          "id": 8,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 20,
+          "max_score": 100,
+          "score": 86,
+          "sort_no": 3
+        }
+      ]
+    },
+    "INITIAL|419": {
+      "id": 3,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "INITIAL",
+      "round_label": "初选",
+      "template_id": 1,
+      "candidate_id": "419",
+      "candidate_name": "张浩然",
+      "team_name": "示例第一中学男子足球队",
+      "position": "DF",
+      "total_score": 85,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:36:15",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:36:15",
+      "items": [
+        {
+          "id": 9,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 30,
+          "max_score": 100,
+          "score": 87,
+          "sort_no": 0
+        },
+        {
+          "id": 10,
+          "dimension_code": "MATCH",
+          "dimension_name": "比赛表现",
+          "weight": 30,
+          "max_score": 100,
+          "score": 83,
+          "sort_no": 1
+        },
+        {
+          "id": 11,
+          "dimension_code": "PHYSICAL",
+          "dimension_name": "身体素质",
+          "weight": 20,
+          "max_score": 100,
+          "score": 87,
+          "sort_no": 2
+        },
+        {
+          "id": 12,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 20,
+          "max_score": 100,
+          "score": 83,
+          "sort_no": 3
+        }
+      ]
+    },
+    "INITIAL|420": {
+      "id": 4,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "INITIAL",
+      "round_label": "初选",
+      "template_id": 1,
+      "candidate_id": "420",
+      "candidate_name": "刘梓涵",
+      "team_name": "示例第一中学男子足球队",
+      "position": "MF",
+      "total_score": 90,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:36:24",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:36:24",
+      "items": [
+        {
+          "id": 13,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 30,
+          "max_score": 100,
+          "score": 92,
+          "sort_no": 0
+        },
+        {
+          "id": 14,
+          "dimension_code": "MATCH",
+          "dimension_name": "比赛表现",
+          "weight": 30,
+          "max_score": 100,
+          "score": 88,
+          "sort_no": 1
+        },
+        {
+          "id": 15,
+          "dimension_code": "PHYSICAL",
+          "dimension_name": "身体素质",
+          "weight": 20,
+          "max_score": 100,
+          "score": 92,
+          "sort_no": 2
+        },
+        {
+          "id": 16,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 20,
+          "max_score": 100,
+          "score": 88,
+          "sort_no": 3
+        }
+      ]
+    },
+    "INITIAL|421": {
+      "id": 5,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "INITIAL",
+      "round_label": "初选",
+      "template_id": 1,
+      "candidate_id": "421",
+      "candidate_name": "陈雨泽",
+      "team_name": "示例第一中学男子足球队",
+      "position": "MF",
+      "total_score": 82,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:36:33",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:36:33",
+      "items": [
+        {
+          "id": 17,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 30,
+          "max_score": 100,
+          "score": 84,
+          "sort_no": 0
+        },
+        {
+          "id": 18,
+          "dimension_code": "MATCH",
+          "dimension_name": "比赛表现",
+          "weight": 30,
+          "max_score": 100,
+          "score": 80,
+          "sort_no": 1
+        },
+        {
+          "id": 19,
+          "dimension_code": "PHYSICAL",
+          "dimension_name": "身体素质",
+          "weight": 20,
+          "max_score": 100,
+          "score": 84,
+          "sort_no": 2
+        },
+        {
+          "id": 20,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 20,
+          "max_score": 100,
+          "score": 80,
+          "sort_no": 3
+        }
+      ]
+    },
+    "FINAL|417": {
+      "id": 6,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "FINAL",
+      "round_label": "复选",
+      "template_id": 2,
+      "candidate_id": "417",
+      "candidate_name": "王伟磊",
+      "team_name": "示例第一中学男子足球队",
+      "position": "GK",
+      "total_score": 90,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:36:51",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:36:51",
+      "items": [
+        {
+          "id": 21,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 25,
+          "max_score": 100,
+          "score": 92,
+          "sort_no": 0
+        },
+        {
+          "id": 22,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 25,
+          "max_score": 100,
+          "score": 88,
+          "sort_no": 1
+        },
+        {
+          "id": 23,
+          "dimension_code": "FITNESS",
+          "dimension_name": "体能状态",
+          "weight": 25,
+          "max_score": 100,
+          "score": 92,
+          "sort_no": 2
+        },
+        {
+          "id": 24,
+          "dimension_code": "MENTAL",
+          "dimension_name": "心理素质",
+          "weight": 25,
+          "max_score": 100,
+          "score": 88,
+          "sort_no": 3
+        }
+      ]
+    },
+    "FINAL|418": {
+      "id": 7,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "FINAL",
+      "round_label": "复选",
+      "template_id": 2,
+      "candidate_id": "418",
+      "candidate_name": "李子轩",
+      "team_name": "示例第一中学男子足球队",
+      "position": "DF",
+      "total_score": 91,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:37:00",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:37:00",
+      "items": [
+        {
+          "id": 25,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 25,
+          "max_score": 100,
+          "score": 93,
+          "sort_no": 0
+        },
+        {
+          "id": 26,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 25,
+          "max_score": 100,
+          "score": 89,
+          "sort_no": 1
+        },
+        {
+          "id": 27,
+          "dimension_code": "FITNESS",
+          "dimension_name": "体能状态",
+          "weight": 25,
+          "max_score": 100,
+          "score": 93,
+          "sort_no": 2
+        },
+        {
+          "id": 28,
+          "dimension_code": "MENTAL",
+          "dimension_name": "心理素质",
+          "weight": 25,
+          "max_score": 100,
+          "score": 89,
+          "sort_no": 3
+        }
+      ]
+    },
+    "FINAL|419": {
+      "id": 8,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "FINAL",
+      "round_label": "复选",
+      "template_id": 2,
+      "candidate_id": "419",
+      "candidate_name": "张浩然",
+      "team_name": "示例第一中学男子足球队",
+      "position": "DF",
+      "total_score": 84,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:37:09",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:37:09",
+      "items": [
+        {
+          "id": 29,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 25,
+          "max_score": 100,
+          "score": 86,
+          "sort_no": 0
+        },
+        {
+          "id": 30,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 25,
+          "max_score": 100,
+          "score": 82,
+          "sort_no": 1
+        },
+        {
+          "id": 31,
+          "dimension_code": "FITNESS",
+          "dimension_name": "体能状态",
+          "weight": 25,
+          "max_score": 100,
+          "score": 86,
+          "sort_no": 2
+        },
+        {
+          "id": 32,
+          "dimension_code": "MENTAL",
+          "dimension_name": "心理素质",
+          "weight": 25,
+          "max_score": 100,
+          "score": 82,
+          "sort_no": 3
+        }
+      ]
+    },
+    "FINAL|420": {
+      "id": 9,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "FINAL",
+      "round_label": "复选",
+      "template_id": 2,
+      "candidate_id": "420",
+      "candidate_name": "刘梓涵",
+      "team_name": "示例第一中学男子足球队",
+      "position": "MF",
+      "total_score": 88,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:37:18",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:37:18",
+      "items": [
+        {
+          "id": 33,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 25,
+          "max_score": 100,
+          "score": 90,
+          "sort_no": 0
+        },
+        {
+          "id": 34,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 25,
+          "max_score": 100,
+          "score": 86,
+          "sort_no": 1
+        },
+        {
+          "id": 35,
+          "dimension_code": "FITNESS",
+          "dimension_name": "体能状态",
+          "weight": 25,
+          "max_score": 100,
+          "score": 90,
+          "sort_no": 2
+        },
+        {
+          "id": 36,
+          "dimension_code": "MENTAL",
+          "dimension_name": "心理素质",
+          "weight": 25,
+          "max_score": 100,
+          "score": 86,
+          "sort_no": 3
+        }
+      ]
+    },
+    "FINAL|421": {
+      "id": 10,
+      "event_id": "event_01",
+      "group_type": "MIDDLE",
+      "group_type_label": "中学组",
+      "round": "FINAL",
+      "round_label": "复选",
+      "template_id": 2,
+      "candidate_id": "421",
+      "candidate_name": "陈雨泽",
+      "team_name": "示例第一中学男子足球队",
+      "position": "MF",
+      "total_score": 86,
+      "version": 0,
+      "created_by": "acc_admin",
+      "created_at": "2026-10-27 10:37:27",
+      "updated_by": "acc_admin",
+      "updated_at": "2026-10-27 10:37:27",
+      "items": [
+        {
+          "id": 37,
+          "dimension_code": "TECH",
+          "dimension_name": "技术能力",
+          "weight": 25,
+          "max_score": 100,
+          "score": 88,
+          "sort_no": 0
+        },
+        {
+          "id": 38,
+          "dimension_code": "TACTIC",
+          "dimension_name": "战术意识",
+          "weight": 25,
+          "max_score": 100,
+          "score": 84,
+          "sort_no": 1
+        },
+        {
+          "id": 39,
+          "dimension_code": "FITNESS",
+          "dimension_name": "体能状态",
+          "weight": 25,
+          "max_score": 100,
+          "score": 88,
+          "sort_no": 2
+        },
+        {
+          "id": 40,
+          "dimension_code": "MENTAL",
+          "dimension_name": "心理素质",
+          "weight": 25,
+          "max_score": 100,
+          "score": 84,
+          "sort_no": 3
+        }
+      ]
+    }
+  },
+  "publicity": {}
+}

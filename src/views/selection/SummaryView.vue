@@ -12,6 +12,7 @@ import {
 } from '../../api/selection'
 import type { Event, SelectionGroupType, SelectionRound, SelectionScoreRecord } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
+import { pickDefaultEventId } from '../../utils/events'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 
@@ -41,7 +42,7 @@ async function loadEvents() {
   try {
     const res = await eventApi.list({ page: 1, pageSize: 50 })
     events.value = res.items
-    if (!eventId.value) eventId.value = events.value[0]?.id || ''
+    if (!eventId.value) eventId.value = pickDefaultEventId(events.value)
   } catch {
     events.value = []
   }

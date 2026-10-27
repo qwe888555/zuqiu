@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Medal, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { enrollmentApi, eventApi, personApi } from '../../api'
+import { pickDefaultEventId } from '../../utils/events'
 import { GROUP_TYPE_LABEL, PUBLICITY_TYPE_LABEL, publicityApi } from '../../api/selection'
 import type { Enrollment, Event, Person, PublicityRecord, PublicityType, SelectionGroupType } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -96,7 +97,7 @@ async function loadEvents() {
     const res = await eventApi.list({ page: 1, pageSize: 100 })
     events.value = res.items
     if (!filters.eventId) {
-      filters.eventId = events.value[0]?.id || ''
+      filters.eventId = pickDefaultEventId(events.value)
       form.eventId = filters.eventId
     }
   } catch {

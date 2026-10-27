@@ -35,7 +35,7 @@ const typeOptions: { value: OrgType; label: string }[] = [
   { value: 'PROVINCE', label: '省级' },
   { value: 'CITY', label: '市州' },
   { value: 'SCHOOL', label: '中小学校' },
-  { value: 'UNIVERSITY', label: '高校' },
+  { value: 'UNIVERSITY', label: '学校' },
   { value: 'TEAM', label: '独立球队' },
 ]
 

@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus
 import { Delete, Document, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { fileApi, materialApi, meApi } from '../../api'
 import type { Material, Person } from '../../api/types'
+import { httpStatusOf } from '../../utils/httpError'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
@@ -20,6 +21,10 @@ const saving = ref(false)
 const uploadedFileName = ref('')
 const uploadedFileIds = ref<string[]>([])
 const filterStatus = ref('')
+/** 材料数据范围（A′）尚未开放时后端返回 403，页面改为只读说明。 */
+const restricted = ref(false)
+/** 账号未绑定人员档案（404）时无法按本人查询材料。 */
+const profileMissing = ref(false)
 
 const form = reactive({
   materialType: 'STUDENT_STATUS',
@@ -59,17 +64,35 @@ const rejectedCount = computed(() => rows.value.filter((m) => m.reviewStatus ===
 async function load() {
   loading.value = true
   try {
-    person.value = await meApi.profile()
-    const res = await materialApi.list({
-      page: 1,
-      pageSize: 100,
-      ownerType: 'PERSON',
-      ownerId: person.value.id,
-    })
-    rows.value = res.items
-    total.value = res.total
-  } catch {
-    rows.value = []
+    try {
+      person.value = await meApi.profile({ silentError: true })
+      profileMissing.value = false
+    } catch (error) {
+      person.value = null
+      profileMissing.value = httpStatusOf(error) === 404
+      rows.value = []
+      total.value = 0
+      return
+    }
+    try {
+      const res = await materialApi.list(
+        {
+          page: 1,
+          pageSize: 100,
+          ownerType: 'PERSON',
+          ownerId: person.value.id,
+        },
+        { silentError: true },
+      )
+      rows.value = res.items
+      total.value = res.total
+      restricted.value = false
+    } catch (error) {
+      // 后端在组织映射 A′ 交付前仅放行管理员读取材料，普通角色返回 403。
+      rows.value = []
+      total.value = 0
+      restricted.value = httpStatusOf(error) === 403
+    }
   } finally {
     loading.value = false
   }
@@ -149,9 +172,30 @@ onMounted(load)
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">上传材料</el-button>
+        <el-button type="primary" :icon="Plus" :disabled="restricted || profileMissing" @click="openCreate">
+          上传材料
+        </el-button>
       </template>
     </PageHeader>
+
+    <el-alert
+      v-if="profileMissing"
+      class="state-alert"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="当前账号未绑定人员档案"
+      description="请联系组委会管理员将账号与人员档案绑定后，再维护履历材料。"
+    />
+    <el-alert
+      v-else-if="restricted"
+      class="state-alert"
+      type="info"
+      :closable="false"
+      show-icon
+      title="履历材料暂由管理员维护"
+      description="材料数据范围依赖组织映射，当前版本仅管理员可访问；教练/运动员端暂不可查看或上传。"
+    />
 
     <div class="stat-grid">
       <StatCard label="材料总数" :value="total" hint="个人履历材料" :icon="Document" tone="green" />
@@ -200,7 +244,17 @@ onMounted(load)
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!loading && !filteredRows.length" description="暂无材料，点击右上角上传" :image-size="80" />
+      <el-empty
+        v-if="!loading && !filteredRows.length"
+        :description="
+          profileMissing
+            ? '绑定人员档案后即可查看材料'
+            : restricted
+              ? '材料数据范围暂未开放'
+              : '暂无材料，点击右上角上传'
+        "
+        :image-size="80"
+      />
     </section>
 
     <el-dialog v-model="dialogVisible" title="上传履历材料" width="560px">
@@ -245,6 +299,10 @@ onMounted(load)
 </template>
 
 <style scoped>
+.state-alert {
+  margin-bottom: 14px;
+}
+
 .material-cell {
   display: flex;
   align-items: center;

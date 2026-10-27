@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Location, Plus, Refresh, User, UserFilled } from '@element-plus/icons-vue'
 import { meApi, teamApi } from '../../api'
+import { MOCK_ENABLED } from '../../api/http'
 import type { MyAffiliation, Team } from '../../api/types'
 import { categoryLabel } from '../../config/labels'
+import { httpStatusOf } from '../../utils/httpError'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 
@@ -16,6 +18,14 @@ const affiliationTotal = ref(0)
 const allTeams = ref<Team[]>([])
 const dialogVisible = ref(false)
 const saving = ref(false)
+/** 账号未绑定人员档案时 /me/teams 返回业务 404。 */
+const teamsUnavailable = ref(false)
+
+const pageDescription = computed(() =>
+  MOCK_ENABLED
+    ? '查看当前账号关联的球队，并维护归属关系。归属记录用于报名资格审查与履历档案。'
+    : '查看当前账号已核验的现役球队。历史归属记录的查询与维护功能将在后续版本开放。',
+)
 
 const form = reactive({
   teamId: '',
@@ -29,16 +39,33 @@ const relations = ['运动员', '教练员', '领队', '队医', '工作人员']
 async function load() {
   loading.value = true
   try {
-    const [teamList, affiliationRes] = await Promise.all([
-      meApi.teams(),
-      meApi.affiliations({ page: 1, pageSize: 100 }),
-    ])
-    teams.value = teamList
-    affiliations.value = affiliationRes.items
-    affiliationTotal.value = affiliationRes.total
-  } catch {
-    teams.value = []
-    affiliations.value = []
+    const [teamResult] = await Promise.allSettled([meApi.teams({ silentError: true })])
+    if (teamResult.status === 'fulfilled') {
+      teams.value = teamResult.value
+      teamsUnavailable.value = false
+    } else {
+      teams.value = []
+      teamsUnavailable.value = httpStatusOf(teamResult.reason) === 404
+    }
+
+    // 归属记录接口当前后端尚未提供，线上模式不再发起必然 404 的请求；
+    // 演示 mock 模式仍保留完整的归属维护能力。
+    if (MOCK_ENABLED) {
+      try {
+        const affiliationRes = await meApi.affiliations(
+          { page: 1, pageSize: 100 },
+          { silentError: true },
+        )
+        affiliations.value = affiliationRes.items
+        affiliationTotal.value = affiliationRes.total
+      } catch {
+        affiliations.value = []
+        affiliationTotal.value = 0
+      }
+    } else {
+      affiliations.value = []
+      affiliationTotal.value = 0
+    }
   } finally {
     loading.value = false
   }
@@ -116,19 +143,16 @@ async function removeAffiliation(row: MyAffiliation) {
 
 onMounted(() => {
   load()
-  loadAllTeams()
+  if (MOCK_ENABLED) loadAllTeams()
 })
 </script>
 
 <template>
   <div class="page">
-    <PageHeader
-      title="我的球队"
-      description="查看当前账号关联的球队，并维护归属关系。归属记录用于报名资格审查与履历档案。"
-    >
+    <PageHeader title="我的球队" :description="pageDescription">
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">新增归属</el-button>
+        <el-button v-if="MOCK_ENABLED" type="primary" :icon="Plus" @click="openCreate">新增归属</el-button>
       </template>
     </PageHeader>
 
@@ -152,10 +176,21 @@ onMounted(() => {
           <span class="muted">主教练 {{ team.coachName || '未设置' }}</span>
         </div>
       </article>
-      <el-empty v-if="!loading && !teams.length" description="当前账号暂未关联球队，可在下方新增归属" :image-size="90" />
+      <el-empty
+        v-if="!loading && !teams.length"
+        :description="
+          teamsUnavailable
+            ? '当前账号未绑定人员档案，请联系管理员'
+            : MOCK_ENABLED
+              ? '当前账号暂未关联球队，可在下方新增归属'
+              : '当前账号暂未关联球队'
+        "
+        :image-size="90"
+      />
     </div>
 
     <el-alert
+      v-if="MOCK_ENABLED"
       class="affiliation-alert"
       type="info"
       :closable="false"
@@ -163,8 +198,17 @@ onMounted(() => {
       title="归属关系需经球队或管理员核验"
       description="同一人员可同时隶属于多支球队（如校队与市州代表队）。核验通过后，归属关系会体现在报名名单与遴选档案中。"
     />
+    <el-alert
+      v-else
+      class="affiliation-alert"
+      type="info"
+      :closable="false"
+      show-icon
+      title="归属记录暂未开放"
+      description="当前版本仅展示已核验的现役球队；历史归属记录的查询与维护将在后续版本开放。"
+    />
 
-    <section class="page-card">
+    <section v-if="MOCK_ENABLED" class="page-card">
       <div class="section-title">归属记录 <small>共 {{ affiliationTotal }} 条</small></div>
       <el-table v-loading="loading" :data="affiliations" style="width: 100%">
         <el-table-column label="球队" min-width="220">

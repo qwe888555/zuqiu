@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Close, Download, Refresh, Search, Stamp } from '@element-plus/icons-vue'
+import { Check, Close, Download, Refresh, RefreshLeft, Search, Stamp } from '@element-plus/icons-vue'
 import { enrollmentApi, eventApi, fileApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
 import type { Enrollment, EnrollmentAttachment, Event, EventGroup, ReviewRecord } from '../../api/types'
@@ -167,6 +167,34 @@ async function reject() {
   }
 }
 
+async function returnForCorrection() {
+  if (!detail.value) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请填写需要补正的具体内容，报名将退回学校修改后重新提交。',
+      '退回补正',
+      {
+        confirmButtonText: '确认退回',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：盖章报名表缺少学校公章、球员学籍证明不清晰',
+        inputValidator: (val) => (val && val.trim().length >= 6 ? true : '请至少填写 6 个字符'),
+      },
+    )
+    reviewing.value = true
+    await enrollmentApi.review(detail.value.id, detail.value.version, {
+      decision: 'RETURN_FOR_CORRECTION',
+      reason: value,
+    })
+    ElMessage.success('已退回补正，学校修改后可重新提交')
+    drawerVisible.value = false
+    await Promise.all([load(), loadCounts()])
+  } catch {
+    // 取消
+  } finally {
+    reviewing.value = false
+  }
+}
+
 async function downloadAttachment(attachment: EnrollmentAttachment) {
   try {
     const downloaded = await fileApi.download(attachment.fileId, attachment.fileName)
@@ -321,7 +349,7 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="审核工作台"
-      description="按审核阶段集中处理报名单。审核前请核对球员资格、材料完整性与盖章文件，驳回时必须填写明确原因。"
+      description="按审核阶段集中处理报名单。审核前请核对球员资格、材料完整性与盖章文件；驳回或退回补正时须填写明确原因。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="() => { load(); loadCounts() }">刷新</el-button>
@@ -527,6 +555,9 @@ onMounted(() => {
           </section>
 
           <footer v-if="canActOnDetail" class="drawer-foot">
+            <el-button :icon="RefreshLeft" type="warning" plain :loading="reviewing" @click="returnForCorrection">
+              退回补正
+            </el-button>
             <el-button :icon="Close" type="danger" plain :loading="reviewing" @click="reject">驳回</el-button>
             <el-button :icon="Check" type="success" :loading="reviewing" @click="approve">
               {{ detail.status === 'PENDING_CITY_REVIEW' ? '通过并提交终审' : '终审通过' }}

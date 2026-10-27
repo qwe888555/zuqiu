@@ -19,8 +19,9 @@ import {
 import { useAuthStore } from '../../stores/auth'
 import { useAppStore } from '../../stores/app'
 import { enrollmentApi, matchApi, meApi, materialApi, teamApi } from '../../api'
-import type { Enrollment, Match, Material, MyAffiliation, Team } from '../../api/types'
+import type { Enrollment, Match, Material, Team } from '../../api/types'
 import { categoryLabel } from '../../config/labels'
+import { httpStatusOf } from '../../utils/httpError'
 import { canEnroll, workspaceLabelForRoles } from '../../utils/roles'
 import StatCard from '../../components/common/StatCard.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -35,9 +36,12 @@ const upcomingMatchTotal = ref(0)
 const recentEnrollments = ref<Enrollment[]>([])
 const recentMatches = ref<Match[]>([])
 const materials = ref<Material[]>([])
-const affiliations = ref<MyAffiliation[]>([])
 const myTeams = ref<{ id: string; name: string }[]>([])
 const schoolTeams = ref<Team[]>([])
+/** 材料数据范围（A′）未开放时后端返回 403，页面只做只读占位，不弹错误。 */
+const materialsRestricted = ref(false)
+/** 账号尚未绑定人员档案时 /me/teams 返回业务 404。 */
+const teamsUnavailable = ref(false)
 
 const isSchool = computed(() => auth.roles.includes('UNIVERSITY'))
 const isTeam = computed(() => auth.roles.includes('TEAM'))
@@ -174,8 +178,20 @@ const statCards = computed(() => {
   }
   if (isPlayer.value) {
     return [
-      { label: '履历材料', value: materials.value.length, hint: '已归档材料总数', icon: Collection, tone: 'green' as const },
-      { label: '所属队伍', value: affiliations.value.length || myTeams.value.length, hint: '当前关联球队', icon: Tickets, tone: 'lime' as const },
+      {
+        label: '履历材料',
+        value: materials.value.length,
+        hint: materialsRestricted.value ? '暂由管理员维护' : '已归档材料总数',
+        icon: Collection,
+        tone: 'green' as const,
+      },
+      {
+        label: '所属队伍',
+        value: myTeams.value.length,
+        hint: teamsUnavailable.value ? '账号未绑定人员档案' : '当前关联球队',
+        icon: Tickets,
+        tone: 'lime' as const,
+      },
       { label: '未读消息', value: app.unreadCount, hint: '来自组委会的通知', icon: Bell, tone: 'amber' as const },
       { label: '账号角色', value: auth.roles.includes('COACH') ? '教练员' : '运动员', hint: auth.user?.orgName || '—', icon: User, tone: 'blue' as const },
     ]
@@ -224,18 +240,32 @@ async function load() {
   loading.value = true
   try {
     if (isPlayer.value) {
-      const [materialRes, affRes, teams] = await Promise.all([
-        materialApi.list({ page: 1, pageSize: 6 }),
-        meApi.affiliations({ page: 1, pageSize: 6 }),
-        meApi.teams(),
+      // 运动员/教练个人数据都是可选依赖：任一接口不可用不应阻断仪表盘，
+      // 也不应把后端的数据范围限制（403）或未绑定档案（404）弹成错误提示。
+      const [materialRes, teamsRes] = await Promise.allSettled([
+        materialApi.list({ page: 1, pageSize: 6 }, { silentError: true }),
+        meApi.teams({ silentError: true }),
       ])
-      materials.value = materialRes.items
-      affiliations.value = affRes.items
-      myTeams.value = teams
+      if (materialRes.status === 'fulfilled') {
+        materials.value = materialRes.value.items
+        materialsRestricted.value = false
+      } else {
+        materials.value = []
+        materialsRestricted.value = httpStatusOf(materialRes.reason) === 403
+      }
+      if (teamsRes.status === 'fulfilled') {
+        myTeams.value = teamsRes.value
+        teamsUnavailable.value = false
+      } else {
+        myTeams.value = []
+        teamsUnavailable.value = httpStatusOf(teamsRes.reason) === 404
+      }
     } else {
       if (isSchool.value || isTeam.value) {
         try {
-          schoolTeams.value = await meApi.teams()
+          // /me/teams 仅对已绑定档案的运动员/教练开放；学校端失败时按空态展示，
+          // 不把后端的角色限制弹成错误提示。
+          schoolTeams.value = await meApi.teams({ silentError: true })
         } catch {
           schoolTeams.value = []
         }
@@ -400,8 +430,14 @@ onMounted(load)
               <StatusTag :status="item.reviewStatus" kind="review" />
             </div>
           </div>
-          <el-empty v-else description="还没有上传履历材料" :image-size="80">
-            <el-button type="primary" plain @click="go('/console/materials')">上传第一份材料</el-button>
+          <el-empty
+            v-else
+            :description="materialsRestricted ? '履历材料的数据范围暂未向教练/运动员开放' : '还没有上传履历材料'"
+            :image-size="80"
+          >
+            <el-button v-if="!materialsRestricted" type="primary" plain @click="go('/console/materials')">
+              上传第一份材料
+            </el-button>
           </el-empty>
         </template>
 
