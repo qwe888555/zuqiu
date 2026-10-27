@@ -123,6 +123,7 @@ async function download(
  * ------------------------------------------------------------------------- */
 
 export const GROUP_TYPE_LABEL: Record<SelectionGroupType, string> = {
+  HIGHER: '高校组',
   MIDDLE: '中学组',
   PRIMARY: '小学组',
 }
@@ -356,6 +357,46 @@ export const selectionTemplateApi = {
     }
     return toTemplate(await request<Raw>('put', `/templates/${id}/`, body))
   },
+  async setStatus(id: string, status: 0 | 1): Promise<SelectionTemplate> {
+    return toTemplate(await request<Raw>('put', `/templates/${id}/`, { status }))
+  },
+}
+
+/* ---------------------------------------------------------------------------
+ * 可评分运动员
+ * ------------------------------------------------------------------------- */
+
+export interface ScoringCandidate {
+  candidateId: string
+  eventId: string
+  name: string
+  teamName: string
+  groupType: SelectionGroupType
+  position?: string
+  idCardMasked?: string
+}
+
+export const selectionCandidateApi = {
+  async list(params: {
+    eventId?: string
+    groupType: SelectionGroupType
+    keyword?: string
+  }): Promise<ScoringCandidate[]> {
+    const raw = await request<Raw[]>('get', '/candidates/', undefined, {
+      event_id: params.eventId || undefined,
+      group_type: params.groupType,
+      keyword: params.keyword || undefined,
+    })
+    return (raw || []).map((item) => ({
+      candidateId: str(item.candidate_id ?? item.candidateId),
+      eventId: str(item.event_id ?? item.eventId),
+      name: str(item.name),
+      teamName: str(item.team_name ?? item.teamName),
+      groupType: (item.group_type ?? item.groupType) as SelectionGroupType,
+      position: str(item.position) || undefined,
+      idCardMasked: str(item.id_card_masked ?? item.idCardMasked) || undefined,
+    }))
+  },
 }
 
 /* ---------------------------------------------------------------------------
@@ -569,6 +610,37 @@ export const publicityApi = {
         message: str(item.message),
       })),
     }
+  },
+  /** 仅按某一现行结果批次的入围名单发布运动员公示 */
+  async publishResultBatch(payload: { resultBatchId: string }): Promise<{
+    candidateCount: number
+    published: number
+    skipped: number
+    failed: number
+    errors: Array<{ candidateId?: string; sourceId?: string; message: string }>
+  }> {
+    const raw = await request<Raw>('post', '/publicity/result-batch/', {
+      result_batch_id: payload.resultBatchId,
+    })
+    return {
+      candidateCount: Number(raw.candidate_count) || 0,
+      published: Number(raw.published) || 0,
+      skipped: Number(raw.skipped) || 0,
+      failed: Number(raw.failed) || 0,
+      errors: ((raw.errors ?? []) as Raw[]).map((item) => ({
+        candidateId: str(item.candidate_id ?? item.candidateId) || undefined,
+        sourceId: str(item.source_id ?? item.sourceId) || undefined,
+        message: str(item.message),
+      })),
+    }
+  },
+  /** 当前人员（运动员/教练）的全部公示记录，含已撤销 */
+  async mine(params: { page?: number; size?: number } = {}): Promise<PageResult<PublicityRecord>> {
+    const raw = await request<Raw>('get', '/publicity/mine/', undefined, {
+      page: params.page,
+      size: params.size,
+    })
+    return toPage(raw, toPublicity)
   },
   /** CMS 公示管理列表（含已取消） */
   async manageList(params: PublicityQuery): Promise<PageResult<PublicityRecord>> {

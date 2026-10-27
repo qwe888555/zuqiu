@@ -824,7 +824,7 @@ export interface OptionItem {
  * 成员6 遴选评分与报名公示（/api/selection）
  * ------------------------------------------------------------------------- */
 
-export type SelectionGroupType = 'MIDDLE' | 'PRIMARY'
+export type SelectionGroupType = 'HIGHER' | 'MIDDLE' | 'PRIMARY'
 export type SelectionRound = 'INITIAL' | 'FINAL'
 export type PublicityType = 'ATHLETE' | 'COACH' | 'TEAM'
 export type PublicityStatus = 'PUBLISHED' | 'CANCELLED'

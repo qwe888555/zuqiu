@@ -1,15 +1,16 @@
 ﻿﻿﻿﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { eventApi } from '../../api'
 import {
   GROUP_TYPE_LABEL,
   ROUND_LABEL,
-  selectionDossierApi,
+  selectionCandidateApi,
   selectionScoreApi,
   selectionTemplateApi,
-  type CandidateDossier,
+  type ScoringCandidate,
 } from '../../api/selection'
 import type {
   Event,
@@ -21,19 +22,23 @@ import type {
 import { pickDefaultEventId } from '../../utils/events'
 import PageHeader from '../../components/common/PageHeader.vue'
 
-interface DossierRow {
-  athleteId: string
+interface CandidateRow {
+  candidateId: string
   realName: string
   teamName?: string
-  groupName?: string
-  schoolName?: string
+  position?: string
 }
 
+const route = useRoute()
 const loading = ref(false)
 const events = ref<Event[]>([])
-const eventId = ref('')
-const groupType = ref<SelectionGroupType>('PRIMARY')
-const round = ref<SelectionRound>('INITIAL')
+const eventId = ref(String(route.query.eventId || ''))
+const groupType = ref<SelectionGroupType>(
+  ['HIGHER', 'MIDDLE', 'PRIMARY'].includes(String(route.query.groupType))
+    ? (String(route.query.groupType) as SelectionGroupType)
+    : 'PRIMARY',
+)
+const round = ref<SelectionRound>(String(route.query.round) === 'FINAL' ? 'FINAL' : 'INITIAL')
 const template = ref<SelectionTemplate | null>(null)
 const scores = ref<SelectionScoreRecord[]>([])
 const total = ref(0)
@@ -44,8 +49,8 @@ const editingId = ref<string | null>(null)
 const saving = ref(false)
 const searchKeyword = ref('')
 const searching = ref(false)
-const candidates = ref<DossierRow[]>([])
-const selectedAthlete = ref<DossierRow | null>(null)
+const candidates = ref<CandidateRow[]>([])
+const selectedAthlete = ref<CandidateRow | null>(null)
 const values = reactive<Record<string, number>>({})
 
 const groupTypeOptions = Object.entries(GROUP_TYPE_LABEL) as Array<[SelectionGroupType, string]>
@@ -63,7 +68,9 @@ async function loadEvents() {
   try {
     const res = await eventApi.list({ page: 1, pageSize: 50 })
     events.value = res.items
-    if (!eventId.value) eventId.value = pickDefaultEventId(events.value)
+    if (!eventId.value || !events.value.some((event) => event.id === eventId.value)) {
+      eventId.value = pickDefaultEventId(events.value)
+    }
   } catch {
     events.value = []
   }
@@ -122,6 +129,27 @@ function resetValues() {
   })
 }
 
+async function loadCandidates() {
+  searching.value = true
+  try {
+    const items = await selectionCandidateApi.list({
+      eventId: eventId.value,
+      groupType: groupType.value,
+      keyword: searchKeyword.value.trim() || undefined,
+    })
+    candidates.value = items.map((item: ScoringCandidate) => ({
+      candidateId: item.candidateId,
+      realName: item.name,
+      teamName: item.teamName,
+      position: item.position,
+    }))
+  } catch {
+    candidates.value = []
+  } finally {
+    searching.value = false
+  }
+}
+
 async function openCreate() {
   if (!eventId.value) return ElMessage.warning('请先选择赛事')
   if (!template.value) return ElMessage.warning('当前组别与轮次尚未启用评分模板')
@@ -131,6 +159,7 @@ async function openCreate() {
   candidates.value = []
   resetValues()
   dialogVisible.value = true
+  await loadCandidates()
 }
 
 function openEdit(score: SelectionScoreRecord) {
@@ -138,10 +167,9 @@ function openEdit(score: SelectionScoreRecord) {
   candidates.value = []
   searchKeyword.value = ''
   selectedAthlete.value = {
-    athleteId: score.candidateId,
+    candidateId: score.candidateId,
     realName: score.candidateName,
     teamName: score.teamName,
-    groupName: score.groupTypeLabel,
   }
   Object.keys(values).forEach((key) => delete values[key])
   score.items.forEach((item) => {
@@ -150,29 +178,11 @@ function openEdit(score: SelectionScoreRecord) {
   dialogVisible.value = true
 }
 
-function toCandidate(dossier: CandidateDossier): DossierRow {
-  return {
-    athleteId: dossier.id,
-    realName: dossier.athlete.realName,
-    teamName: dossier.teams?.[0]?.name,
-    schoolName: dossier.athlete.schoolName,
-  }
+function searchAthletes() {
+  loadCandidates()
 }
 
-async function searchAthletes() {
-  if (!searchKeyword.value.trim()) return
-  searching.value = true
-  try {
-    const res = await selectionDossierApi.search({ athleteName: searchKeyword.value.trim() })
-    candidates.value = res.items.map(toCandidate)
-  } catch {
-    candidates.value = []
-  } finally {
-    searching.value = false
-  }
-}
-
-function chooseAthlete(row: DossierRow) {
+function chooseAthlete(row: CandidateRow) {
   selectedAthlete.value = row
   candidates.value = []
 }
@@ -196,7 +206,7 @@ async function save() {
         groupType: groupType.value,
         round: round.value,
         templateId: template.value.id,
-        candidateId: selectedAthlete.value.athleteId,
+        candidateId: selectedAthlete.value.candidateId,
         scores: scoresPayload,
       })
       ElMessage.success('评分已录入')
@@ -324,16 +334,18 @@ onMounted(async () => {
             <div class="search-row">
               <el-input
                 v-model="searchKeyword"
-                placeholder="输入运动员姓名后搜索"
+                placeholder="按姓名筛选，或直接从下方选择"
                 :prefix-icon="Search"
+                clearable
                 @keyup.enter="searchAthletes"
+                @clear="searchAthletes"
               />
               <el-button :loading="searching" @click="searchAthletes">搜索</el-button>
             </div>
             <div v-if="candidates.length" class="candidate-list">
               <button
                 v-for="person in candidates"
-                :key="person.athleteId"
+                :key="person.candidateId"
                 type="button"
                 class="candidate"
                 @click="chooseAthlete(person)"
@@ -341,9 +353,12 @@ onMounted(async () => {
                 <span class="candidate__avatar">{{ person.realName.slice(0, 1) }}</span>
                 <span class="candidate__info">
                   <strong>{{ person.realName }}</strong>
-                  <small>{{ person.teamName || '球队未登记' }} · {{ person.schoolName || '学校未登记' }}</small>
+                  <small>{{ person.teamName || '球队未登记' }}{{ person.position ? ` · ${person.position}` : '' }}</small>
                 </span>
               </button>
+            </div>
+            <div v-else class="candidate-empty">
+              {{ searching ? '正在加载可评分运动员…' : '当前赛事与组别下没有已通过报名的运动员' }}
             </div>
           </template>
         </el-form-item>
@@ -579,6 +594,17 @@ onMounted(async () => {
   margin-top: 1px;
   font-size: 9.5px;
   color: var(--ink-300);
+}
+
+.candidate-empty {
+  width: 100%;
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--paper);
+  font-size: 10px;
+  color: var(--ink-300);
+  text-align: center;
 }
 
 .dim-grid {

@@ -1,6 +1,6 @@
 ﻿﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Edit, Plus, Refresh, Setting } from '@element-plus/icons-vue'
 import {
   GROUP_TYPE_LABEL,
@@ -16,6 +16,7 @@ const total = ref(0)
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
 const saving = ref(false)
+const togglingId = ref<string>('')
 
 const form = reactive({
   name: '',
@@ -123,6 +124,30 @@ async function save() {
   }
 }
 
+async function toggleStatus(row: SelectionTemplate, status: 0 | 1) {
+  if (status === 1) {
+    try {
+      await ElMessageBox.confirm(
+        `启用「${row.name}」后，${groupLabel(row)} · ${roundLabel(row)} 下其他启用模板将自动停用。`,
+        '启用评分模板',
+        { confirmButtonText: '确认启用', cancelButtonText: '取消', type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  }
+  togglingId.value = row.id
+  try {
+    await selectionTemplateApi.setStatus(row.id, status)
+    ElMessage.success(status === 1 ? '模板已启用' : '模板已停用')
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    togglingId.value = ''
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -186,9 +211,27 @@ onMounted(load)
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button
+              v-if="row.status === 1"
+              link
+              type="warning"
+              :loading="togglingId === row.id"
+              @click="toggleStatus(row, 0)"
+            >
+              停用
+            </el-button>
+            <el-button
+              v-else
+              link
+              type="success"
+              :loading="togglingId === row.id"
+              @click="toggleStatus(row, 1)"
+            >
+              启用
+            </el-button>
           </template>
         </el-table-column>
       </el-table>

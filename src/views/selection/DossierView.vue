@@ -24,6 +24,8 @@ interface DossierRow {
 
 const loading = ref(false)
 const searched = ref(false)
+/** 未填写检索条件时展示最近更新的档案，避免页面一进来就是空态。 */
+const recentMode = ref(false)
 const rows = ref<DossierRow[]>([])
 const teams = ref<Team[]>([])
 const query = reactive({ athleteName: '', idNumber: '', teamId: '' })
@@ -63,10 +65,24 @@ async function loadTeams() {
   }
 }
 
+/** 默认列表：后端允许空条件检索，按最近更新倒序返回全部运动员档案。 */
+async function loadRecent() {
+  loading.value = true
+  searched.value = true
+  recentMode.value = true
+  try {
+    const res = await selectionDossierApi.search({ page: 1, pageSize: 20 })
+    rows.value = res.items.map(toDossierRow)
+  } catch {
+    rows.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
 async function search() {
   if (!query.athleteName.trim() && !query.idNumber.trim() && !query.teamId) {
-    searched.value = false
-    rows.value = []
+    await loadRecent()
     return
   }
   if (query.idNumber && !/^\d{17}[\dXx]$/.test(query.idNumber.trim())) {
@@ -74,6 +90,7 @@ async function search() {
   }
   loading.value = true
   searched.value = true
+  recentMode.value = false
   try {
     const res = await selectionDossierApi.search({
       athleteName: query.athleteName.trim() || undefined,
@@ -88,12 +105,19 @@ async function search() {
   }
 }
 
-function reset() {
+async function reset() {
   query.athleteName = ''
   query.idNumber = ''
   query.teamId = ''
-  rows.value = []
-  searched.value = false
+  await loadRecent()
+}
+
+function refresh() {
+  if (recentMode.value) {
+    loadRecent()
+  } else {
+    search()
+  }
 }
 
 async function openDossier(row: DossierRow) {
@@ -109,7 +133,10 @@ async function openDossier(row: DossierRow) {
   }
 }
 
-onMounted(loadTeams)
+onMounted(async () => {
+  await loadTeams()
+  await loadRecent()
+})
 </script>
 
 <template>
@@ -119,7 +146,7 @@ onMounted(loadTeams)
       description="按姓名、完整证件号或球队检索运动员档案。档案聚合个人资料、履历材料与比赛经历。"
     >
       <template #actions>
-        <el-button :icon="Refresh" @click="search">刷新</el-button>
+        <el-button :icon="Refresh" @click="refresh">刷新</el-button>
       </template>
     </PageHeader>
 
@@ -145,11 +172,14 @@ onMounted(loadTeams)
         <el-button type="primary" :icon="Search" :loading="loading" @click="search">检索档案</el-button>
         <el-button @click="reset">重置</el-button>
       </div>
-      <p class="search-hint">至少填写一项条件。证件号按完整 18 位做精确匹配，服务端不回显身份证号。</p>
+      <p class="search-hint">留空检索展示最近更新的档案；证件号按完整 18 位做精确匹配，服务端不回显身份证号。</p>
     </section>
 
     <section v-if="searched" class="page-card">
-      <div class="section-title">检索结果 <small>{{ rows.length }} 份档案</small></div>
+      <div class="section-title">
+        {{ recentMode ? '最近更新档案' : '检索结果' }}
+        <small>{{ rows.length }} 份档案</small>
+      </div>
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="运动员" min-width="200">
           <template #default="{ row }">
@@ -189,7 +219,7 @@ onMounted(loadTeams)
     <section v-else class="page-card empty-state">
       <div class="empty-state__icon"><el-icon :size="30"><FolderOpened /></el-icon></div>
       <h3>检索运动员档案</h3>
-      <p>输入姓名、证件号后四位或选择球队，即可查看聚合档案与遴选评分记录。</p>
+      <p>输入姓名、完整证件号或选择球队，即可查看聚合档案与遴选评分记录。</p>
     </section>
 
     <el-drawer v-model="drawerVisible" size="720px" :with-header="false">

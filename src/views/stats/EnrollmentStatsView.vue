@@ -39,6 +39,25 @@ const topCity = computed(() =>
   [...rows.value].filter((row) => row.teamCount > 0).sort((a, b) => b.teamCount - a.teamCount)[0],
 )
 
+/** 当前下钻的市州聚合行（key 为市州组织主键，用于报名单筛选）。 */
+const selectedRow = computed(() =>
+  selectedCity.value
+    ? rows.value.find((row) => cityKey(row.label) === selectedCity.value)
+    : undefined,
+)
+
+function openCityEnrollments() {
+  if (!selectedRow.value?.key) return
+  router.push({
+    path: '/console/enrollments',
+    query: {
+      eventId: eventId.value,
+      cityOrgId: selectedRow.value.key,
+      cityName: selectedRow.value.label,
+    },
+  })
+}
+
 function selectCity(city: string) {
   if (selectedCity.value === city) {
     selectedCity.value = ''
@@ -259,9 +278,14 @@ onMounted(refresh)
             <b class="num">{{ totalAthletes }}</b>
             <small>当前统计范围</small>
           </div>
-          <el-button v-if="selectedCity" link type="primary" @click="selectedCity = ''">
-            清除「{{ selectedCity }}」筛选
-          </el-button>
+          <template v-if="selectedCity">
+            <el-button type="primary" plain size="small" @click="openCityEnrollments">
+              查看该市州报名单
+            </el-button>
+            <el-button link type="primary" @click="selectedCity = ''">
+              清除「{{ selectedCity }}」筛选
+            </el-button>
+          </template>
           <p v-else class="heat-insights__tip">点击左侧任一有数据的市州，可下钻查看该市州报名明细。</p>
         </aside>
       </div>

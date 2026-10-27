@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { Medal, Refresh, View } from '@element-plus/icons-vue'
-import { meApi, publicApi } from '../../api'
+import { meApi } from '../../api'
 import { publicityApi } from '../../api/selection'
 import type { Person, PublicityRecord } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -23,30 +23,15 @@ const activeCount = computed(() => rows.value.filter((item) => item.status === '
 async function load() {
   loading.value = true
   try {
-    person.value = await meApi.profile()
-    const current = person.value
-    // 门户列表只含公示中的记录，本人页面还需要已撤销记录，所以走 CMS 管理列表。
-    // sourceId 是报名档案（名册/教练关系/报名单）的主键，不是人员 ID，不能用来归属；
-    // 运动员与教练公示都带脱敏证件号，用它和本人档案比对，缺失时再退回姓名 + 学校。
-    const matchesSelf = (item: PublicityRecord) => {
-      if (item.publicityType === 'TEAM') return false
-      if (item.idCardMasked) {
-        return !!current.maskedIdNumber && item.idCardMasked === current.maskedIdNumber
-      }
-      return item.name === current.realName && item.schoolName === current.schoolName
-    }
-    const events = await publicApi.events({ page: 1, pageSize: 100 })
-    const collected: PublicityRecord[] = []
-    for (const event of events.items) {
-      const res = await publicityApi.manageList({
-        eventId: event.id,
-        keyword: current.realName,
-        page: 1,
-        size: 100,
-      })
-      collected.push(...res.items.filter(matchesSelf))
-    }
-    rows.value = collected.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
+    // 后端按当前账号绑定的人员档案一次性匹配名册/教练关系，含已撤销记录；
+    // 不再逐赛事请求管理列表，也不再依赖脱敏证件号或姓名比对。
+    const [profile, publications] = await Promise.allSettled([
+      meApi.profile(),
+      publicityApi.mine({ page: 1, size: 100 }),
+    ])
+    person.value = profile.status === 'fulfilled' ? profile.value : null
+    rows.value = publications.status === 'fulfilled' ? publications.value.items : []
+    rows.value.sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
   } catch {
     rows.value = []
   } finally {

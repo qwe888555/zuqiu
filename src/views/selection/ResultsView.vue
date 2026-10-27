@@ -1,12 +1,15 @@
 ﻿﻿﻿﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Medal, Refresh, Stamp, View } from '@element-plus/icons-vue'
 import { eventApi } from '../../api'
 import {
   GROUP_TYPE_LABEL,
   ROUND_LABEL,
+  publicityApi,
   selectionResultApi,
+  selectionScoreApi,
 } from '../../api/selection'
 import type {
   Event,
@@ -18,6 +21,7 @@ import { pickDefaultEventId } from '../../utils/events'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 
+const router = useRouter()
 const loading = ref(false)
 const generating = ref(false)
 const events = ref<Event[]>([])
@@ -26,6 +30,8 @@ const groupType = ref<SelectionGroupType>('PRIMARY')
 const batches = ref<SelectionResultBatch[]>([])
 
 const generateVisible = ref(false)
+const checkingScores = ref(false)
+const scoreCounts = reactive<Record<SelectionRound, number | null>>({ INITIAL: null, FINAL: null })
 const form = reactive({
   resultRound: 'FINAL' as SelectionRound,
   quota: 11,
@@ -36,12 +42,16 @@ const form = reactive({
 const drawerVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref<SelectionResultBatch | null>(null)
+const publishing = ref(false)
 
 const groupTypeOptions = Object.entries(GROUP_TYPE_LABEL) as Array<[SelectionGroupType, string]>
 const roundOptions = Object.entries(ROUND_LABEL) as Array<[SelectionRound, string]>
 
 const activeBatch = computed(() => batches.value.find((batch) => batch.active) || null)
 const staleCount = computed(() => batches.value.filter((batch) => batch.stale).length)
+const currentEvent = computed(() => events.value.find((event) => event.id === eventId.value) || null)
+const currentScoreCount = computed(() => scoreCounts[form.resultRound])
+const canGenerate = computed(() => !checkingScores.value && currentScoreCount.value !== 0)
 
 async function loadEvents() {
   try {
@@ -72,6 +82,26 @@ async function changeContext() {
   await loadBatches()
 }
 
+async function loadScoreCounts() {
+  if (!eventId.value) return
+  checkingScores.value = true
+  scoreCounts.INITIAL = null
+  scoreCounts.FINAL = null
+  try {
+    const [initial, final] = await Promise.all([
+      selectionScoreApi.summary({ eventId: eventId.value, groupType: groupType.value, round: 'INITIAL' }),
+      selectionScoreApi.summary({ eventId: eventId.value, groupType: groupType.value, round: 'FINAL' }),
+    ])
+    scoreCounts.INITIAL = initial.length
+    scoreCounts.FINAL = final.length
+  } catch {
+    scoreCounts.INITIAL = null
+    scoreCounts.FINAL = null
+  } finally {
+    checkingScores.value = false
+  }
+}
+
 function openGenerate(source?: SelectionResultBatch) {
   if (!eventId.value) return ElMessage.warning('请选择赛事')
   form.resultRound = source?.resultRound || 'FINAL'
@@ -79,10 +109,26 @@ function openGenerate(source?: SelectionResultBatch) {
   form.initialWeight = Math.round((source?.initialWeight ?? 0.4) * 100)
   form.finalWeight = Math.round((source?.finalWeight ?? 0.6) * 100)
   generateVisible.value = true
+  loadScoreCounts()
+}
+
+function goScoring() {
+  generateVisible.value = false
+  router.push({
+    path: '/console/selection/scoring',
+    query: {
+      eventId: eventId.value,
+      groupType: groupType.value,
+      round: form.resultRound,
+    },
+  })
 }
 
 async function generate() {
   if (!eventId.value) return
+  if (currentScoreCount.value === 0) {
+    return ElMessage.warning(`当前赛事与组别暂无${ROUND_LABEL[form.resultRound]}评分，请先录入评分`)
+  }
   if (form.initialWeight + form.finalWeight !== 100) return ElMessage.warning('初选与复选权重之和需为 100%')
   try {
     await ElMessageBox.confirm(
@@ -131,6 +177,29 @@ async function openDetail(row: SelectionResultBatch) {
     detail.value = row
   } finally {
     detailLoading.value = false
+  }
+}
+
+async function publishShortlist() {
+  if (!detail.value) return
+  if (!detail.value.active || detail.value.stale) {
+    return ElMessage.warning('仅现行且未过期的结果批次可以发布公示')
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将按「${detail.value.groupTypeLabel || '当前组别'}」入围名单逐人发布运动员公示；已在公示中的记录会自动跳过，不会发布名单外的报名。`,
+      '按入围名单发布公示',
+      { confirmButtonText: '发布公示', cancelButtonText: '取消', type: 'warning' },
+    )
+    publishing.value = true
+    const res = await publicityApi.publishResultBatch({ resultBatchId: detail.value.id })
+    ElMessage.success(
+      `公示完成：新增 ${res.published} 条，跳过 ${res.skipped} 条，失败 ${res.failed} 条`,
+    )
+  } catch {
+    // 取消或异常
+  } finally {
+    publishing.value = false
   }
 }
 
@@ -210,7 +279,33 @@ onMounted(async () => {
       <el-empty v-if="!loading && !batches.length" description="尚未生成遴选结果" :image-size="80" />
     </section>
 
-    <el-dialog v-model="generateVisible" title="生成遴选结果" width="540px">
+    <el-dialog v-model="generateVisible" title="生成遴选结果" width="560px">
+      <div class="generate-context">
+        <div>
+          <span>赛事</span>
+          <strong>{{ currentEvent?.name || '未选择赛事' }}</strong>
+        </div>
+        <div>
+          <span>组别</span>
+          <strong>{{ GROUP_TYPE_LABEL[groupType] }}</strong>
+        </div>
+        <div>
+          <span>可用评分</span>
+          <strong>
+            <template v-if="checkingScores">检查中…</template>
+            <template v-else>{{ currentScoreCount ?? 0 }} 条{{ ROUND_LABEL[form.resultRound] }}评分</template>
+          </strong>
+        </div>
+      </div>
+      <el-alert
+        v-if="!checkingScores && currentScoreCount === 0"
+        class="generate-alert"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="当前赛事与组别没有可用于生成结果的评分"
+        :description="`请先在「评分录入」中为${GROUP_TYPE_LABEL[groupType]}录入${ROUND_LABEL[form.resultRound]}评分，或切换到其他已有评分的赛事；若赛事尚未开放报名，需先完成报名审核。`"
+      />
       <p class="generate-tip">
         按当前评分生成结果批次，超出名额的运动员不入围；分数相同时按球员编号稳定排序。
       </p>
@@ -233,8 +328,17 @@ onMounted(async () => {
         </div>
       </el-form>
       <template #footer>
+        <el-button
+          v-if="!checkingScores && currentScoreCount === 0"
+          link
+          type="primary"
+          class="footer-shortcut"
+          @click="goScoring"
+        >
+          前往评分录入
+        </el-button>
         <el-button @click="generateVisible = false">取消</el-button>
-        <el-button type="primary" :loading="generating" @click="generate">生成结果</el-button>
+        <el-button type="primary" :loading="generating" :disabled="!canGenerate" @click="generate">生成结果</el-button>
       </template>
     </el-dialog>
 
@@ -286,8 +390,21 @@ onMounted(async () => {
             :closable="false"
             show-icon
             title="结果发布说明"
-            description="结果批次本身仅冻结名单。公示需在「报名公示」中按名单发布，过期批次不可直接发布。"
+            description="结果批次本身仅冻结名单。可按下方按钮只发布本批次入围运动员；过期批次不可直接发布。"
           />
+
+          <div class="detail-actions">
+            <el-button
+              type="primary"
+              :icon="Stamp"
+              :loading="publishing"
+              :disabled="!detail.active || detail.stale"
+              @click="publishShortlist"
+            >
+              按入围名单发布公示
+            </el-button>
+            <span class="muted">仅发布本批次入围运动员，不会发布名单外的已审报名。</span>
+          </div>
         </template>
       </div>
     </el-drawer>
@@ -341,11 +458,47 @@ onMounted(async () => {
   color: var(--ink-300);
 }
 
+.generate-context {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.generate-context > div {
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.generate-context span {
+  display: block;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.generate-context strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.generate-alert {
+  margin-bottom: 12px;
+}
+
 .generate-tip {
   margin-bottom: 14px;
   font-size: 11px;
   line-height: 1.8;
   color: var(--ink-500);
+}
+
+.footer-shortcut {
+  margin-right: auto;
 }
 
 .form-grid {
@@ -428,9 +581,20 @@ onMounted(async () => {
   margin-top: 18px;
 }
 
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
 @media (max-width: 640px) {
   .form-grid,
-  .detail-meta {
+  .detail-meta,
+  .generate-context {
     grid-template-columns: 1fr;
   }
 }

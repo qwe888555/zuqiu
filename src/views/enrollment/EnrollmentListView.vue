@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
@@ -14,6 +14,7 @@ import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const canReport = computed(() => canEnroll(auth.roles))
 const description = computed(() => {
@@ -38,7 +39,10 @@ const filters = reactive({
   groupId: '',
   status: '',
   keyword: '',
+  cityOrgId: '',
 })
+/** 从「报名统计」下钻时带过来的市州名称，仅用于展示筛选标签。 */
+const cityName = ref('')
 
 const statusOptions = [
   { value: 'DRAFT', label: '草稿' },
@@ -57,6 +61,7 @@ async function load() {
       pageSize: pageSize.value,
       eventId: filters.eventId || undefined,
       groupId: filters.groupId || undefined,
+      cityOrgId: filters.cityOrgId || undefined,
       status: filters.status || undefined,
       teamName: filters.keyword || undefined,
     })
@@ -107,9 +112,23 @@ function reset() {
   filters.groupId = ''
   filters.status = ''
   filters.keyword = ''
+  clearCity()
   groups.value = []
   page.value = 1
   load()
+}
+
+function clearCity() {
+  filters.cityOrgId = ''
+  cityName.value = ''
+  if (route.query.cityOrgId || route.query.cityName) {
+    router.replace({ path: route.path, query: { ...route.query, cityOrgId: undefined, cityName: undefined } })
+  }
+}
+
+function clearCityFilter() {
+  clearCity()
+  search()
 }
 
 function goCreate() {
@@ -168,8 +187,16 @@ async function handleWithdraw(row: Enrollment) {
   }
 }
 
-onMounted(() => {
-  loadEvents()
+onMounted(async () => {
+  // 从「报名统计」点击市州下钻：带上赛事与市州范围。
+  const queryEventId = typeof route.query.eventId === 'string' ? route.query.eventId : ''
+  const queryCityOrgId = typeof route.query.cityOrgId === 'string' ? route.query.cityOrgId : ''
+  const queryCityName = typeof route.query.cityName === 'string' ? route.query.cityName : ''
+  if (queryEventId) filters.eventId = queryEventId
+  if (queryCityOrgId) filters.cityOrgId = queryCityOrgId
+  cityName.value = queryCityName
+  await loadEvents()
+  if (filters.eventId) await loadGroups(filters.eventId)
   load()
 })
 </script>
@@ -188,6 +215,9 @@ onMounted(() => {
 
     <section class="page-card">
       <FilterBar :summary="'共 ' + total + ' 条报名记录'">
+        <el-tag v-if="filters.cityOrgId" closable @close="clearCityFilter">
+          市州：{{ cityName || '已选市州' }}
+        </el-tag>
         <el-select v-model="filters.eventId" placeholder="全部赛事" clearable @change="changeEvent">
           <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
         </el-select>
