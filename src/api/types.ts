@@ -104,6 +104,64 @@ export interface Organization {
   version: number
 }
 
+/* ---------------------------------------------------------------------------
+ * 成员4 基础数据域（/base-data）：区划 / 学校 / 字典类型 / 字典项
+ * 响应口径见成员4接口文档 §1.6；删除为「停用」语义（is_active=false），无独立 version 列。
+ * ------------------------------------------------------------------------- */
+
+/** 区划层级：1=省，2=市州，3=区县 */
+export type RegionLevel = 1 | 2 | 3
+
+export interface Region {
+  id: string
+  name: string
+  code: string
+  level: RegionLevel
+  parentId?: string
+  sortOrder: number
+  isActive: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface School {
+  id: string
+  name: string
+  code?: string
+  /** 学校类别编码（字典项值）：PRIMARY/JUNIOR/SENIOR/NINE_YEAR/COMPLETE/MIDDLE_VOC 等 */
+  schoolType: string
+  regionId: string
+  /** 合成输出：区划名称 */
+  regionName?: string
+  address?: string
+  isActive: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface DictType {
+  id: string
+  code: string
+  name: string
+  remark?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface DictItem {
+  id: string
+  typeId: string
+  /** 合成输出：字典类型编码 */
+  typeCode: string
+  value: string
+  label: string
+  sortOrder: number
+  isActive: boolean
+  extJson?: Record<string, unknown>
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface DictionaryItem {
   id: string
   dictType: string
@@ -160,7 +218,7 @@ export interface Person {
   avatarUrl?: string
   education?: string
   coachCategory?: string
-  reviewStatus?: 'PENDING' | 'APPROVED' | 'REJECTED'
+  reviewStatus?: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED'
   version: number
   createdAt?: string
 }

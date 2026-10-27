@@ -2,80 +2,89 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Edit, Plus, Refresh, Search, Tickets } from '@element-plus/icons-vue'
-import { dictApi } from '../../api'
-import type { DictionaryItem } from '../../api/types'
+import { dictItemApi, dictTypeApi } from '../../api'
+import type { DictItem, DictType } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const TYPE_LABELS: Record<string, string> = {
-  GROUP_CATEGORY: '组别类型',
-  POSITION: '场上位置',
-  COACH_CATEGORY: '教练类别',
-  MATERIAL_TYPE: '材料类型',
-  EVENT_CATEGORY: '赛事类别',
-  EDUCATION: '学历',
-  GENDER: '性别',
+  team_category: '球队组别',
+  position: '场上位置',
+  coach_category: '教练类别',
+  coach_level: '教练等级',
+  guardian_relation: '监护人关系',
+  school_type: '学校类别',
+  material_type: '材料类型',
+  event_category: '赛事类别',
+  education: '学历',
+  gender: '性别',
 }
 
 const loading = ref(false)
-const items = ref<DictionaryItem[]>([])
+const items = ref<DictItem[]>([])
+const types = ref<DictType[]>([])
 const activeType = ref('')
 const keyword = ref('')
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
-const editingVersion = ref(0)
 const saving = ref(false)
 const form = reactive({
-  dictType: '',
+  typeCode: '',
   value: '',
   label: '',
   sortOrder: 0,
-  enabled: true,
+  isActive: true,
 })
 
 const typeGroups = computed(() => {
-  const map = new Map<string, DictionaryItem[]>()
+  const map = new Map<string, DictItem[]>()
   items.value.forEach((item) => {
-    const list = map.get(item.dictType) || []
+    const list = map.get(item.typeCode) || []
     list.push(item)
-    map.set(item.dictType, list)
+    map.set(item.typeCode, list)
   })
   return [...map.entries()]
-    .map(([dictType, list]) => ({
-      dictType,
-      label: TYPE_LABELS[dictType] || dictType,
+    .map(([typeCode, list]) => ({
+      typeCode,
+      label: TYPE_LABELS[typeCode] || typeCode,
       count: list.length,
-      enabledCount: list.filter((item) => item.enabled).length,
+      enabledCount: list.filter((item) => item.isActive).length,
     }))
-    .sort((a, b) => a.dictType.localeCompare(b.dictType))
+    .sort((a, b) => a.typeCode.localeCompare(b.typeCode))
 })
 
 const activeItems = computed(() => {
   const list = items.value
-    .filter((item) => !activeType.value || item.dictType === activeType.value)
+    .filter((item) => !activeType.value || item.typeCode === activeType.value)
     .filter((item) => !keyword.value || item.label.includes(keyword.value) || item.value.includes(keyword.value))
   return list.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
 })
 
-const enabledCount = computed(() => items.value.filter((item) => item.enabled).length)
+const enabledCount = computed(() => items.value.filter((item) => item.isActive).length)
 const typeOptions = computed(() => {
   const known = Object.keys(TYPE_LABELS)
-  const found = [...new Set(items.value.map((item) => item.dictType))]
-  return [...new Set([...known, ...found])]
+  const found = [...new Set(items.value.map((item) => item.typeCode))]
+  const fromTypes = types.value.map((t) => t.code)
+  return [...new Set([...known, ...fromTypes, ...found])]
 })
 
 async function load() {
   loading.value = true
   try {
-    const res = await dictApi.list({ page: 1, pageSize: 500 })
-    items.value = res.items
-    if (!typeGroups.value.some((group) => group.dictType === activeType.value)) {
-      activeType.value = typeGroups.value[0]?.dictType || ''
+    const [itemsRes, typesRes] = await Promise.all([
+      dictItemApi.list({ page: 1, pageSize: 500 }),
+      dictTypeApi.list({ page: 1, pageSize: 500 }),
+    ])
+    items.value = itemsRes.items
+    types.value = typesRes.items
+    if (!typeGroups.value.some((group) => group.typeCode === activeType.value)) {
+      activeType.value = typeGroups.value[0]?.typeCode || ''
     }
   } catch {
     items.value = []
+    types.value = []
   } finally {
     loading.value = false
   }
@@ -83,43 +92,46 @@ async function load() {
 
 function openCreate() {
   editingId.value = null
-  editingVersion.value = 0
   Object.assign(form, {
-    dictType: activeType.value || 'GROUP_CATEGORY',
+    typeCode: activeType.value || 'position',
     value: '',
     label: '',
     sortOrder: activeItems.value.length + 1,
-    enabled: true,
+    isActive: true,
   })
   dialogVisible.value = true
 }
 
-function openEdit(row: DictionaryItem) {
+function openEdit(row: DictItem) {
   editingId.value = row.id
-  editingVersion.value = row.version
   Object.assign(form, {
-    dictType: row.dictType,
+    typeCode: row.typeCode,
     value: row.value,
     label: row.label,
     sortOrder: row.sortOrder || 0,
-    enabled: row.enabled,
+    isActive: row.isActive,
   })
   dialogVisible.value = true
 }
 
 async function save() {
-  if (!form.dictType) return ElMessage.warning('请选择或填写字典类型')
+  if (!form.typeCode) return ElMessage.warning('请选择或填写字典类型')
   if (!form.value.trim()) return ElMessage.warning('请填写字典值')
   if (!form.label.trim()) return ElMessage.warning('请填写显示名称')
   saving.value = true
   try {
     if (editingId.value) {
-      await dictApi.update(editingId.value, { ...form, version: editingVersion.value })
+      // value/type 创建后禁改，仅更新 label/sortOrder/isActive
+      await dictItemApi.update(editingId.value, {
+        label: form.label,
+        sortOrder: form.sortOrder,
+        isActive: form.isActive,
+      })
       ElMessage.success('字典项已更新')
     } else {
-      await dictApi.create({ ...form })
+      await dictItemApi.create({ ...form })
       ElMessage.success('字典项已创建')
-      activeType.value = form.dictType
+      activeType.value = form.typeCode
     }
     dialogVisible.value = false
     await load()
@@ -130,32 +142,29 @@ async function save() {
   }
 }
 
-async function toggleEnabled(row: DictionaryItem) {
+async function toggleEnabled(row: DictItem) {
   try {
-    await dictApi.update(row.id, {
-      dictType: row.dictType,
-      value: row.value,
+    await dictItemApi.update(row.id, {
       label: row.label,
       sortOrder: row.sortOrder ?? 0,
-      enabled: !row.enabled,
-      version: row.version,
+      isActive: !row.isActive,
     })
-    ElMessage.success(row.enabled ? '字典项已停用' : '字典项已启用')
+    ElMessage.success(row.isActive ? '字典项已停用' : '字典项已启用')
     await load()
   } catch {
     // 拦截器提示
   }
 }
 
-async function removeItem(row: DictionaryItem) {
+async function removeItem(row: DictItem) {
   try {
     await ElMessageBox.confirm(
-      `确认删除「${row.label}」？已被业务数据引用的字典项建议停用而非删除。`,
-      '删除字典项',
-      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+      `确认停用「${row.label}」？已被业务数据引用的字典项建议停用而非删除。`,
+      '停用字典项',
+      { confirmButtonText: '停用', cancelButtonText: '取消', type: 'warning' },
     )
-    await dictApi.remove(row.id, row.version)
-    ElMessage.success('字典项已删除')
+    await dictItemApi.disable(row.id)
+    ElMessage.success('字典项已停用')
     await load()
   } catch {
     // 取消
@@ -201,15 +210,15 @@ onMounted(load)
         </button>
         <button
           v-for="group in typeGroups"
-          :key="group.dictType"
+          :key="group.typeCode"
           type="button"
           class="dict-type"
-          :class="{ 'is-active': activeType === group.dictType }"
-          @click="activeType = group.dictType"
+          :class="{ 'is-active': activeType === group.typeCode }"
+          @click="activeType = group.typeCode"
         >
           <span>
             {{ group.label }}
-            <small>{{ group.dictType }}</small>
+            <small>{{ group.typeCode }}</small>
           </span>
           <em>{{ group.count }}</em>
         </button>
@@ -237,22 +246,22 @@ onMounted(load)
           </el-table-column>
           <el-table-column label="所属类型" min-width="150">
             <template #default="{ row }">
-              <span class="muted">{{ TYPE_LABELS[row.dictType] || row.dictType }}</span>
+              <span class="muted">{{ TYPE_LABELS[row.typeCode] || row.typeCode }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="sortOrder" label="排序" width="90" align="center" />
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
-              <el-tag :type="row.enabled ? 'success' : 'info'" size="small" effect="plain">
-                {{ row.enabled ? '启用' : '停用' }}
+              <el-tag :type="row.isActive ? 'success' : 'info'" size="small" effect="plain">
+                {{ row.isActive ? '启用' : '停用' }}
               </el-tag>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="210" align="right">
             <template #default="{ row }">
               <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-              <el-button link :type="row.enabled ? 'warning' : 'success'" @click="toggleEnabled(row)">
-                {{ row.enabled ? '停用' : '启用' }}
+              <el-button link :type="row.isActive ? 'warning' : 'success'" @click="toggleEnabled(row)">
+                {{ row.isActive ? '停用' : '启用' }}
               </el-button>
               <el-button link type="danger" :icon="Delete" @click="removeItem(row)">删除</el-button>
             </template>
@@ -265,7 +274,7 @@ onMounted(load)
       <el-form :model="form" label-position="top">
         <el-form-item label="字典类型" required>
           <el-select
-            v-model="form.dictType"
+            v-model="form.typeCode"
             filterable
             allow-create
             default-first-option
@@ -293,7 +302,7 @@ onMounted(load)
             <el-input-number v-model="form.sortOrder" :min="0" :max="999" style="width: 100%" />
           </el-form-item>
           <el-form-item label="状态">
-            <el-switch v-model="form.enabled" active-text="启用" inactive-text="停用" />
+            <el-switch v-model="form.isActive" active-text="启用" inactive-text="停用" />
           </el-form-item>
         </div>
         <el-alert

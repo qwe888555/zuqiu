@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Delete, Edit, Picture, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { contentApi, fileApi, resourceApi } from '../../api'
@@ -47,12 +47,56 @@ const filteredRows = computed(() =>
   activeType.value ? rows.value.filter((row) => row.resourceType === activeType.value) : rows.value,
 )
 
+// 管理端只返回 imageFileId，展示地址需要按文件签发短链；同一个文件不重复签发。
+const imageUrlCache = new Map<string, { url: string; expiresAt: number }>()
+const imageUrlPending = new Map<string, Promise<string>>()
+
+function resolveImageUrl(fileId: string): Promise<string> {
+  const cached = imageUrlCache.get(fileId)
+  if (cached && cached.expiresAt > Date.now() + 60_000) return Promise.resolve(cached.url)
+  const pending = imageUrlPending.get(fileId)
+  if (pending) return pending
+  const request = fileApi
+    .signedUrl(fileId)
+    .then((signed) => {
+      const expiresAt = new Date(signed.expiresAt).getTime()
+      imageUrlCache.set(fileId, {
+        url: signed.url,
+        expiresAt: Number.isFinite(expiresAt) ? expiresAt : Date.now() + 4 * 60_000,
+      })
+      return signed.url
+    })
+    .catch(() => '')
+    .finally(() => imageUrlPending.delete(fileId))
+  imageUrlPending.set(fileId, request)
+  return request
+}
+
+async function hydrateImages(list: PortalResource[]) {
+  await Promise.all(
+    list.map(async (row) => {
+      const fileId = row.imageFileId
+      if (!fileId) return
+      const cached = imageUrlCache.get(fileId)
+      // 已渲染且签名仍有效时不重复请求；切回过期标签页时自动换新地址。
+      if (row.imageUrl && cached && cached.expiresAt > Date.now() + 60_000) return
+      const url = await resolveImageUrl(fileId)
+      if (url && row.imageFileId === fileId) row.imageUrl = url
+    }),
+  )
+}
+
+watch(activeType, () => {
+  void hydrateImages(filteredRows.value)
+})
+
 async function load() {
   loading.value = true
   try {
     const res = await resourceApi.list({ page: 1, pageSize: 200 })
     rows.value = res.items
     total.value = res.total
+    void hydrateImages(filteredRows.value)
   } catch {
     rows.value = []
   } finally {
@@ -87,13 +131,22 @@ function openCreate() {
   dialogVisible.value = true
 }
 
-function openEdit(row: PortalResource) {
+async function openEdit(row: PortalResource) {
   editingId.value = row.id
   editingVersion.value = row.version
+  let imageUrl = row.imageUrl || ''
+  if (row.imageFileId) {
+    const cached = imageUrlCache.get(row.imageFileId)
+    imageUrl =
+      cached && cached.expiresAt > Date.now() + 60_000
+        ? cached.url
+        : (await resolveImageUrl(row.imageFileId)) || imageUrl
+  }
+  if (imageUrl && !row.imageUrl) row.imageUrl = imageUrl
   Object.assign(form, {
     resourceType: row.resourceType,
     title: row.title,
-    imageUrl: row.imageUrl || '',
+    imageUrl,
     imageFileId: row.imageFileId || '',
     targetContentId: row.targetContentId || '',
     targetUrl: row.targetUrl || '',
@@ -101,7 +154,7 @@ function openEdit(row: PortalResource) {
     enabled: row.enabled,
   })
   imageFile.value = null
-  imagePreview.value = row.imageUrl || ''
+  imagePreview.value = imageUrl
   dialogVisible.value = true
 }
 

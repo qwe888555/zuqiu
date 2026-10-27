@@ -251,13 +251,20 @@ function openAddPlayer() {
   playerForm.jerseyNumber = undefined
   playerForm.position = ''
   selectedPersons.value = []
-  searchPersons()
+  personKeyword.value = ''
+  personResults.value = []
 }
 
 async function searchPersons() {
+  const keyword = personKeyword.value.trim()
+  // 后端要求 keyword 至少 1 个字符，空关键字不再发请求。
+  if (!keyword) {
+    personResults.value = []
+    return
+  }
   searchLoading.value = true
   try {
-    personResults.value = await personApi.search({ keyword: personKeyword.value })
+    personResults.value = await personApi.search({ keyword })
   } catch {
     personResults.value = []
   } finally {

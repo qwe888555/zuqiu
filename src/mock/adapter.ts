@@ -182,6 +182,19 @@ function now(): string {
   return new Date().toISOString()
 }
 
+/**
+ * 乐观锁版本校验（成员4文档 §6.5）：version = updated_at UTC 微秒派生。
+ * PUT/DELETE 必填，缺失/非法 → 400 INVALID_ARGUMENT；不匹配 → 409 VERSION_CONFLICT。
+ */
+function ensureVersion(current: number, provided: unknown): void {
+  if (provided === undefined || provided === null || provided === '') {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', 'version 必填')
+  }
+  if (Number(provided) !== current) {
+    throw new MockHttpError(409, 'VERSION_CONFLICT', '数据已被其他操作更新，请刷新后重试')
+  }
+}
+
 function withOrgName<T extends { orgId?: string }>(item: T): T & { orgName?: string } {
   const org = organizations.find((o) => o.id === item.orgId)
   return { ...item, orgName: org?.name }
@@ -303,15 +316,26 @@ on('PUT', '/me/profile', ({ config, body }) => {
   const account = requireAccount(config)
   const person = persons.find((p) => p.id === account.personId)
   if (!person) throw new MockHttpError(404, 'NOT_FOUND', '尚未绑定人员档案')
+  ensureVersion(person.version, body.version)
   Object.assign(person, body, { version: person.version + 1 })
   return person
 })
 
-on('POST', '/me/profile-confirmation', ({ config }) => {
+on('POST', '/me/profile-confirmation', ({ config, body }) => {
   const account = requireAccount(config)
   const person = persons.find((p) => p.id === account.personId)
-  if (person) person.reviewStatus = 'APPROVED'
-  return { success: true, id: person?.id, version: person?.version }
+  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '尚未绑定人员档案')
+  ensureVersion(person.version, body.version)
+  // DRAFT → PENDING；PENDING 幂等；APPROVED/REJECTED 409
+  if (person.reviewStatus === 'APPROVED') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '档案已复核')
+  }
+  if (person.reviewStatus === 'REJECTED') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '档案已被驳回')
+  }
+  person.reviewStatus = 'PENDING'
+  person.version += 1
+  return person
 })
 
 on('GET', '/me/profile-match', ({ config }) => {
@@ -506,6 +530,12 @@ on('POST', '/dictionary-items', ({ body }) => {
   return item
 })
 
+on('GET', '/dictionary-items/:id', ({ params }) => {
+  const item = dictionaries.find((d) => d.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '字典项不存在')
+  return item
+})
+
 on('PUT', '/dictionary-items/:id', ({ params, body }) => {
   const item = dictionaries.find((d) => d.id === params.id)
   if (!item) throw new MockHttpError(404, 'NOT_FOUND', '字典项不存在')
@@ -519,6 +549,364 @@ on('DELETE', '/dictionary-items/:id', ({ params }) => {
   dictionaries.splice(idx, 1)
   return { success: true }
 })
+
+// ---------------------------------------------------------------------------
+// 成员4 基础数据域（/base-data）：区划 / 学校 / 字典类型 / 字典项（21 条）
+// 依据：成员4接口文档 §1.2-§1.6。删除为「停用」（is_active=false）；无独立 version 列。
+// ---------------------------------------------------------------------------
+
+const regions: Array<{
+  id: string
+  name: string
+  code: string
+  level: 1 | 2 | 3
+  parentId?: string
+  sortOrder: number
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}> = [
+  { id: 'region_sc', name: '四川省', code: '510000', level: 1, sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'region_cd', name: '成都市', code: '510100', level: 2, parentId: 'region_sc', sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'region_my', name: '绵阳市', code: '510700', level: 2, parentId: 'region_sc', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'region_dy', name: '德阳市', code: '510600', level: 2, parentId: 'region_sc', sortOrder: 3, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'region_cd_wuhou', name: '武侯区', code: '510107', level: 3, parentId: 'region_cd', sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'region_cd_jinjiang', name: '锦江区', code: '510104', level: 3, parentId: 'region_cd', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+]
+
+const schools: Array<{
+  id: string
+  name: string
+  code?: string
+  schoolType: string
+  regionId: string
+  address?: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}> = [
+  { id: 'school_cd_sy', name: '成都市实验小学', code: 'CD-SYXX', schoolType: 'PRIMARY', regionId: 'region_cd', address: '成都市青羊区', isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'school_cd_qz', name: '成都七中育才学校', code: 'CD-QZYC', schoolType: 'JUNIOR', regionId: 'region_cd', address: '成都市锦江区', isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'school_my_ns', name: '绵阳南山中学', code: 'MY-NSZX', schoolType: 'SENIOR', regionId: 'region_my', address: '绵阳市涪城区', isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+]
+
+const dictTypes: Array<{
+  id: string
+  code: string
+  name: string
+  remark?: string
+  createdAt: string
+  updatedAt: string
+}> = [
+  { id: 'dt_team_category', code: 'team_category', name: '球队组别', remark: '球队所属学段组别', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'dt_position', code: 'position', name: '场上位置', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'dt_coach_level', code: 'coach_level', name: '教练等级', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'dt_coach_category', code: 'coach_category', name: '教练类别', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'dt_guardian_relation', code: 'guardian_relation', name: '监护人关系', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'dt_school_type', code: 'school_type', name: '学校类别', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+]
+
+const dictItems: Array<{
+  id: string
+  typeId: string
+  value: string
+  label: string
+  sortOrder: number
+  isActive: boolean
+  extJson?: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}> = [
+  { id: 'di_tc_primary', typeId: 'dt_team_category', value: 'PRIMARY', label: '小学组', sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_tc_middle', typeId: 'dt_team_category', value: 'MIDDLE', label: '中学组', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_pos_gk', typeId: 'dt_position', value: 'GK', label: '守门员', sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_pos_df', typeId: 'dt_position', value: 'DF', label: '后卫', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_pos_mf', typeId: 'dt_position', value: 'MF', label: '中场', sortOrder: 3, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_pos_fw', typeId: 'dt_position', value: 'FW', label: '前锋', sortOrder: 4, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_st_primary', typeId: 'dt_school_type', value: 'PRIMARY', label: '小学', sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_st_junior', typeId: 'dt_school_type', value: 'JUNIOR', label: '初中', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_st_senior', typeId: 'dt_school_type', value: 'SENIOR', label: '高中', sortOrder: 3, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_cc_head', typeId: 'dt_coach_category', value: 'HEAD_COACH', label: '主教练', sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_cc_assistant', typeId: 'dt_coach_category', value: 'ASSISTANT_COACH', label: '助理教练', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+]
+
+function withRegionName<T extends { regionId: string }>(item: T): T & { regionName?: string } {
+  const region = regions.find((r) => r.id === item.regionId)
+  return { ...item, regionName: region?.name }
+}
+
+function withTypeCode<T extends { typeId: string }>(item: T): T & { typeCode?: string } {
+  const dt = dictTypes.find((d) => d.id === item.typeId)
+  return { ...item, typeCode: dt?.code }
+}
+
+// --- 区划 Region ---
+
+on('GET', '/base-data/regions', ({ query }) => {
+  let items = [...regions]
+  if (query.level !== undefined) items = items.filter((r) => r.level === Number(query.level))
+  if (query.parentId) items = items.filter((r) => r.parentId === str(query.parentId))
+  if (query.keyword) items = items.filter((r) => contains(r.name, str(query.keyword)) || contains(r.code, str(query.keyword)))
+  if (query.isActive !== undefined) items = items.filter((r) => r.isActive === Boolean(query.isActive))
+  items.sort((a, b) => a.level - b.level || a.sortOrder - b.sortOrder || a.code.localeCompare(b.code) || a.id.localeCompare(b.id))
+  return pageOf(items, query)
+})
+
+on('POST', '/base-data/regions', ({ body }) => {
+  const level = Number(body.level) as 1 | 2 | 3
+  if (![1, 2, 3].includes(level)) throw new MockHttpError(400, 'INVALID_ARGUMENT', 'level 必须为 1-3')
+  const code = str(body.code)
+  if (regions.some((r) => r.code === code)) throw new MockHttpError(409, 'DUPLICATE_RESOURCE', '区划编码已存在')
+  // 层级校验
+  if (level === 1 && body.parentId) throw new MockHttpError(400, 'INVALID_ARGUMENT', '省级区划不得设置上级')
+  if (level > 1) {
+    if (!body.parentId) throw new MockHttpError(400, 'INVALID_ARGUMENT', '非省级区划必须设置上级')
+    const parent = regions.find((r) => r.id === str(body.parentId))
+    if (!parent) throw new MockHttpError(400, 'INVALID_ARGUMENT', '上级区划不存在')
+    if (parent.level !== level - 1) throw new MockHttpError(400, 'INVALID_ARGUMENT', '上级区划层级必须为 level-1')
+    if (!parent.isActive) throw new MockHttpError(400, 'INVALID_ARGUMENT', '上级区划已停用')
+  }
+  const item = {
+    id: nextId('region'),
+    name: str(body.name),
+    code,
+    level,
+    parentId: body.parentId ? str(body.parentId) : undefined,
+    sortOrder: Number(body.sortOrder) || 0,
+    isActive: body.isActive !== false,
+    createdAt: now(),
+    updatedAt: now(),
+  }
+  regions.push(item)
+  return item
+})
+
+on('GET', '/base-data/regions/:id', ({ params }) => {
+  const item = regions.find((r) => r.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '区划不存在')
+  return item
+})
+
+on('PUT', '/base-data/regions/:id', ({ params, body }) => {
+  const item = regions.find((r) => r.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '区划不存在')
+  if (body.parentId && body.parentId === params.id) throw new MockHttpError(400, 'INVALID_ARGUMENT', '上级区划不能为自身')
+  if (body.parentId) {
+    const parent = regions.find((r) => r.id === str(body.parentId))
+    if (parent && !parent.isActive) throw new MockHttpError(400, 'INVALID_ARGUMENT', '上级区划已停用')
+  }
+  // code/level 禁改，只更新 name/parentId
+  item.name = str(body.name) || item.name
+  if (body.parentId !== undefined) item.parentId = body.parentId ? str(body.parentId) : undefined
+  item.updatedAt = now()
+  return item
+})
+
+on('DELETE', '/base-data/regions/:id', ({ params }) => {
+  const item = regions.find((r) => r.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '区划不存在')
+  const hasActiveChildren = regions.some((r) => r.parentId === params.id && r.isActive)
+  if (hasActiveChildren) throw new MockHttpError(409, 'STATE_CONFLICT', '该区划存在启用的下级，请先停用下级')
+  item.isActive = false
+  item.updatedAt = now()
+  return { success: true, id: item.id }
+})
+
+// --- 学校 School ---
+
+on('GET', '/base-data/schools', ({ query }) => {
+  let items = [...schools]
+  if (query.regionId) items = items.filter((s) => s.regionId === str(query.regionId))
+  if (query.schoolType) items = items.filter((s) => s.schoolType === str(query.schoolType))
+  if (query.keyword) items = items.filter((s) => contains(s.name, str(query.keyword)) || contains(s.code || '', str(query.keyword)))
+  if (query.isActive !== undefined) items = items.filter((s) => s.isActive === Boolean(query.isActive))
+  items.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+  return pageOf(items.map(withRegionName), query)
+})
+
+on('POST', '/base-data/schools', ({ body }) => {
+  const region = regions.find((r) => r.id === str(body.regionId))
+  if (!region || !region.isActive) throw new MockHttpError(400, 'INVALID_ARGUMENT', '所属区划不存在或已停用')
+  const code = body.code ? str(body.code) : undefined
+  if (code && schools.some((s) => s.code === code)) throw new MockHttpError(409, 'DUPLICATE_RESOURCE', '学校标识码已存在')
+  if (schools.some((s) => s.name === str(body.name) && s.regionId === str(body.regionId) && s.isActive)) {
+    throw new MockHttpError(409, 'DUPLICATE_RESOURCE', '同一区划下已存在同名学校')
+  }
+  const item = {
+    id: nextId('school'),
+    name: str(body.name),
+    code,
+    schoolType: str(body.schoolType),
+    regionId: str(body.regionId),
+    address: body.address ? str(body.address) : undefined,
+    isActive: body.isActive !== false,
+    createdAt: now(),
+    updatedAt: now(),
+  }
+  schools.push(item)
+  return withRegionName(item)
+})
+
+on('GET', '/base-data/schools/:id', ({ params }) => {
+  const item = schools.find((s) => s.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '学校不存在')
+  return withRegionName(item)
+})
+
+on('PUT', '/base-data/schools/:id', ({ params, body }) => {
+  const item = schools.find((s) => s.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '学校不存在')
+  const code = body.code !== undefined ? (body.code ? str(body.code) : undefined) : item.code
+  if (code && schools.some((s) => s.id !== params.id && s.code === code)) {
+    throw new MockHttpError(409, 'DUPLICATE_RESOURCE', '学校标识码已存在')
+  }
+  if (schools.some((s) => s.id !== params.id && s.name === str(body.name) && s.regionId === str(body.regionId) && s.isActive)) {
+    throw new MockHttpError(409, 'DUPLICATE_RESOURCE', '同一区划下已存在同名学校')
+  }
+  Object.assign(item, {
+    name: str(body.name),
+    code,
+    schoolType: str(body.schoolType),
+    regionId: str(body.regionId),
+    address: body.address !== undefined ? (body.address ? str(body.address) : undefined) : item.address,
+    isActive: body.isActive !== undefined ? Boolean(body.isActive) : item.isActive,
+    updatedAt: now(),
+  })
+  return withRegionName(item)
+})
+
+on('DELETE', '/base-data/schools/:id', ({ params }) => {
+  const item = schools.find((s) => s.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '学校不存在')
+  item.isActive = false
+  item.updatedAt = now()
+  return { success: true, id: item.id }
+})
+
+// --- 字典类型 DictType ---
+
+on('GET', '/base-data/dict-types', ({ query }) => {
+  let items = [...dictTypes]
+  if (query.keyword) items = items.filter((d) => contains(d.code, str(query.keyword)) || contains(d.name, str(query.keyword)))
+  items.sort((a, b) => a.code.localeCompare(b.code) || a.id.localeCompare(b.id))
+  return pageOf(items, query)
+})
+
+on('POST', '/base-data/dict-types', ({ body }) => {
+  const code = str(body.code)
+  if (dictTypes.some((d) => d.code === code)) throw new MockHttpError(409, 'DUPLICATE_RESOURCE', '字典类型编码已存在')
+  const item = {
+    id: nextId('dt'),
+    code,
+    name: str(body.name),
+    remark: body.remark ? str(body.remark) : undefined,
+    createdAt: now(),
+    updatedAt: now(),
+  }
+  dictTypes.push(item)
+  return item
+})
+
+on('GET', '/base-data/dict-types/:id', ({ params }) => {
+  const item = dictTypes.find((d) => d.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '字典类型不存在')
+  return item
+})
+
+on('PUT', '/base-data/dict-types/:id', ({ params, body }) => {
+  const item = dictTypes.find((d) => d.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '字典类型不存在')
+  // code 禁改，只更新 name/remark
+  item.name = str(body.name) || item.name
+  if (body.remark !== undefined) item.remark = body.remark ? str(body.remark) : undefined
+  item.updatedAt = now()
+  return item
+})
+
+on('DELETE', '/base-data/dict-types/:id', ({ params }) => {
+  const idx = dictTypes.findIndex((d) => d.id === params.id)
+  if (idx < 0) throw new MockHttpError(404, 'NOT_FOUND', '字典类型不存在')
+  if (dictItems.some((i) => i.typeId === params.id)) {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '该字典类型下存在字典项，请先处理字典项')
+  }
+  const [removed] = dictTypes.splice(idx, 1)
+  return { success: true, id: removed.id }
+})
+
+// 注意：此路由须注册在 /base-data/dict-types/:id 之后，避免被 :id 匹配拦截。
+on('GET', '/base-data/dict-types/:typeCode/options', ({ params }) => {
+  const type = dictTypes.find((d) => d.code === params.typeCode)
+  if (!type) return []
+  return dictItems
+    .filter((i) => i.typeId === type.id && i.isActive)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.value.localeCompare(b.value) || a.id.localeCompare(b.id))
+    .map((i) => ({ value: i.value, label: i.label }))
+})
+
+// --- 字典项 DictItem ---
+
+on('GET', '/base-data/dict-items', ({ query }) => {
+  let items = [...dictItems]
+  if (query.typeCode) {
+    const type = dictTypes.find((d) => d.code === str(query.typeCode))
+    items = type ? items.filter((i) => i.typeId === type.id) : []
+  }
+  if (query.keyword) items = items.filter((i) => contains(i.label, str(query.keyword)) || contains(i.value, str(query.keyword)))
+  if (query.isActive !== undefined) items = items.filter((i) => i.isActive === Boolean(query.isActive))
+  items.sort((a, b) => a.sortOrder - b.sortOrder || a.value.localeCompare(b.value) || a.id.localeCompare(b.id))
+  return pageOf(items.map(withTypeCode), query)
+})
+
+on('POST', '/base-data/dict-items', ({ body }) => {
+  const type = dictTypes.find((d) => d.code === str(body.typeCode))
+  if (!type) throw new MockHttpError(400, 'INVALID_ARGUMENT', '字典类型不存在')
+  const value = str(body.value)
+  if (dictItems.some((i) => i.typeId === type.id && i.value === value)) {
+    throw new MockHttpError(409, 'DUPLICATE_RESOURCE', '同类型下字典项值已存在')
+  }
+  const item = {
+    id: nextId('di'),
+    typeId: type.id,
+    value,
+    label: str(body.label),
+    sortOrder: Number(body.sortOrder) || 0,
+    isActive: body.isActive !== false,
+    extJson: body.extJson && typeof body.extJson === 'object' ? body.extJson : undefined,
+    createdAt: now(),
+    updatedAt: now(),
+  }
+  dictItems.push(item)
+  return withTypeCode(item)
+})
+
+on('GET', '/base-data/dict-items/:id', ({ params }) => {
+  const item = dictItems.find((i) => i.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '字典项不存在')
+  return withTypeCode(item)
+})
+
+on('PUT', '/base-data/dict-items/:id', ({ params, body }) => {
+  const item = dictItems.find((i) => i.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '字典项不存在')
+  // value/type 禁改；PUT 全量替换，extJson 未传视为清空
+  item.label = str(body.label) || item.label
+  if (body.sortOrder !== undefined) item.sortOrder = Number(body.sortOrder) || 0
+  if (body.isActive !== undefined) item.isActive = Boolean(body.isActive)
+  item.extJson = body.extJson && typeof body.extJson === 'object' ? body.extJson : undefined
+  item.updatedAt = now()
+  return withTypeCode(item)
+})
+
+on('DELETE', '/base-data/dict-items/:id', ({ params }) => {
+  const item = dictItems.find((i) => i.id === params.id)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '字典项不存在')
+  item.isActive = false
+  item.updatedAt = now()
+  return { success: true, id: item.id }
+})
+
+/** 健康检查：成员2 文档定义为公开接口，返回服务存活状态。 */
+on('GET', '/health', () => ({ status: 'UP' }))
 
 on('GET', '/audit-logs', ({ query }) => {
   let items = auditLogs
@@ -587,6 +975,19 @@ on('GET', '/files/:id/content', () => ({ success: true }))
 on('GET', '/files/:id/thumbnail', ({ params }) => ({
   url: `https://picsum.photos/seed/${encodeURIComponent(params.id)}/320/200`,
 }))
+
+/** 签发短期展示地址：供 <img> 等无法携带 Authorization 头的场景使用（成员4文档 §10.4）。 */
+on('GET', '/files/:id/signed-url', ({ params }) => {
+  const expiresAt = new Date(Date.now() + 300 * 1000).toISOString()
+  return {
+    url: `/api/v1/public/files/${params.id}/content?exp=${encodeURIComponent(expiresAt)}&sign=mock_sig_${params.id}`,
+    expiresAt,
+    variant: 'content',
+  }
+})
+
+/** 免认证签名读取（auth=None）：mock 直接返回占位内容，真实后端走 HMAC 验签。 */
+on('GET', '/public/files/:id/content', () => ({ success: true }))
 
 on('DELETE', '/files/:id', () => ({ success: true }))
 
@@ -667,6 +1068,7 @@ on('POST', '/people', ({ body }) => {
 on('PUT', '/people/:id', ({ params, body }) => {
   const person = persons.find((p) => p.id === params.id)
   if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
+  ensureVersion(person.version, body.version)
   Object.assign(person, body, { version: person.version + 1 })
   if (body.avatarFileId) {
     person.avatarUrl = `https://picsum.photos/seed/${encodeURIComponent(str(body.avatarFileId))}/300/300`
@@ -674,9 +1076,10 @@ on('PUT', '/people/:id', ({ params, body }) => {
   return person
 })
 
-on('DELETE', '/people/:id', ({ params }) => {
+on('DELETE', '/people/:id', ({ params, query }) => {
   const idx = persons.findIndex((p) => p.id === params.id)
   if (idx < 0) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
+  ensureVersion(persons[idx].version, query.version)
   persons.splice(idx, 1)
   return { success: true }
 })
@@ -731,13 +1134,15 @@ on('POST', '/materials', ({ config, body }) => {
 on('PUT', '/materials/:id', ({ params, body }) => {
   const item = materials.find((m) => m.id === params.id)
   if (!item) throw new MockHttpError(404, 'NOT_FOUND', '材料不存在')
+  ensureVersion(item.version, body.version)
   Object.assign(item, body, { version: item.version + 1 })
   return item
 })
 
-on('DELETE', '/materials/:id', ({ params }) => {
+on('DELETE', '/materials/:id', ({ params, query }) => {
   const idx = materials.findIndex((m) => m.id === params.id)
   if (idx < 0) throw new MockHttpError(404, 'NOT_FOUND', '材料不存在')
+  ensureVersion(materials[idx].version, query.version)
   materials.splice(idx, 1)
   return { success: true }
 })
@@ -745,6 +1150,7 @@ on('DELETE', '/materials/:id', ({ params }) => {
 on('POST', '/materials/:id/review', ({ params, body }) => {
   const item = materials.find((m) => m.id === params.id)
   if (!item) throw new MockHttpError(404, 'NOT_FOUND', '材料不存在')
+  ensureVersion(item.version, body.version)
   item.reviewStatus = body.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
   item.reviewReason = body.reason
   item.version += 1
@@ -825,6 +1231,7 @@ on('PUT', '/teams/:id', ({ params, body, config }) => {
   const account = requireAccount(config)
   const team = teams.find((t) => t.id === params.id)
   if (!team) throw new MockHttpError(404, 'NOT_FOUND', '球队不存在')
+  ensureVersion(team.version, body.version)
   if (!account.roles.includes('ADMIN')) {
     if (!account.roles.includes('UNIVERSITY') || team.orgId !== account.orgId) {
       throw new MockHttpError(403, 'FORBIDDEN', '仅可维护本校球队')
@@ -894,13 +1301,15 @@ on('POST', '/teams/:id/members/search', ({ params, body }) => {
 on('PUT', '/teams/:id/members/:memberId', ({ params, body }) => {
   const item = teamMembers.find((m) => m.id === params.memberId)
   if (!item) throw new MockHttpError(404, 'NOT_FOUND', '球队成员不存在')
+  ensureVersion(item.version, body.version)
   Object.assign(item, body, { version: item.version + 1 })
   return item
 })
 
-on('DELETE', '/teams/:id/members/:memberId', ({ params }) => {
+on('DELETE', '/teams/:id/members/:memberId', ({ params, query }) => {
   const idx = teamMembers.findIndex((m) => m.id === params.memberId)
   if (idx < 0) throw new MockHttpError(404, 'NOT_FOUND', '球队成员不存在')
+  ensureVersion(teamMembers[idx].version, query.version)
   teamMembers.splice(idx, 1)
   return { success: true }
 })
@@ -1803,27 +2212,24 @@ on('POST', '/enrollments/:id/imports/photos', ({ params, config }) => {
 
 on('GET', '/enrollment-statistics', ({ query, config }) => {
   const eventId = str(query.eventId)
-  const dimension = str(query.dimension) || 'city'
+  // 与成员3契约一致：CITY / UNIVERSITY / GROUP。
+  const dimension = (str(query.dimension) || 'CITY').toUpperCase()
   const source = scopeEnrollments(config, enrollments)
   const scoped = eventId ? source.filter((e) => e.eventId === eventId) : source
   const groups = new Map<string, { label: string; teamCount: number; athleteCount: number; pendingCount: number; approvedCount: number; rejectedCount: number }>()
   scoped.forEach((e) => {
     const key =
-      dimension === 'group'
+      dimension === 'GROUP'
         ? e.groupId
-        : dimension === 'school'
+        : dimension === 'UNIVERSITY'
           ? schoolOrgIdOfEnrollment(e) || '未分组'
-          : dimension === 'subjectType'
-            ? e.subjectType
-            : e.cityName || '未分组'
+          : e.cityName || '未分组'
     const label =
-      dimension === 'group'
+      dimension === 'GROUP'
         ? e.groupName
-        : dimension === 'school'
+        : dimension === 'UNIVERSITY'
           ? e.schoolName || '未分组'
-          : dimension === 'subjectType'
-            ? (e.subjectType === 'SCHOOL_TEAM' ? '学校报送' : '历史市州代报')
-            : e.cityName || '未分组'
+          : e.cityName || '未分组'
     const row = groups.get(key) || { label, teamCount: 0, athleteCount: 0, pendingCount: 0, approvedCount: 0, rejectedCount: 0 }
     row.teamCount += 1
     row.athleteCount += e.playerCount ?? 0
@@ -1832,7 +2238,10 @@ on('GET', '/enrollment-statistics', ({ query, config }) => {
     if (e.status === 'REJECTED') row.rejectedCount += 1
     groups.set(key, row)
   })
-  return Array.from(groups.entries()).map(([key, v]) => ({ key, ...v }))
+  return pageOf(
+    Array.from(groups.entries()).map(([key, v]) => ({ key, ...v })),
+    query,
+  )
 })
 
 on('POST', '/enrollment-exports/registrations.xlsx', () => ({ success: true }))

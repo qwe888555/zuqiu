@@ -362,7 +362,7 @@ function publicationLink(star: PublicityRecord) {
         </router-link>
       </div>
 
-      <div v-loading="loading" class="news-board">
+      <div v-loading="loading" class="news-board" :class="{ 'news-board--empty': !loading && !news.length }">
         <router-link v-if="featured" :to="`/news/${featured.id}`" class="lead-card">
           <img :src="featured.publicCoverUrl || IMG.match" :alt="featured.title" />
           <span class="lead-card__shade" />
@@ -379,7 +379,7 @@ function publicationLink(star: PublicityRecord) {
           </div>
         </router-link>
 
-        <div class="news-side">
+        <div v-if="loading || news.length" class="news-side">
           <header class="news-side__head">
             <span>最新发布</span>
             <span>{{ newsRest.length }} 条</span>
@@ -397,8 +397,18 @@ function publicationLink(star: PublicityRecord) {
             </span>
             <span class="news-line__date num">{{ formatDate(item.publishedAt) }}</span>
           </router-link>
-          <el-empty v-if="!loading && !newsRest.length" description="暂无资讯" :image-size="60" />
+          <el-empty
+            v-if="!loading && !newsRest.length"
+            :description="news.length ? '暂无更多资讯' : '暂无资讯'"
+            :image-size="60"
+          />
         </div>
+        <el-empty
+          v-else
+          class="news-board__empty"
+          description="暂无资讯"
+          :image-size="60"
+        />
       </div>
     </section>
 
@@ -415,7 +425,7 @@ function publicationLink(star: PublicityRecord) {
           </router-link>
         </div>
 
-        <div class="policy-list">
+        <div class="policy-list" :class="{ 'policy-list--single': !loading && policies.length === 1 }">
           <router-link
             v-for="policy in policies"
             :key="policy.id"
@@ -449,7 +459,7 @@ function publicationLink(star: PublicityRecord) {
           </router-link>
         </div>
 
-        <div v-loading="loading" class="match-strip">
+        <div v-loading="loading" class="match-strip" :class="{ 'is-loading': loading }">
           <router-link
             v-for="match in stripMatches"
             :key="match.id"
@@ -778,6 +788,13 @@ function publicationLink(star: PublicityRecord) {
   color: var(--on-dark-2);
 }
 
+.scoreboard__meta > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .scoreboard__fallback {
   margin-top: 8px;
   font-size: 11.5px;
@@ -881,6 +898,14 @@ function publicationLink(star: PublicityRecord) {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.scoreboard__info .el-icon {
+  flex-shrink: 0;
 }
 
 .scoreboard__cta {
@@ -1103,6 +1128,16 @@ function publicationLink(star: PublicityRecord) {
   min-height: 330px;
 }
 
+/* 无资讯时不要留下半幅空白：空状态独占整行，并收紧区块高度。 */
+.news-board--empty {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.news-board__empty {
+  padding: 26px 0 8px;
+}
+
 .lead-card {
   position: relative;
   display: block;
@@ -1289,6 +1324,16 @@ function publicationLink(star: PublicityRecord) {
   gap: 12px;
 }
 
+/* 只有一条政策时不要占半行；空状态独占整行。 */
+.policy-list--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.policy-list > .el-empty {
+  grid-column: 1 / -1;
+  padding: 22px 0 4px;
+}
+
 .policy-line {
   display: flex;
   align-items: center;
@@ -1368,8 +1413,14 @@ function publicationLink(star: PublicityRecord) {
 
 .match-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  /* 固定 4 列：只有 1 场时卡片保持 1/4 宽，多场时列宽一致，不会拉满整行。 */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+/* 加载态还没有卡片，用占位高度承载 v-loading，避免 spinner 贴在 0 高度。 */
+.match-strip.is-loading {
+  min-height: 200px;
 }
 
 .match-card {
@@ -1396,6 +1447,13 @@ function publicationLink(star: PublicityRecord) {
   margin-bottom: 13px;
   font-size: 11.5px;
   color: var(--on-dark-2);
+}
+
+.match-card__top > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .match-card__team-row {
@@ -1456,6 +1514,12 @@ function publicationLink(star: PublicityRecord) {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 12px;
   color: var(--on-dark-3);
+}
+
+.match-card__meta span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .match-empty {
@@ -1687,6 +1751,10 @@ function publicationLink(star: PublicityRecord) {
 
   .news-board {
     grid-template-columns: minmax(0, 1.35fr) minmax(330px, 1fr);
+  }
+
+  .match-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

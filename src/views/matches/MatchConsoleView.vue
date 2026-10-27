@@ -84,7 +84,11 @@ const sortedEvents = computed(() =>
   [...events.value].sort((a, b) => (a.minute || 0) - (b.minute || 0) || (a.createdAt || '').localeCompare(b.createdAt || '')),
 )
 
-const canFinish = computed(() => match.value?.status !== 'FINISHED')
+// 后端要求比赛先进入 FINISHED，才允许发布赛果；结束比赛由记录台显式触发。
+const canFinish = computed(() => ['SCHEDULED', 'LIVE'].includes(match.value?.status || ''))
+const canPublishResult = computed(
+  () => match.value?.status === 'FINISHED' && !result.value?.published,
+)
 
 /* 赛场大屏：把记录台切换为现场比分牌，便于边线/看台同步查看 */
 const bigScreen = ref(false)
@@ -370,17 +374,46 @@ async function downloadDocument(doc: MatchDocument) {
   }
 }
 
+async function finishMatch() {
+  if (!match.value) return
+  try {
+    await ElMessageBox.confirm('确认比赛已经结束？结束后才能发布赛果。', '结束比赛', {
+      confirmButtonText: '确认结束',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    match.value = await matchApi.update(matchId, {
+      eventId: match.value.eventId,
+      groupId: match.value.groupId,
+      homeTeamId: match.value.homeTeamId,
+      awayTeamId: match.value.awayTeamId,
+      kickoffAt: match.value.kickoffAt,
+      venue: match.value.venue || '',
+      stage: match.value.stage || '',
+      status: 'FINISHED',
+      referees: match.value.referees || [],
+      version: match.value.version,
+    })
+    ElMessage.success('比赛已结束，可以发布赛果')
+    await loadAll()
+  } catch {
+    // 取消或接口错误由拦截器提示
+  }
+}
+
 async function saveResult() {
   savingResult.value = true
   try {
+    const normal = resultForm.resultType === 'NORMAL'
     result.value = await matchApi.saveResult(matchId, {
       version: match.value?.version,
       resultType: resultForm.resultType,
-      manualHomeScore: resultForm.manualHomeScore,
-      manualAwayScore: resultForm.manualAwayScore,
+      // 常规赛果由进球事件派生，人工比分只在弃权/更正时提交。
+      manualHomeScore: normal ? undefined : resultForm.manualHomeScore,
+      manualAwayScore: normal ? undefined : resultForm.manualAwayScore,
       reason: resultForm.reason,
     })
-    ElMessage.success('赛果已保存')
+    ElMessage.success(normal ? '赛果已按进球事件重新计算' : '赛果已保存')
     await refreshMatch()
   } catch {
     // 拦截器提示
@@ -390,8 +423,12 @@ async function saveResult() {
 }
 
 async function publishResult() {
+  if (match.value?.status !== 'FINISHED') {
+    ElMessage.warning('请先结束比赛，再发布赛果')
+    return
+  }
   try {
-    await ElMessageBox.confirm('发布赛果后比赛将标记为已结束，并同步至门户与射手榜。', '发布赛果', {
+    await ElMessageBox.confirm('发布赛果后将同步至门户与射手榜。', '发布赛果', {
       confirmButtonText: '确认发布',
       cancelButtonText: '取消',
       type: 'warning',
@@ -716,13 +753,26 @@ onMounted(loadAll)
                 </el-form-item>
                 <div class="result-score">
                   <el-form-item :label="match.homeTeamName">
-                    <el-input-number v-model="resultForm.manualHomeScore" :min="0" :max="99" />
+                    <el-input-number
+                      v-model="resultForm.manualHomeScore"
+                      :min="0"
+                      :max="99"
+                      :disabled="resultForm.resultType === 'NORMAL'"
+                    />
                   </el-form-item>
                   <span class="result-score__sep">:</span>
                   <el-form-item :label="match.awayTeamName">
-                    <el-input-number v-model="resultForm.manualAwayScore" :min="0" :max="99" />
+                    <el-input-number
+                      v-model="resultForm.manualAwayScore"
+                      :min="0"
+                      :max="99"
+                      :disabled="resultForm.resultType === 'NORMAL'"
+                    />
                   </el-form-item>
                 </div>
+                <p v-if="resultForm.resultType === 'NORMAL'" class="result-hint">
+                  常规赛果由进球事件自动计算；如需人工改判，请选择弃权或人工更正。
+                </p>
                 <el-form-item label="更正原因 / 说明">
                   <el-input
                     v-model="resultForm.reason"
@@ -733,13 +783,17 @@ onMounted(loadAll)
                 </el-form-item>
                 <div class="result-actions">
                   <el-button :loading="savingResult" @click="saveResult">保存赛果</el-button>
-                  <el-button v-if="!result?.published && canFinish" type="primary" @click="publishResult">
-                    发布赛果并结束比赛
+                  <el-button v-if="canFinish" type="primary" plain @click="finishMatch">结束比赛</el-button>
+                  <el-button v-if="canPublishResult" type="primary" @click="publishResult">
+                    发布赛果
                   </el-button>
                   <el-tag v-if="result?.published" type="success" effect="plain" size="large">
                     赛果已发布 · 第 {{ result.sourceScoreRevision }} 版
                   </el-tag>
                 </div>
+                <p v-if="!result?.published && match.status !== 'FINISHED'" class="result-hint">
+                  比赛尚未结束，结束比赛后才能发布赛果。
+                </p>
               </el-form>
             </div>
             <aside class="result-side">
@@ -1628,7 +1682,15 @@ onMounted(loadAll)
 .result-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.result-hint {
+  margin: -2px 0 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-500);
 }
 
 .result-side {

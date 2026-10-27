@@ -1,4 +1,4 @@
-﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Medal, Plus, Refresh, Search } from '@element-plus/icons-vue'

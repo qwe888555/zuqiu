@@ -53,10 +53,12 @@ async function load() {
 }
 
 async function save() {
+  if (!person.value) return ElMessage.warning('档案尚未加载，请刷新后重试')
   if (!form.realName.trim()) return ElMessage.warning('请填写真实姓名')
   saving.value = true
   try {
     person.value = await meApi.updateProfile({
+      version: person.value.version,
       realName: form.realName,
       gender: form.gender as Person['gender'],
       birthDate: form.birthDate || undefined,
@@ -74,9 +76,10 @@ async function save() {
 }
 
 async function confirmProfile() {
+  if (!person.value) return ElMessage.warning('档案尚未加载，请刷新后重试')
   confirming.value = true
   try {
-    await meApi.confirmProfile()
+    await meApi.confirmProfile(person.value.version)
     ElMessage.success('档案已确认，等待管理员复核')
     await load()
   } catch {

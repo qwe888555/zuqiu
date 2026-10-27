@@ -4,6 +4,8 @@ import type {
   AuditLog,
   Content,
   CurrentUser,
+  DictItem,
+  DictType,
   DictionaryItem,
   Enrollment,
   EnrollmentAttachment,
@@ -36,8 +38,10 @@ import type {
   PublicLivePost,
   PublicMatch,
   PublicResource,
+  Region,
   ReviewRecord,
   RosterItem,
+  School,
   StatRow,
   Team,
   TeamCoach,
@@ -59,10 +63,15 @@ export const meApi = {
   changePassword: (data: { oldPassword: string; newPassword: string }) =>
     http.post<{ success: boolean }>('/me/password', data),
   messages: (params: Query) => http.get<PageResult<Message>>('/me/messages', params),
+  message: (id: string) => http.get<Message>(`/me/messages/${id}`),
   readMessage: (id: string) => http.post<{ success: boolean }>(`/me/messages/${id}/read`),
   profile: () => http.get<Person>('/me/profile'),
-  updateProfile: (data: Partial<Person>) => http.put<Person>('/me/profile', data),
-  confirmProfile: () => http.post<{ success: boolean }>('/me/profile-confirmation'),
+  /** 本人档案更新：version 必填（乐观锁），缺失后端返回 400 INVALID_ARGUMENT。 */
+  updateProfile: (data: Partial<Person> & { version: number }) =>
+    http.put<Person>('/me/profile', data),
+  /** 提交档案复核：version 必填（成员4文档 §7.2.4）。 */
+  confirmProfile: (version: number) =>
+    http.post<Person>('/me/profile-confirmation', { version }),
   profileMatch: () => http.get<Record<string, unknown>>('/me/profile-match'),
   teams: () => http.get<Team[]>('/me/teams'),
   affiliations: (params: Query) => http.get<PageResult<MyAffiliation>>('/me/team-affiliations', params),
@@ -97,6 +106,7 @@ export const accountApi = {
 export const orgApi = {
   list: (params: Query) => http.get<PageResult<Organization>>('/organizations', params),
   create: (data: Query) => http.post<Organization>('/organizations', data),
+  get: (id: string) => http.get<Organization>(`/organizations/${id}`),
   update: (id: string, data: Query) => http.put<Organization>(`/organizations/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/organizations/${id}`, { version }),
 }
@@ -104,13 +114,112 @@ export const orgApi = {
 export const dictApi = {
   list: (params: Query) => http.get<PageResult<DictionaryItem>>('/dictionary-items', params),
   options: (dictType: string) => http.get<OptionItem[]>(`/dictionaries/${dictType}/options`),
+  get: (id: string) => http.get<DictionaryItem>(`/dictionary-items/${id}`),
   create: (data: Query) => http.post<DictionaryItem>('/dictionary-items', data),
   update: (id: string, data: Query) => http.put<DictionaryItem>(`/dictionary-items/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/dictionary-items/${id}`, { version }),
 }
 
+/* ---------------------------------------------------------------------------
+ * 成员4 基础数据域（/base-data）：区划 / 学校 / 字典类型 / 字典项，共 21 条端点。
+ * 删除为「停用」语义（is_active=false）；区划/学校/字典项停用有下级/挂项时后端返回 409。
+ * 字典类型删除为物理删除（有字典项引用时 409）。code 创建后禁改（学校 code 例外可改）。
+ * ------------------------------------------------------------------------- */
+
+/** 区划 Region：5 条端点。 */
+export const regionApi = {
+  list: (params: { level?: 1 | 2 | 3; parentId?: string; keyword?: string; isActive?: boolean; page?: number; pageSize?: number }) =>
+    http.get<PageResult<Region>>('/base-data/regions', params),
+  create: (data: {
+    name: string
+    code: string
+    level: 1 | 2 | 3
+    parentId?: string
+    sortOrder?: number
+    isActive?: boolean
+  }) => http.post<Region>('/base-data/regions', data),
+  get: (id: string) => http.get<Region>(`/base-data/regions/${id}`),
+  /** 仅可改 name、parentId；code/level 创建后禁改。 */
+  update: (id: string, data: { name: string; parentId?: string }) =>
+    http.put<Region>(`/base-data/regions/${id}`, data),
+  /** 停用（有启用下级→409 STATE_CONFLICT）。 */
+  disable: (id: string) => http.delete<{ success: boolean; id: string }>(`/base-data/regions/${id}`),
+}
+
+/** 学校 School：5 条端点。 */
+export const schoolApi = {
+  list: (params: { regionId?: string; schoolType?: string; keyword?: string; isActive?: boolean; page?: number; pageSize?: number }) =>
+    http.get<PageResult<School>>('/base-data/schools', params),
+  create: (data: {
+    name: string
+    code?: string
+    schoolType: string
+    regionId: string
+    address?: string
+    isActive?: boolean
+  }) => http.post<School>('/base-data/schools', data),
+  get: (id: string) => http.get<School>(`/base-data/schools/${id}`),
+  /** code 允许修改（可空唯一）。 */
+  update: (id: string, data: {
+    name: string
+    code?: string
+    schoolType: string
+    regionId: string
+    address?: string
+    isActive?: boolean
+  }) => http.put<School>(`/base-data/schools/${id}`, data),
+  /** 停用。 */
+  disable: (id: string) => http.delete<{ success: boolean; id: string }>(`/base-data/schools/${id}`),
+}
+
+/** 字典类型 DictType：6 条端点。 */
+export const dictTypeApi = {
+  list: (params: { keyword?: string; page?: number; pageSize?: number }) =>
+    http.get<PageResult<DictType>>('/base-data/dict-types', params),
+  create: (data: { code: string; name: string; remark?: string }) =>
+    http.post<DictType>('/base-data/dict-types', data),
+  get: (id: string) => http.get<DictType>(`/base-data/dict-types/${id}`),
+  /** code 创建后禁改，仅可改 name、remark。 */
+  update: (id: string, data: { name: string; remark?: string }) =>
+    http.put<DictType>(`/base-data/dict-types/${id}`, data),
+  /** 物理删除（存在字典项→409 STATE_CONFLICT）。 */
+  remove: (id: string) => http.delete<{ success: boolean; id: string }>(`/base-data/dict-types/${id}`),
+  /** 按类型编码取启用字典项；未知 typeCode 返回空数组。 */
+  options: (typeCode: string) =>
+    http.get<OptionItem[]>(`/base-data/dict-types/${typeCode}/options`),
+}
+
+/** 字典项 DictItem：5 条端点。 */
+export const dictItemApi = {
+  list: (params: { typeCode?: string; keyword?: string; isActive?: boolean; page?: number; pageSize?: number }) =>
+    http.get<PageResult<DictItem>>('/base-data/dict-items', params),
+  create: (data: {
+    typeCode: string
+    value: string
+    label: string
+    sortOrder?: number
+    isActive?: boolean
+    extJson?: Record<string, unknown>
+  }) => http.post<DictItem>('/base-data/dict-items', data),
+  get: (id: string) => http.get<DictItem>(`/base-data/dict-items/${id}`),
+  /** value/type 创建后禁改；PUT 全量替换，extJson 未传视为清空。 */
+  update: (id: string, data: {
+    label: string
+    sortOrder?: number
+    isActive?: boolean
+    extJson?: Record<string, unknown>
+  }) => http.put<DictItem>(`/base-data/dict-items/${id}`, data),
+  /** 停用。 */
+  disable: (id: string) => http.delete<{ success: boolean; id: string }>(`/base-data/dict-items/${id}`),
+}
+
 export const auditApi = {
   list: (params: Query) => http.get<PageResult<AuditLog>>('/audit-logs', params),
+}
+
+/** 成员2 系统模块：健康检查（公开）。 */
+export const healthApi = {
+  check: () => http.get<{ status: string }>('/health'),
 }
 
 export const fileApi = {
@@ -132,7 +241,6 @@ export const fileApi = {
     return http.postForm<FileRecord[]>('/files/batch', form)
   },
   meta: (fileId: string) => http.get<FileRecord>(`/files/${fileId}`),
-  thumbnail: (fileId: string) => http.get<{ url: string }>(`/files/${fileId}/thumbnail`),
   download: (fileId: string, fileName: string) =>
     http.download(`/files/${fileId}/content`, fileName),
   /** 读取私有文件并生成可直接放进 img src 的 object URL（调用方负责 revoke）。 */
@@ -140,6 +248,13 @@ export const fileApi = {
     const blob = await http.getBlob(`/files/${fileId}/content`)
     return blob instanceof Blob ? URL.createObjectURL(blob) : ''
   },
+  /** 签发短期展示地址（用于 <img> 等无法携带 Authorization 头的场景）。 */
+  signedUrl: (fileId: string, variant: 'content' | 'thumbnail' = 'content') =>
+    http.get<{ url: string; expiresAt: string; variant: string }>(
+      `/files/${fileId}/signed-url`,
+      { variant },
+      { silentError: true },
+    ),
   remove: (fileId: string) => http.delete<{ success: boolean }>(`/files/${fileId}`),
 }
 
@@ -297,8 +412,13 @@ export const enrollmentApi = {
     http.download('/imports/templates/roster.xlsx', '球员名单导入模板.xlsx'),
   downloadImportErrors: (batchId: string) =>
     http.download(`/imports/${batchId}/errors.csv`, `导入错误清单-${batchId}.csv`),
-  statistics: (params: Query) =>
-    http.get<PageResult<StatRow>>('/enrollment-statistics', params),
+  statistics: async (params: Query) => {
+    // 契约要求分页信封；旧版后端/内置 Mock 可能直接返回数组，这里统一拍平。
+    const res = await http.get<PageResult<StatRow> | StatRow[]>('/enrollment-statistics', params)
+    return Array.isArray(res)
+      ? { items: res, page: 1, pageSize: res.length, total: res.length }
+      : res
+  },
   downloadRegistration: (id: string, enrollmentNo?: string, snapshotId?: string) =>
     http.download(
       `/enrollments/${id}/documents/registration.pdf`,

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { DataAnalysis, Download, Refresh, Trophy, User, Warning } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
+import { DataAnalysis, Download, Refresh, Setting, Trophy, User, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { enrollmentApi, eventApi } from '../../api'
 import type { Event, StatRow } from '../../api/types'
@@ -10,7 +11,9 @@ import StatCard from '../../components/common/StatCard.vue'
 import CityHeatMap from '../../components/stats/CityHeatMap.vue'
 
 const { can } = usePermission()
+const router = useRouter()
 const loading = ref(false)
+const eventsLoading = ref(false)
 const exporting = ref<'xlsx' | 'zip' | ''>('')
 const events = ref<Event[]>([])
 const rows = ref<StatRow[]>([])
@@ -63,6 +66,12 @@ const dimensionLabel = computed(
   () => ({ CITY: '市州', UNIVERSITY: '高校', GROUP: '组别' })[dimension.value],
 )
 
+const emptyEventDescription = computed(() =>
+  can('event.manage')
+    ? '当前后端尚未返回任何赛事数据。请先在「赛事与组别」创建赛事并配置组别，回到本页点击刷新后即可选择赛事、导出 Excel 或打包报名资料。'
+    : '当前账号数据范围内没有可统计的赛事。请联系赛事管理员创建或开放赛事后重试。',
+)
+
 async function load() {
   if (!eventId.value) {
     rows.value = []
@@ -70,11 +79,23 @@ async function load() {
   }
   loading.value = true
   try {
-    const page = await enrollmentApi.statistics({
-      eventId: eventId.value,
-      dimension: dimension.value,
-    })
-    rows.value = page.items
+    // 统计接口分页返回，默认 pageSize=20；市州/高校维度可能超过一页，这里按 total 取全量。
+    const collected: StatRow[] = []
+    let page = 1
+    let total = 0
+    do {
+      const res = await enrollmentApi.statistics({
+        eventId: eventId.value,
+        dimension: dimension.value,
+        page,
+        pageSize: 100,
+      })
+      collected.push(...res.items)
+      total = res.total
+      if (res.items.length < (res.pageSize || 100)) break
+      page += 1
+    } while (collected.length < total && page <= 50)
+    rows.value = collected
   } catch {
     rows.value = []
   } finally {
@@ -83,17 +104,37 @@ async function load() {
 }
 
 async function loadEvents() {
+  eventsLoading.value = true
   try {
-    const res = await eventApi.list({ page: 1, pageSize: 50 })
+    // /events 仅 ADMIN、PROVINCE_REVIEWER 可用；市州账号改走全角色可见的赛事列表。
+    const res = can('event.manage')
+      ? await eventApi.list({ page: 1, pageSize: 100 })
+      : await eventApi.available({ page: 1, pageSize: 100 })
     events.value = res.items
-    if (!eventId.value) eventId.value = events.value[0]?.id || ''
+    if (!eventId.value || !events.value.some((event) => event.id === eventId.value)) {
+      eventId.value = events.value[0]?.id || ''
+    }
   } catch {
     events.value = []
+  } finally {
+    eventsLoading.value = false
   }
 }
 
+/** 赛事可能在其他标签页刚创建，刷新时一并重拉赛事列表。 */
+async function refresh() {
+  await loadEvents()
+  await load()
+}
+
 async function exportData(kind: 'xlsx' | 'zip') {
-  if (!eventId.value) return ElMessage.warning('请先选择赛事')
+  if (!eventId.value) {
+    return ElMessage.warning(
+      events.value.length
+        ? '请先选择赛事'
+        : '暂无可选赛事，请先在「赛事与组别」创建赛事后再导出',
+    )
+  }
   exporting.value = kind
   try {
     const payload = {
@@ -114,10 +155,7 @@ async function exportData(kind: 'xlsx' | 'zip') {
   }
 }
 
-onMounted(async () => {
-  await loadEvents()
-  await load()
-})
+onMounted(refresh)
 </script>
 
 <template>
@@ -127,7 +165,7 @@ onMounted(async () => {
       description="按市州、组别或报送学校聚合报名数据，辅助审核排期与名额统筹。数据实时来源于报名主档。"
     >
       <template #actions>
-        <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button :icon="Refresh" :loading="eventsLoading || loading" @click="refresh">刷新</el-button>
         <template v-if="can('enrollment.export')">
           <el-button :icon="Download" :loading="exporting === 'xlsx'" @click="exportData('xlsx')">
             导出 Excel
@@ -146,7 +184,15 @@ onMounted(async () => {
     </PageHeader>
 
     <section class="page-card filter-card">
-      <el-select v-model="eventId" placeholder="请选择赛事" style="width: 280px" @change="load">
+      <span class="filter-card__label">赛事</span>
+      <el-select
+        v-model="eventId"
+        placeholder="请选择赛事"
+        style="width: 280px"
+        :loading="eventsLoading"
+        :disabled="!events.length"
+        @change="load"
+      >
         <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
       </el-select>
       <el-radio-group v-model="dimension" @change="changeDimension">
@@ -157,6 +203,25 @@ onMounted(async () => {
       <span class="filter-card__spacer" />
       <span class="muted">统计口径：当前账号数据范围内</span>
     </section>
+
+    <div v-if="!eventsLoading && !events.length" class="event-empty">
+      <el-alert
+        type="warning"
+        show-icon
+        :closable="false"
+        title="暂无可选赛事，暂时无法统计与导出"
+        :description="emptyEventDescription"
+      />
+      <el-button
+        v-if="can('event.manage')"
+        class="event-empty__action"
+        type="primary"
+        :icon="Setting"
+        @click="router.push('/console/events')"
+      >
+        前往赛事与组别
+      </el-button>
+    </div>
 
     <div class="stat-grid">
       <StatCard label="报名球队" :value="totalTeams" hint="学校报送的参赛球队" :icon="Trophy" tone="green" />
@@ -251,9 +316,25 @@ onMounted(async () => {
         </el-table>
         <el-empty
           v-if="!loading && !displayRows.length"
-          :description="selectedCity ? '该市州在当前赛事范围内暂无报名' : '当前筛选条件下暂无数据'"
+          :description="
+            !eventId
+              ? '暂无可选赛事，请先创建赛事'
+              : selectedCity
+                ? '该市州在当前赛事范围内暂无报名'
+                : '当前筛选条件下暂无数据'
+          "
           :image-size="80"
-        />
+        >
+          <el-button
+            v-if="!eventId && can('event.manage')"
+            type="primary"
+            plain
+            :icon="Setting"
+            @click="router.push('/console/events')"
+          >
+            前往赛事与组别
+          </el-button>
+        </el-empty>
       </section>
 
       <aside class="page-card progress-card">
@@ -300,6 +381,27 @@ onMounted(async () => {
 
 .filter-card__spacer {
   flex: 1;
+}
+
+.filter-card__label {
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.event-empty {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.event-empty .el-alert {
+  flex: 1;
+  min-width: 260px;
+}
+
+.event-empty__action {
+  flex-shrink: 0;
 }
 
 .label-cell {

@@ -181,15 +181,27 @@ function openCreate() {
   dialogVisible.value = true
 }
 
-function openEdit(row: Content) {
-  editingId.value = row.id
+/** 管理端只返回 coverFileId，展示地址按文件签发短链。 */
+async function signedCoverUrl(fileId: string) {
+  try {
+    return (await fileApi.signedUrl(fileId)).url
+  } catch {
+    return ''
+  }
+}
+
+async function openEdit(row: Content) {
+  const targetId = row.id
+  editingId.value = targetId
   editingVersion.value = row.version
+  const coverUrl = (row.coverFileId ? await signedCoverUrl(row.coverFileId) : '') || row.coverUrl || ''
+  if (editingId.value !== targetId) return
   Object.assign(form, {
     contentType: row.contentType,
     title: row.title,
     summary: row.summary || '',
     bodyHtml: row.bodyHtml,
-    coverUrl: row.coverUrl || '',
+    coverUrl,
     coverFileId: row.coverFileId || '',
     eventId: row.eventId || '',
     groupId: row.groupId || '',
@@ -199,7 +211,7 @@ function openEdit(row: Content) {
     policyEffectiveTo: row.policyEffectiveTo || '',
   })
   coverFile.value = null
-  coverPreview.value = row.coverUrl || ''
+  coverPreview.value = coverUrl
   loadFormGroups(row.eventId || '')
   dialogVisible.value = true
 }
@@ -311,9 +323,13 @@ async function removeContent(row: Content) {
   }
 }
 
-function openPreview(row: Content) {
+async function openPreview(row: Content) {
   preview.value = row
   previewVisible.value = true
+  if (row.coverFileId) {
+    const url = await signedCoverUrl(row.coverFileId)
+    if (url && preview.value?.id === row.id) row.coverUrl = url
+  }
 }
 
 onMounted(() => {
