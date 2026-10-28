@@ -18,9 +18,10 @@ import {
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import { useAppStore } from '../../stores/app'
-import { enrollmentApi, matchApi, meApi, materialApi } from '../../api'
-import type { Enrollment, Match, Material, Team } from '../../api/types'
+import { enrollmentApi, eventApi, matchApi, meApi, materialApi } from '../../api'
+import type { Enrollment, Event, Match, Material, Team } from '../../api/types'
 import { categoryLabel } from '../../config/labels'
+import { pickDefaultEventId } from '../../utils/events'
 import { httpStatusOf } from '../../utils/httpError'
 import { canEnroll, workspaceLabelForRoles } from '../../utils/roles'
 import StatCard from '../../components/common/StatCard.vue'
@@ -38,6 +39,7 @@ const recentMatches = ref<Match[]>([])
 const materials = ref<Material[]>([])
 const myTeams = ref<{ id: string; name: string }[]>([])
 const schoolTeams = ref<Team[]>([])
+const seasonEvent = ref<Event | null>(null)
 /** 材料数据范围（A′）未开放时后端返回 403，页面只做只读占位，不弹错误。 */
 const materialsRestricted = ref(false)
 /** 账号尚未绑定人员档案时 /me/teams 返回业务 404。 */
@@ -112,6 +114,37 @@ const roleText = computed(() => {
 })
 
 const today = dayjs().format('YYYY年MM月DD日')
+
+const EVENT_STATUS_TEXT: Record<Event['status'], string> = {
+  DRAFT: '筹备中',
+  REGISTRATION_OPEN: '报名中',
+  REGISTRATION_CLOSED: '报名截止',
+  RUNNING: '进行中',
+  FINISHED: '已结束',
+}
+
+const seasonTitle = computed(() => {
+  if (!seasonEvent.value) return '暂无赛事信息'
+  return `${seasonEvent.value.season} 赛季 · ${EVENT_STATUS_TEXT[seasonEvent.value.status]}`
+})
+
+/** 只需真实赛事数据：进度按报名窗口起止时间计算，不做阶段权重假设。 */
+const registrationProgress = computed(() => {
+  if (!seasonEvent.value) return 0
+  const start = dayjs(seasonEvent.value.registrationOpensAt).valueOf()
+  const end = dayjs(seasonEvent.value.registrationClosesAt).valueOf()
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
+  const percent = ((Date.now() - start) / (end - start)) * 100
+  return Math.max(0, Math.min(100, Math.round(percent)))
+})
+
+const registrationRange = computed(() => {
+  if (!seasonEvent.value) return '—'
+  const start = dayjs(seasonEvent.value.registrationOpensAt)
+  const end = dayjs(seasonEvent.value.registrationClosesAt)
+  if (!start.isValid() || !end.isValid()) return '—'
+  return `${start.format('MM.DD')} - ${end.format('MM.DD')}`
+})
 
 const quickActions = computed(() => {
   if (isPlayer.value) {
@@ -239,6 +272,18 @@ const statCards = computed(() => {
 async function load() {
   loading.value = true
   try {
+    // 赛季卡片只依赖全角色可用的 /available-events；接口异常时保留空态，不影响其他区块。
+    const [seasonRes] = await Promise.allSettled([
+      eventApi.available({ page: 1, pageSize: 50 }),
+    ])
+    if (seasonRes.status === 'fulfilled') {
+      const pickedId = pickDefaultEventId(seasonRes.value.items)
+      seasonEvent.value =
+        seasonRes.value.items.find((event) => event.id === pickedId) || null
+    } else {
+      seasonEvent.value = null
+    }
+
     if (isPlayer.value) {
       // 运动员/教练个人数据都是可选依赖：任一接口不可用不应阻断仪表盘，
       // 也不应把后端的数据范围限制（403）或未绑定档案（404）弹成错误提示。
@@ -519,20 +564,27 @@ onMounted(load)
         </section>
 
         <section class="page-card season-card">
-          <span class="season-card__eyebrow">赛季进度</span>
-          <h3>2026 赛季进行中</h3>
-          <div class="season-progress">
-            <div class="season-progress__bar"><span style="width: 62%" /></div>
-            <div class="season-progress__meta">
-              <span>报名与小组赛阶段</span>
-              <strong class="num">62%</strong>
+          <span class="season-card__eyebrow">{{ seasonEvent?.name || '当前赛事' }}</span>
+          <h3>{{ seasonTitle }}</h3>
+          <template v-if="seasonEvent">
+            <div class="season-progress">
+              <div class="season-progress__bar">
+                <span :style="{ width: `${registrationProgress}%` }" />
+              </div>
+              <div class="season-progress__meta">
+                <span>报名窗口</span>
+                <strong class="num">{{ registrationProgress }}%</strong>
+              </div>
             </div>
-          </div>
-          <ul>
-            <li><span>报名窗口</span><strong>10.08 - 10.25</strong></li>
-            <li><span>市州初审</span><strong>10.10 - 10.27</strong></li>
-            <li><span>省级终审</span><strong>10.20 - 10.30</strong></li>
-          </ul>
+            <ul>
+              <li><span>报名时间</span><strong>{{ registrationRange }}</strong></li>
+              <li>
+                <span>当前状态</span>
+                <StatusTag :status="seasonEvent.status" kind="event" />
+              </li>
+            </ul>
+          </template>
+          <el-empty v-else description="暂无赛事信息" :image-size="64" />
           <button type="button" class="season-link" @click="go('/console/messages')">
             查看组委会通知
             <el-icon><ArrowRight /></el-icon>

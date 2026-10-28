@@ -123,7 +123,6 @@ async function download(
  * ------------------------------------------------------------------------- */
 
 export const GROUP_TYPE_LABEL: Record<SelectionGroupType, string> = {
-  HIGHER: '高校组',
   MIDDLE: '中学组',
   PRIMARY: '小学组',
 }

@@ -15,6 +15,7 @@ import type {
   GoalRankingRow,
   IdentityCheck,
   ImportReport,
+  InviteBatchResult,
   LiveLink,
   LivePost,
   LoginResult,
@@ -104,6 +105,30 @@ export const accountApi = {
       '/accounts/registration-invitations',
       data,
     ),
+  /**
+   * 批量签发注册邀请。后端 `format=csv` 直接返回 CSV（含明文凭证，仅此一次），
+   * Mock 模式返回同格式 CSV 文本，这里统一转成 Blob 交给页面解析与下载。
+   */
+  inviteBatchCsv: async (
+    file: File,
+    options: { orgId?: string; expiresInMinutes?: number } = {},
+  ): Promise<Blob> => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('expiresInMinutes', String(options.expiresInMinutes ?? 1440))
+    if (options.orgId) form.append('orgId', options.orgId)
+    const result = await http.postFormBlob<Blob | string | InviteBatchResult>(
+      '/accounts/registration-invitations/batch',
+      form,
+      { format: 'csv' },
+    )
+    if (result instanceof Blob) return result
+    if (typeof result === 'string') {
+      return new Blob([result], { type: 'text/csv;charset=utf-8' })
+    }
+    // 理论上不会走到这里；保留兜底，避免把对象当成文件下载。
+    return new Blob([JSON.stringify(result)], { type: 'application/json' })
+  },
 }
 
 export const orgApi = {

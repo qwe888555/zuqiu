@@ -239,7 +239,7 @@ const routes: RouteRecordRaw[] = [
         path: 'admin/accounts',
         name: 'admin-accounts',
         component: () => import('../views/admin/AccountsView.vue'),
-        meta: { title: '参赛账号', roles: ['ADMIN', 'PROVINCE_REVIEWER'] },
+        meta: { title: '参赛账号', roles: ['ADMIN', 'PROVINCE_REVIEWER', 'CITY', 'UNIVERSITY'] },
       },
       {
         path: 'admin/organizations',

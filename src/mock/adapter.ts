@@ -435,6 +435,48 @@ on('POST', '/accounts/registration-invitations', () => ({
   expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
 }))
 
+on('POST', '/accounts/registration-invitations/batch', ({ query }) => {
+  const token = `invite_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
+  const expiresAt = new Date(Date.now() + 24 * 3600 * 1000).toISOString()
+  const result = {
+    total: 2,
+    successCount: 1,
+    failureCount: 1,
+    rows: [
+      {
+        rowNo: 2,
+        realName: '演示运动员',
+        maskedIdNumber: '510101********1234',
+        kind: 'ATHLETE',
+        orgCode: 'SCH001',
+        status: 'OK',
+        registrationToken: token,
+        expiresAt,
+      },
+      {
+        rowNo: 3,
+        realName: '未建档人员',
+        maskedIdNumber: '510101********5678',
+        kind: 'ATHLETE',
+        orgCode: 'SCH001',
+        status: 'FAILED',
+        error: '未找到人员档案，请先在人员管理中建档',
+      },
+    ],
+  }
+  if (query.format === 'csv') {
+    return (
+      '﻿' +
+      [
+        '序号,姓名,证件号,角色,组织编码,状态,邀请凭证,过期时间,失败原因',
+        `2,演示运动员,510101********1234,ATHLETE,SCH001,OK,${token},${expiresAt},`,
+        '3,未建档人员,510101********5678,ATHLETE,SCH001,FAILED,,,未找到人员档案，请先在人员管理中建档',
+      ].join('\r\n')
+    )
+  }
+  return result
+})
+
 on('GET', '/accounts/:id', ({ params }) => {
   const acc = accounts.find((a) => a.id === params.id)
   if (!acc) throw new MockHttpError(404, 'NOT_FOUND', '账号不存在')

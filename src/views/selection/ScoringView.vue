@@ -34,7 +34,7 @@ const loading = ref(false)
 const events = ref<Event[]>([])
 const eventId = ref(String(route.query.eventId || ''))
 const groupType = ref<SelectionGroupType>(
-  ['HIGHER', 'MIDDLE', 'PRIMARY'].includes(String(route.query.groupType))
+  ['MIDDLE', 'PRIMARY'].includes(String(route.query.groupType))
     ? (String(route.query.groupType) as SelectionGroupType)
     : 'PRIMARY',
 )

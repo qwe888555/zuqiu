@@ -47,9 +47,22 @@ instance.interceptors.response.use(
     }
     return response.data
   },
-  (error) => {
+  async (error) => {
     const status = error?.response?.status
     const silent = Boolean((error?.config as AxiosRequestConfig | undefined)?.silentError)
+    // 批量导入/导出使用 responseType=blob；后端出错时返回的是 JSON 封装，
+    // 需要先读出 Blob 文本，否则只能看到 axios 的通用错误。
+    if (error?.response?.data instanceof Blob) {
+      try {
+        const text = await error.response.data.text()
+        const body = JSON.parse(text) as Envelope<unknown>
+        if (body && typeof body === 'object' && 'message' in body) {
+          error.response.data = body
+        }
+      } catch {
+        // 非 JSON 响应（例如网关 HTML），保留原始错误
+      }
+    }
     const message =
       error?.response?.data?.message || error?.message || '网络异常，请稍后重试'
     if (status === 401 && !silent) {
@@ -71,6 +84,17 @@ async function request<T>(config: AxiosRequestConfig): Promise<T> {
  * 下载二进制文件。演示模式下 mock 返回 JSON，此时返回 false，
  * 由调用方给出“演示环境已模拟导出”的提示。
  */
+function saveBlob(payload: Blob, filename: string) {
+  const objectUrl = URL.createObjectURL(payload)
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 async function download(
   url: string,
   filename: string,
@@ -81,14 +105,7 @@ async function download(
   const response = await instance.request({ method, url, data, params, responseType: 'blob' })
   const payload = response.data
   if (!(payload instanceof Blob)) return false
-  const objectUrl = URL.createObjectURL(payload)
-  const link = document.createElement('a')
-  link.href = objectUrl
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(objectUrl)
+  saveBlob(payload, filename)
   return true
 }
 
@@ -103,6 +120,7 @@ export function newIdempotencyKey(prefix = 'idem'): string {
 
 export const http = {
   download,
+  saveBlob,
   get<T>(url: string, params?: Record<string, unknown>, config?: AxiosRequestConfig): Promise<T> {
     return request<T>({ method: 'get', url, params, ...config })
   },
@@ -129,6 +147,19 @@ export const http = {
       url,
       data: form,
       headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  /** 上传并直接接收二进制结果（如批量邀请导出的 CSV）。 */
+  postFormBlob<T>(url: string, form: FormData, params?: Record<string, unknown>): Promise<T> {
+    return request<T>({
+      method: 'post',
+      url,
+      data: form,
+      params,
+      // 实例默认 Content-Type 是 application/json，必须显式改成 multipart，
+      // 否则 Axios 会把 FormData 序列化成 JSON（file 变成 {}）。
+      headers: { 'Content-Type': 'multipart/form-data' },
+      responseType: 'blob',
     })
   },
   put<T>(url: string, data?: unknown): Promise<T> {

@@ -301,7 +301,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: '参赛账号',
         path: '/console/admin/accounts',
         icon: Key,
-        roles: ['ADMIN', 'PROVINCE_REVIEWER'],
+        roles: ['ADMIN', 'PROVINCE_REVIEWER', 'CITY', 'UNIVERSITY'],
       },
       {
         key: 'permissions',

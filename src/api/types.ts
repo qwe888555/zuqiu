@@ -94,6 +94,26 @@ export interface Account {
   updatedAt?: string
 }
 
+export interface InviteBatchRow {
+  rowNo: number
+  realName: string
+  maskedIdNumber?: string
+  kind: 'ATHLETE' | 'COACH' | string
+  orgCode: string
+  status: 'OK' | 'FAILED' | string
+  registrationToken?: string
+  expiresAt?: string
+  error?: string
+  code?: string
+}
+
+export interface InviteBatchResult {
+  total: number
+  successCount: number
+  failureCount: number
+  rows: InviteBatchRow[]
+}
+
 export interface Organization {
   id: string
   parentId?: string
@@ -824,7 +844,7 @@ export interface OptionItem {
  * 成员6 遴选评分与报名公示（/api/selection）
  * ------------------------------------------------------------------------- */
 
-export type SelectionGroupType = 'HIGHER' | 'MIDDLE' | 'PRIMARY'
+export type SelectionGroupType = 'MIDDLE' | 'PRIMARY'
 export type SelectionRound = 'INITIAL' | 'FINAL'
 export type PublicityType = 'ATHLETE' | 'COACH' | 'TEAM'
 export type PublicityStatus = 'PUBLISHED' | 'CANCELLED'

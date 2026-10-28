@@ -21,15 +21,54 @@ const form = reactive({
   realName: '',
   gender: 'MALE',
   birthDate: '',
-  schoolName: '',
-  education: '',
-  coachCategory: '',
 })
 
 const isCoach = computed(() => person.value?.kinds.includes('COACH') ?? false)
 const kindLabel = computed(() => {
   const kinds = person.value?.kinds || []
   return kinds.map((kind) => (kind === 'ATHLETE' ? '运动员' : '教练员')).join(' / ') || '未设置'
+})
+
+/** 只有 DRAFT 才需要本人确认；PENDING 已提交、APPROVED/REJECTED 由管理员处理。 */
+const canConfirm = computed(() => person.value?.reviewStatus === 'DRAFT')
+const confirmLabel = computed(() => {
+  switch (person.value?.reviewStatus) {
+    case 'DRAFT':
+      return '确认档案无误'
+    case 'PENDING':
+      return '复核中'
+    case 'APPROVED':
+      return '档案已复核'
+    case 'REJECTED':
+      return '已被驳回'
+    default:
+      return '暂不可确认'
+  }
+})
+const matchHint = computed(() => {
+  switch (person.value?.reviewStatus) {
+    case 'APPROVED':
+      return '档案已通过管理员复核，无需再次确认。'
+    case 'PENDING':
+      return '档案已提交复核，请等待管理员处理。'
+    case 'REJECTED':
+      return '档案已被驳回，请联系管理员处理。'
+    default:
+      return profileMatch.value?.result === 'NO_MATCH'
+        ? '当前账号尚未匹配到人员档案，请联系管理员。'
+        : '请核对姓名、学校与证件信息，确认后提交管理员复核。'
+  }
+})
+const matchLabel = computed(() => {
+  if (profileMatch.value?.result === 'MATCHED_TO_SELF') return '比对一致'
+  if (profileMatch.value?.result === 'REVIEW_REQUIRED') return '复核中'
+  if (profileMatch.value?.result === 'NO_MATCH') return '未匹配'
+  return '未比对'
+})
+const matchTagType = computed<'success' | 'warning' | 'info'>(() => {
+  if (profileMatch.value?.result === 'MATCHED_TO_SELF') return 'success'
+  if (profileMatch.value?.result === 'REVIEW_REQUIRED') return 'warning'
+  return 'info'
 })
 
 async function load() {
@@ -40,13 +79,15 @@ async function load() {
       realName: person.value.realName,
       gender: person.value.gender || 'MALE',
       birthDate: person.value.birthDate || '',
-      schoolName: person.value.schoolName || '',
-      education: person.value.education || '',
-      coachCategory: person.value.coachCategory || '',
     })
-    profileMatch.value = await meApi.profileMatch()
   } catch {
     person.value = null
+  }
+  // 比对结果是独立展示项，接口异常不应把已加载的档案一并清空。
+  try {
+    profileMatch.value = await meApi.profileMatch()
+  } catch {
+    profileMatch.value = null
   } finally {
     loading.value = false
   }
@@ -57,16 +98,19 @@ async function save() {
   if (!form.realName.trim()) return ElMessage.warning('请填写真实姓名')
   saving.value = true
   try {
+    // 后端仅持久化姓名、性别与出生日期；学校/学历/教练员类别不在本人更新链路内。
     person.value = await meApi.updateProfile({
       version: person.value.version,
       realName: form.realName,
       gender: form.gender as Person['gender'],
       birthDate: form.birthDate || undefined,
-      schoolName: form.schoolName,
-      education: form.education,
-      coachCategory: isCoach.value ? form.coachCategory : undefined,
     })
-    ElMessage.success('个人资料已更新')
+    Object.assign(form, {
+      realName: person.value.realName,
+      gender: person.value.gender || 'MALE',
+      birthDate: person.value.birthDate || '',
+    })
+    ElMessage.success('基础资料已更新')
     await auth.fetchMe()
   } catch {
     // 拦截器提示
@@ -77,6 +121,7 @@ async function save() {
 
 async function confirmProfile() {
   if (!person.value) return ElMessage.warning('档案尚未加载，请刷新后重试')
+  if (!canConfirm.value) return ElMessage.info('当前状态无需再次确认')
   confirming.value = true
   try {
     await meApi.confirmProfile(person.value.version)
@@ -96,7 +141,7 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="个人资料"
-      description="维护真实姓名、学校与学历等基础信息。身份证号与手机号需通过管理员复核后变更。"
+      description="维护真实姓名、性别与出生日期等基础信息。学校与证件信息由管理员档案维护，学历与教练员类别暂未开放线上维护。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -144,18 +189,13 @@ onMounted(load)
               />
             </el-form-item>
             <el-form-item label="学校 / 单位">
-              <el-input v-model="form.schoolName" placeholder="学校全称" />
+              <div class="readonly-field">{{ person?.schoolName || '未登记' }}</div>
             </el-form-item>
             <el-form-item label="学历">
-              <el-input v-model="form.education" placeholder="如：本科在读" />
+              <div class="readonly-field is-muted">暂未开放线上维护</div>
             </el-form-item>
             <el-form-item v-if="isCoach" label="教练员类别">
-              <el-select v-model="form.coachCategory" style="width: 100%">
-                <el-option label="主教练" value="主教练" />
-                <el-option label="助理教练" value="助理教练" />
-                <el-option label="守门员教练" value="守门员教练" />
-                <el-option label="体能教练" value="体能教练" />
-              </el-select>
+              <div class="readonly-field is-muted">暂未开放线上维护</div>
             </el-form-item>
           </div>
 
@@ -175,7 +215,7 @@ onMounted(load)
           </div>
           <p class="form-tip">
             <el-icon><Lock /></el-icon>
-            敏感字段默认脱敏展示，如需变更请联系省级管理员并提交证明材料。
+            学校 / 单位由管理员档案维护；学历与教练员类别暂未纳入档案保存字段，当前版本不支持在线修改。身份证号与手机号需提交证明材料后由管理员变更。
           </p>
         </el-form>
       </section>
@@ -186,21 +226,11 @@ onMounted(load)
             <el-icon class="side-card__icon" :size="19"><CircleCheck /></el-icon>
             <h3>档案确认</h3>
           </div>
-          <p class="side-card__text">
-            {{
-              profileMatch?.result === 'MATCHED_TO_SELF'
-                ? '系统比对结果显示身份信息一致，请确认档案无误。'
-                : '请核对姓名、学校与证件信息，确认后提交复核。'
-            }}
-          </p>
+          <p class="side-card__text">{{ matchHint }}</p>
           <div class="verify-row">
             <span>比对结果</span>
-            <el-tag
-              :type="profileMatch?.result === 'MATCHED_TO_SELF' ? 'success' : 'warning'"
-              size="small"
-              effect="plain"
-            >
-              {{ profileMatch?.result === 'MATCHED_TO_SELF' ? '比对一致' : '待比对' }}
+            <el-tag :type="matchTagType" size="small" effect="plain">
+              {{ matchLabel }}
             </el-tag>
           </div>
           <el-button
@@ -208,10 +238,10 @@ onMounted(load)
             plain
             style="width: 100%; margin-top: 14px"
             :loading="confirming"
-            :disabled="person?.reviewStatus === 'APPROVED'"
+            :disabled="!canConfirm"
             @click="confirmProfile"
           >
-            {{ person?.reviewStatus === 'APPROVED' ? '档案已复核' : '确认档案无误' }}
+            {{ confirmLabel }}
           </el-button>
         </div>
 
@@ -300,6 +330,23 @@ onMounted(load)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.readonly-field {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink-500);
+  font-size: 12px;
+}
+
+.readonly-field.is-muted {
+  color: var(--ink-300);
 }
 
 .readonly-grid {
