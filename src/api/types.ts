@@ -338,6 +338,12 @@ export interface Event {
   registrationOpensAt: string
   registrationClosesAt: string
   status: 'DRAFT' | 'REGISTRATION_OPEN' | 'REGISTRATION_CLOSED' | 'RUNNING' | 'FINISHED'
+  /** 赛季当前阶段：NOT_STARTED/REGISTRATION/COMPETITION/FINISHED */
+  currentPhase?: 'NOT_STARTED' | 'REGISTRATION' | 'COMPETITION' | 'FINISHED'
+  phaseStartedAt?: string | null
+  phaseEndsAt?: string | null
+  /** 阶段进度百分比（0-100），由后端计算 */
+  progressPercent?: number
   description?: string
   groupCount?: number
   teamCount?: number

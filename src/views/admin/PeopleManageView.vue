@@ -7,6 +7,7 @@ import { fileApi, materialApi, orgApi, personApi } from '../../api'
 import { MOCK_ENABLED } from '../../api/http'
 import { useAuthStore } from '../../stores/auth'
 import type { Material, Organization, Person, PersonKind } from '../../api/types'
+import { COACH_CATEGORY_LABELS } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
@@ -409,11 +410,13 @@ onMounted(() => {
             <el-input v-model="form.education" placeholder="如：本科" />
           </el-form-item>
           <el-form-item v-if="form.kinds.includes('COACH')" label="教练员类别">
-            <el-select v-model="form.coachCategory" style="width: 100%" clearable>
-              <el-option label="主教练" value="主教练" />
-              <el-option label="助理教练" value="助理教练" />
-              <el-option label="守门员教练" value="守门员教练" />
-              <el-option label="体能教练" value="体能教练" />
+            <el-select v-model="form.coachCategory" style="width: 100%" clearable placeholder="选择类别">
+              <el-option
+                v-for="(label, value) in COACH_CATEGORY_LABELS"
+                :key="value"
+                :label="label"
+                :value="value"
+              />
             </el-select>
           </el-form-item>
         </div>

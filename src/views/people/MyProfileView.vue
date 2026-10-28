@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { CircleCheck, Collection, Lock, Refresh } from '@element-plus/icons-vue'
 import { meApi } from '../../api'
 import type { Person } from '../../api/types'
+import { COACH_CATEGORY_LABELS } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -21,6 +22,8 @@ const form = reactive({
   realName: '',
   gender: 'MALE',
   birthDate: '',
+  education: '',
+  coachCategory: '',
 })
 
 const isCoach = computed(() => person.value?.kinds.includes('COACH') ?? false)
@@ -79,6 +82,8 @@ async function load() {
       realName: person.value.realName,
       gender: person.value.gender || 'MALE',
       birthDate: person.value.birthDate || '',
+      education: person.value.education || '',
+      coachCategory: person.value.coachCategory || '',
     })
   } catch {
     person.value = null
@@ -98,19 +103,24 @@ async function save() {
   if (!form.realName.trim()) return ElMessage.warning('请填写真实姓名')
   saving.value = true
   try {
-    // 后端仅持久化姓名、性别与出生日期；学校/学历/教练员类别不在本人更新链路内。
+    // 学校由 schoolOrgId 派生，本人不可改；学历/教练员类别落扩展档案 ext_json。
     person.value = await meApi.updateProfile({
       version: person.value.version,
       realName: form.realName,
       gender: form.gender as Person['gender'],
       birthDate: form.birthDate || undefined,
+      schoolName: person.value.schoolName || undefined,
+      education: form.education || undefined,
+      coachCategory: form.coachCategory || undefined,
     })
     Object.assign(form, {
       realName: person.value.realName,
       gender: person.value.gender || 'MALE',
       birthDate: person.value.birthDate || '',
+      education: person.value.education || '',
+      coachCategory: person.value.coachCategory || '',
     })
-    ElMessage.success('基础资料已更新')
+    ElMessage.success('档案已更新')
     await auth.fetchMe()
   } catch {
     // 拦截器提示
@@ -141,7 +151,7 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="个人资料"
-      description="维护真实姓名、性别与出生日期等基础信息。学校与证件信息由管理员档案维护，学历与教练员类别暂未开放线上维护。"
+      description="维护真实姓名、性别、出生日期、学历与教练员类别。学校与证件信息由管理员档案维护。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -192,10 +202,17 @@ onMounted(load)
               <div class="readonly-field">{{ person?.schoolName || '未登记' }}</div>
             </el-form-item>
             <el-form-item label="学历">
-              <div class="readonly-field is-muted">暂未开放线上维护</div>
+              <el-input v-model="form.education" placeholder="如：本科" maxlength="50" />
             </el-form-item>
             <el-form-item v-if="isCoach" label="教练员类别">
-              <div class="readonly-field is-muted">暂未开放线上维护</div>
+              <el-select v-model="form.coachCategory" style="width: 100%" clearable placeholder="选择类别">
+                <el-option
+                  v-for="(label, value) in COACH_CATEGORY_LABELS"
+                  :key="value"
+                  :label="label"
+                  :value="value"
+                />
+              </el-select>
             </el-form-item>
           </div>
 
@@ -215,7 +232,7 @@ onMounted(load)
           </div>
           <p class="form-tip">
             <el-icon><Lock /></el-icon>
-            学校 / 单位由管理员档案维护；学历与教练员类别暂未纳入档案保存字段，当前版本不支持在线修改。身份证号与手机号需提交证明材料后由管理员变更。
+            学校 / 单位由管理员档案维护；身份证号与手机号需提交证明材料后由管理员变更。
           </p>
         </el-form>
       </section>

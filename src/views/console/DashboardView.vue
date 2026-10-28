@@ -123,19 +123,42 @@ const EVENT_STATUS_TEXT: Record<Event['status'], string> = {
   FINISHED: '已结束',
 }
 
+const PHASE_LABEL: Record<NonNullable<Event['currentPhase']>, string> = {
+  NOT_STARTED: '筹备阶段',
+  REGISTRATION: '报名阶段',
+  COMPETITION: '比赛阶段',
+  FINISHED: '已结束',
+}
+
 const seasonTitle = computed(() => {
   if (!seasonEvent.value) return '暂无赛事信息'
   return `${seasonEvent.value.season} 赛季 · ${EVENT_STATUS_TEXT[seasonEvent.value.status]}`
 })
 
-/** 只需真实赛事数据：进度按报名窗口起止时间计算，不做阶段权重假设。 */
-const registrationProgress = computed(() => {
+/** 赛季进度百分比：优先取后端计算值，兜底报名窗口占比。 */
+const seasonProgress = computed(() => {
   if (!seasonEvent.value) return 0
+  const p = seasonEvent.value.progressPercent
+  if (typeof p === 'number' && Number.isFinite(p)) return Math.max(0, Math.min(100, Math.round(p)))
   const start = dayjs(seasonEvent.value.registrationOpensAt).valueOf()
   const end = dayjs(seasonEvent.value.registrationClosesAt).valueOf()
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 0
   const percent = ((Date.now() - start) / (end - start)) * 100
   return Math.max(0, Math.min(100, Math.round(percent)))
+})
+
+const phaseLabel = computed(() => {
+  const phase = seasonEvent.value?.currentPhase
+  return phase ? PHASE_LABEL[phase] : '—'
+})
+
+const phaseRange = computed(() => {
+  const ev = seasonEvent.value
+  if (!ev || !ev.phaseStartedAt || !ev.phaseEndsAt) return '—'
+  const start = dayjs(ev.phaseStartedAt)
+  const end = dayjs(ev.phaseEndsAt)
+  if (!start.isValid() || !end.isValid()) return '—'
+  return `${start.format('MM.DD')} - ${end.format('MM.DD')}`
 })
 
 const registrationRange = computed(() => {
@@ -569,15 +592,16 @@ onMounted(load)
           <template v-if="seasonEvent">
             <div class="season-progress">
               <div class="season-progress__bar">
-                <span :style="{ width: `${registrationProgress}%` }" />
+                <span :style="{ width: `${seasonProgress}%` }" />
               </div>
               <div class="season-progress__meta">
-                <span>报名窗口</span>
-                <strong class="num">{{ registrationProgress }}%</strong>
+                <span>{{ phaseLabel }}</span>
+                <strong class="num">{{ seasonProgress }}%</strong>
               </div>
             </div>
             <ul>
               <li><span>报名时间</span><strong>{{ registrationRange }}</strong></li>
+              <li><span>阶段周期</span><strong>{{ phaseRange }}</strong></li>
               <li>
                 <span>当前状态</span>
                 <StatusTag :status="seasonEvent.status" kind="event" />
