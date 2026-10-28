@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
-import { ArrowRight, Calendar, Location, Ticket } from '@element-plus/icons-vue'
+import { ArrowRight, Calendar, Location, Ticket, VideoPlay } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import { publicityApi } from '../../api/selection'
 import type {
   GoalRankingRow,
+  LiveLink,
   PublicContent,
   PublicEvent,
   PublicMatch,
@@ -43,6 +44,20 @@ const orderedNews = computed(() =>
 )
 const featured = computed(() => orderedNews.value[0])
 const newsRest = computed(() => orderedNews.value.slice(1, 4))
+// 管理端「新闻配图」按关联内容覆盖资讯封面，与赛事资讯页保持一致。
+const newsCoverMap = computed(() => {
+  const map = new Map<string, string>()
+  banners.value.forEach((item) => {
+    if (item.resourceType === 'NEWS_LINK_IMAGE' && item.targetContentId && item.imageUrl) {
+      map.set(item.targetContentId, item.imageUrl)
+    }
+  })
+  return map
+})
+function newsCover(item: PublicContent | undefined) {
+  if (!item) return IMG.match
+  return newsCoverMap.value.get(item.id) || item.publicCoverUrl || IMG.match
+}
 
 // 超过合理时长仍未确认赛果的场次不再占用“比赛动态”，统一归入“最新赛果”并标注待确认。
 const liveMatches = computed(() =>
@@ -104,6 +119,96 @@ const stripHasUpcoming = computed(() => {
 const heroImage = computed(() => banners.value[0]?.imageUrl || '')
 const heroMobileImage = computed(() => banners.value[0]?.imageUrl || '')
 
+/** 首屏直播：有直播链接时用视频/播放器顶替轮播图，没有则原样展示轮播图。 */
+type HeroLiveMode = 'video' | 'iframe' | 'link'
+interface HeroLive {
+  title: string
+  url: string
+  mode: HeroLiveMode
+}
+
+const heroLive = ref<HeroLive | null>(null)
+// 只有直链媒体文件才用 <video>，其余页面用 <iframe>，再不行只留跳转入口。
+const DIRECT_VIDEO_RE = /\.(mp4|webm|ogv|ogg|mov|m4v)(?:[?#]|$)/i
+const EMBED_URL_RE =
+  /(youtube\.com\/embed|player\.bilibili\.com|v\.qq\.com\/txp\/iframe|player\.youku\.com|open\.douyin\.com\/embed)/i
+
+function liveMode(url: string): HeroLiveMode {
+  if (DIRECT_VIDEO_RE.test(url)) return 'video'
+  if (EMBED_URL_RE.test(url)) return 'iframe'
+  return 'link'
+}
+
+// 轮播资源自带的视频：没有真实直播时用它顶替轮播图。
+const bannerVideoBroken = ref(false)
+const bannerVideoUrl = computed(() =>
+  bannerVideoBroken.value ? '' : banners.value[0]?.videoUrl || '',
+)
+const heroVideoUrl = computed(() => {
+  if (heroLive.value?.mode === 'video') return heroLive.value.url
+  return bannerVideoUrl.value
+})
+const showHeroVideo = computed(() => Boolean(heroVideoUrl.value))
+const showHeroFrame = computed(() => !showHeroVideo.value && heroLive.value?.mode === 'iframe')
+
+// 轮播视频每播完一轮停 30 秒再重播；停留期间显示轮播图。
+const HERO_LOOP_GAP_MS = 30_000
+const heroResting = ref(false)
+let heroRestTimer: ReturnType<typeof setTimeout> | undefined
+
+const heroMediaVisible = computed(
+  () => (showHeroVideo.value && !heroResting.value) || showHeroFrame.value,
+)
+
+function stopHeroRestTimer() {
+  if (heroRestTimer) {
+    clearTimeout(heroRestTimer)
+    heroRestTimer = undefined
+  }
+}
+
+function handleHeroVideoEnded() {
+  heroResting.value = true
+  stopHeroRestTimer()
+  heroRestTimer = setTimeout(() => {
+    heroResting.value = false
+  }, HERO_LOOP_GAP_MS)
+}
+
+function handleHeroMediaError() {
+  // 直播视频失败时退回“视频入口 + 轮播图”，保留正在直播的提示。
+  if (heroLive.value?.mode === 'video') {
+    heroLive.value = { ...heroLive.value, mode: 'link' }
+    return
+  }
+  bannerVideoBroken.value = true
+  heroResting.value = false
+}
+
+async function loadHeroLive(match: PublicMatch | undefined) {
+  heroLive.value = null
+  if (!match) return
+  try {
+    const links = await publicApi.liveLinks(match.id)
+    // 视频直链优先，其次播放器页面，最后任意可用链接。
+    const usable = links.filter(
+      (link: LiveLink) => link.enabled !== false && /^https?:\/\//i.test(link.url),
+    )
+    const picked =
+      usable.find((link) => liveMode(link.url) === 'video') ||
+      usable.find((link) => liveMode(link.url) === 'iframe') ||
+      usable[0]
+    if (!picked) return
+    heroLive.value = {
+      title: picked.title || `${match.homeTeamName} vs ${match.awayTeamName}`,
+      url: picked.url,
+      mode: liveMode(picked.url),
+    }
+  } catch {
+    heroLive.value = null
+  }
+}
+
 function tabCount(key: MatchTab) {
   if (key === 'LIVE') return liveMatches.value.length
   if (key === 'SCHEDULED') return scheduledMatches.value.length
@@ -113,6 +218,9 @@ function tabCount(key: MatchTab) {
 async function loadHome() {
   loading.value = true
   loadError.value = false
+  bannerVideoBroken.value = false
+  heroResting.value = false
+  stopHeroRestTimer()
   try {
     // /public/events 免登录；/public/matches 与 /public/statistics/goals 仍需 eventId。
     const [resourceRes, newsRes, policyRes, eventRes] = await Promise.all([
@@ -146,17 +254,8 @@ async function loadHome() {
 
     matches.value = matchItems
     goals.value = goalRows.slice(0, 5)
-    if (publicEventId) {
-      // 成员6 是独立服务，未部署时不能影响门户主体内容。
-      try {
-        const pubRes = await publicityApi.list({ eventId: publicEventId, page: 1, size: 100 })
-        stars.value = pubRes.items.slice(0, 3)
-      } catch {
-        stars.value = []
-      }
-    } else {
-      stars.value = []
-    }
+    // 首屏直播与公示互不依赖，一起等待以免串行拖慢首屏。
+    await Promise.all([loadHeroLive(liveMatches.value[0]), loadStars(publicEventId)])
     if (!liveMatches.value.length) {
       matchTab.value = scheduledMatches.value.length ? 'SCHEDULED' : 'FINISHED'
     }
@@ -167,7 +266,22 @@ async function loadHome() {
   }
 }
 
+async function loadStars(publicEventId: string) {
+  if (!publicEventId) {
+    stars.value = []
+    return
+  }
+  // 成员6 是独立服务，未部署时不能影响门户主体内容。
+  try {
+    const pubRes = await publicityApi.list({ eventId: publicEventId, page: 1, size: 100 })
+    stars.value = pubRes.items.slice(0, 3)
+  } catch {
+    stars.value = []
+  }
+}
+
 onMounted(loadHome)
+onBeforeUnmount(stopHeroRestTimer)
 
 function formatDate(value?: string) {
   return value ? dayjs(value).format('MM.DD') : '--'
@@ -220,11 +334,47 @@ function publicationLink(star: PublicityRecord) {
           <source media="(max-width: 760px)" :srcset="heroMobileImage" />
           <img :src="heroImage" alt="青少年足球联赛" />
         </picture>
-        <div class="hero__shade" />
+        <video
+          v-if="showHeroVideo && !heroResting"
+          class="hero__video"
+          :src="heroVideoUrl"
+          :poster="heroImage || undefined"
+          autoplay
+          muted
+          playsinline
+          preload="metadata"
+          aria-hidden="true"
+          @ended="handleHeroVideoEnded"
+          @error="handleHeroMediaError"
+        />
+        <iframe
+          v-if="showHeroFrame"
+          class="hero__frame"
+          :src="heroLive?.url"
+          :title="heroLive?.title"
+          allow="autoplay; fullscreen; picture-in-picture"
+          allowfullscreen
+          @error="handleHeroMediaError"
+        />
+        <div class="hero__shade" :class="{ 'hero__shade--media': heroMediaVisible }" />
       </div>
 
-      <div class="container hero__inner">
+      <!-- 直播画面播放时首屏只留视频；轮播间隙再回到文案 + 轮播图。 -->
+      <div v-show="!heroMediaVisible" class="container hero__inner">
         <div class="hero__copy">
+          <a
+            v-if="heroLive"
+            class="hero__live"
+            :href="heroLive.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            :title="`在新窗口打开直播：${heroLive.title}`"
+          >
+            <span class="hero__live-dot" aria-hidden="true" />
+            <span class="hero__live-label">正在直播</span>
+            <span class="hero__live-title">{{ heroLive.title }}</span>
+            <el-icon><VideoPlay /></el-icon>
+          </a>
           <span class="hero__eyebrow">四川省青少年校园足球联赛 · 2026 赛季</span>
           <h1>全省校园足球<br /><em>在这里开球</em></h1>
           <p>
@@ -364,7 +514,7 @@ function publicationLink(star: PublicityRecord) {
 
       <div v-loading="loading" class="news-board" :class="{ 'news-board--empty': !loading && !news.length }">
         <router-link v-if="featured" :to="`/news/${featured.id}`" class="lead-card">
-          <img :src="featured.publicCoverUrl || IMG.match" :alt="featured.title" />
+          <img :src="newsCover(featured)" :alt="featured.title" />
           <span class="lead-card__shade" />
           <div class="lead-card__body">
             <span class="lead-card__tag">焦点</span>
@@ -599,12 +749,92 @@ function publicationLink(star: PublicityRecord) {
   transform: scale(1.015);
 }
 
+/* 直播视频 / 播放器铺满首屏；播放期间不叠文案，间隙才恢复图文。 */
+.hero__video,
+.hero__frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--brand-900);
+  object-fit: cover;
+}
+
 .hero__shade {
   position: absolute;
   inset: 0;
+  pointer-events: none;
   background:
     linear-gradient(90deg, rgba(5, 40, 30, 0.94) 0%, rgba(5, 40, 30, 0.84) 42%, rgba(5, 40, 30, 0.34) 74%, rgba(5, 40, 30, 0.46) 100%),
     linear-gradient(0deg, rgba(5, 40, 30, 0.86) 0%, transparent 52%);
+}
+
+/* 直播态不再压文案，只保留底部一点点过渡，画面尽量原色呈现。 */
+.hero__shade--media {
+  background: linear-gradient(0deg, rgba(5, 40, 30, 0.42) 0%, transparent 26%);
+}
+
+.hero__live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 16px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  background: rgba(6, 32, 24, 0.55);
+  backdrop-filter: blur(8px);
+  font-size: 12.5px;
+  color: #fff;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.hero__live:hover {
+  border-color: var(--lime);
+  background: rgba(6, 32, 24, 0.75);
+}
+
+.hero__live-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--live-on-dark);
+  box-shadow: 0 0 0 3px rgba(255, 122, 69, 0.22);
+  animation: hero-live-pulse 1.6s ease-in-out infinite;
+}
+
+.hero__live-label {
+  flex-shrink: 0;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--live-on-dark);
+}
+
+.hero__live-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--on-dark-1);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hero__live .el-icon {
+  flex-shrink: 0;
+  color: var(--on-dark-2);
+}
+
+@keyframes hero-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .hero__inner {

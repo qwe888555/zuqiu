@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
-import { Delete, Edit, Picture, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { Delete, Edit, Picture, Plus, Refresh, UploadFilled, View } from '@element-plus/icons-vue'
 import { contentApi, fileApi, resourceApi } from '../../api'
 import type { Content, PortalResource } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -23,8 +23,10 @@ const uploadingImage = ref(false)
 const form = reactive({
   resourceType: 'CAROUSEL',
   title: '',
+  description: '',
   imageUrl: '',
   imageFileId: '',
+  videoUrl: '',
   targetContentId: '',
   targetUrl: '',
   sortOrder: 0,
@@ -46,6 +48,33 @@ const typeLabel: Record<string, string> = {
 const filteredRows = computed(() =>
   activeType.value ? rows.value.filter((row) => row.resourceType === activeType.value) : rows.value,
 )
+
+const contentTitles = computed(() => new Map(contents.value.map((item) => [item.id, item.title])))
+const contentMap = computed(() => new Map(contents.value.map((item) => [item.id, item])))
+
+// 关联内容用标题展示，方便核对这张配图会出现在哪条资讯上。
+function targetLabel(row: PortalResource) {
+  if (row.targetUrl) return row.targetUrl
+  if (row.targetContentId) {
+    return `关联内容 · ${contentTitles.value.get(row.targetContentId) || row.targetContentId}`
+  }
+  return '未设置跳转'
+}
+
+/** 有关联内容或外部地址时可以在新窗口打开，方便边改边看效果。 */
+function previewHref(row: PortalResource) {
+  if (row.targetContentId) {
+    const content = contentMap.value.get(row.targetContentId)
+    const prefix = content?.contentType === 'POLICY' ? 'policies' : 'news'
+    return `/${prefix}/${row.targetContentId}`
+  }
+  return row.targetUrl || ''
+}
+
+function openPreview(row: PortalResource) {
+  const href = previewHref(row)
+  if (href) window.open(href, '_blank', 'noopener,noreferrer')
+}
 
 // 管理端只返回 imageFileId，展示地址需要按文件签发短链；同一个文件不重复签发。
 const imageUrlCache = new Map<string, { url: string; expiresAt: number }>()
@@ -119,8 +148,10 @@ function openCreate() {
   Object.assign(form, {
     resourceType: activeType.value,
     title: '',
+    description: '',
     imageUrl: '',
     imageFileId: '',
+    videoUrl: '',
     targetContentId: '',
     targetUrl: '',
     sortOrder: filteredRows.value.length,
@@ -146,8 +177,10 @@ async function openEdit(row: PortalResource) {
   Object.assign(form, {
     resourceType: row.resourceType,
     title: row.title,
+    description: row.description || '',
     imageUrl,
     imageFileId: row.imageFileId || '',
+    videoUrl: row.videoUrl || '',
     targetContentId: row.targetContentId || '',
     targetUrl: row.targetUrl || '',
     sortOrder: row.sortOrder || 0,
@@ -184,6 +217,9 @@ async function save() {
     const payload = {
       resourceType: form.resourceType,
       title: form.title,
+      description: form.description.trim(),
+      // 视频只对首页轮播生效，切到其他类型时不下发，避免后端校验失败。
+      videoUrl: form.resourceType === 'CAROUSEL' ? form.videoUrl.trim() : '',
       targetContentId: form.targetContentId || undefined,
       targetUrl: form.targetUrl || undefined,
       sortOrder: form.sortOrder,
@@ -203,20 +239,32 @@ async function save() {
       })
       ElMessage.success('资源已更新')
     } else {
-      const created = await resourceApi.create(payload)
+      // 先建停用态：轮播/新闻配图启用前必须先有图片，而图片要等资源创建后才能挂到资源上。
+      const created = await resourceApi.create({ ...payload, enabled: false })
+      let imageFileId: string | undefined
       if (imageFile.value) {
         uploadingImage.value = true
         const record = await fileApi.upload(imageFile.value, 'RESOURCE', created.id, 'CMS_IMAGE')
-        await resourceApi.update(created.id, {
-          ...payload,
-          imageFileId: record.id,
-          version: created.version,
-        })
+        imageFileId = record.id
+      }
+      if (imageFileId || form.enabled) {
+        try {
+          await resourceApi.update(created.id, {
+            ...payload,
+            imageFileId,
+            version: created.version,
+          })
+        } catch (error) {
+          // 启用失败时不要留下半成品：删掉刚建用的占位资源。
+          await resourceApi.remove(created.id, created.version).catch(() => undefined)
+          throw error
+        }
       }
       ElMessage.success('资源已创建')
     }
     dialogVisible.value = false
-    await load()
+    // 新闻配图可能刚自动生成了资讯，重新拉取内容列表才能显示关联标题。
+    await Promise.all([load(), loadContents()])
   } catch {
     // 拦截器提示
   } finally {
@@ -230,6 +278,8 @@ async function toggleEnabled(row: PortalResource) {
     await resourceApi.update(row.id, {
       resourceType: row.resourceType,
       title: row.title,
+      description: row.description || '',
+      videoUrl: row.videoUrl || '',
       imageFileId: row.imageFileId,
       targetContentId: row.targetContentId,
       targetUrl: row.targetContentId ? undefined : row.targetUrl,
@@ -253,7 +303,7 @@ async function removeResource(row: PortalResource) {
     })
     await resourceApi.remove(row.id, row.version)
     ElMessage.success('资源已删除')
-    await load()
+    await Promise.all([load(), loadContents()])
   } catch {
     // 取消
   }
@@ -269,7 +319,7 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="门户资源"
-      description="配置首页轮播、新闻配图与合作伙伴 Logo。排序值越小越靠前，停用后立即从门户移除。"
+      description="配置首页轮播（图片或视频）、新闻配图与合作伙伴信息。排序值越小越靠前，停用后立即从门户移除；新闻配图会同步赛事资讯：留空关联内容时自动新建一条资讯，标题、介绍、图片与启停状态双向同步。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -297,21 +347,49 @@ onMounted(() => {
       <div v-loading="loading" class="resource-grid">
         <article v-for="row in filteredRows" :key="row.id" class="resource-card">
           <div class="resource-card__image">
-            <img v-if="row.imageUrl" :src="row.imageUrl" alt="" />
-            <span v-else class="resource-card__placeholder"><el-icon :size="22"><Picture /></el-icon></span>
+            <component
+              :is="previewHref(row) ? 'a' : 'div'"
+              class="resource-card__media"
+              v-bind="
+                previewHref(row)
+                  ? {
+                      href: previewHref(row),
+                      target: '_blank',
+                      rel: 'noopener noreferrer',
+                      title: '在新窗口查看',
+                    }
+                  : {}
+              "
+            >
+              <video
+                v-if="row.videoUrl"
+                class="resource-card__video"
+                :src="row.videoUrl"
+                muted
+                autoplay
+                loop
+                playsinline
+                preload="metadata"
+              />
+              <img v-else-if="row.imageUrl" :src="row.imageUrl" alt="" />
+              <span v-else class="resource-card__placeholder"><el-icon :size="22"><Picture /></el-icon></span>
+            </component>
             <el-tag class="resource-card__status" :type="row.enabled ? 'success' : 'info'" size="small" effect="dark">
               {{ row.enabled ? '已启用' : '已停用' }}
             </el-tag>
+            <span v-if="row.videoUrl" class="resource-card__video-tag">视频</span>
             <span class="resource-card__sort num">#{{ row.sortOrder || 0 }}</span>
           </div>
           <div class="resource-card__body">
             <span class="resource-card__type">{{ typeLabel[row.resourceType] }}</span>
             <h3>{{ row.title }}</h3>
-            <p class="resource-card__target">
-              {{ row.targetUrl || (row.targetContentId ? `关联内容 ${row.targetContentId}` : '未设置跳转') }}
-            </p>
+            <p v-if="row.description" class="resource-card__desc">{{ row.description }}</p>
+            <p class="resource-card__target">{{ targetLabel(row) }}</p>
             <div class="resource-card__actions">
               <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <el-button v-if="previewHref(row)" link type="primary" :icon="View" @click="openPreview(row)">
+                查看
+              </el-button>
               <el-button link :type="row.enabled ? 'warning' : 'success'" @click="toggleEnabled(row)">
                 {{ row.enabled ? '停用' : '启用' }}
               </el-button>
@@ -335,6 +413,22 @@ onMounted(() => {
         <el-form-item label="标题" required>
           <el-input v-model="form.title" placeholder="资源标题或说明" />
         </el-form-item>
+        <el-form-item label="文字介绍">
+          <el-input
+            v-model="form.description"
+            type="textarea"
+            :rows="2"
+            maxlength="300"
+            show-word-limit
+            placeholder="合作单位简介、配图说明等（选填）"
+          />
+        </el-form-item>
+        <el-form-item v-if="form.resourceType === 'CAROUSEL'" label="轮播视频">
+          <el-input v-model="form.videoUrl" placeholder="https://.../banner.mp4（选填）" />
+          <span class="form-hint">
+            支持 mp4 / webm 直链，静音自动播放；首页无直播时用它代替轮播图，每播放一轮停 30 秒。
+          </span>
+        </el-form-item>
         <el-form-item label="资源图片">
           <div class="image-upload">
             <el-upload :show-file-list="false" :http-request="pickImage" accept=".jpg,.jpeg,.png">
@@ -353,9 +447,12 @@ onMounted(() => {
           </div>
         </el-form-item>
         <el-form-item label="关联内容">
-          <el-select v-model="form.targetContentId" clearable filterable placeholder="可选，选择门户内容" style="width: 100%">
+          <el-select v-model="form.targetContentId" clearable filterable placeholder="可选，选择已有内容" style="width: 100%">
             <el-option v-for="content in contents" :key="content.id" :label="content.title" :value="content.id" />
           </el-select>
+          <span v-if="form.resourceType === 'NEWS_LINK_IMAGE'" class="form-hint">
+            留空会按标题自动新建一条赛事资讯；选择已有内容时，这张图只替换该资讯的封面。
+          </span>
         </el-form-item>
         <el-form-item label="外部跳转地址">
           <el-input v-model="form.targetUrl" placeholder="https://...（选填）" />
@@ -446,10 +543,58 @@ onMounted(() => {
   background: var(--paper);
 }
 
-.resource-card__image img {
+.resource-card__image img,
+.resource-card__video {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* 有跳转目标的资源可点开预览，悬停时给出提示。 */
+.resource-card__media {
+  display: block;
+  height: 100%;
+}
+
+a.resource-card__media {
+  position: relative;
+  cursor: pointer;
+}
+
+a.resource-card__media::after {
+  content: '查看';
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(4, 40, 27, 0.72);
+  color: #fff;
+  font-size: 9px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+a.resource-card__media:hover::after,
+a.resource-card__media:focus-visible::after {
+  opacity: 1;
+}
+
+.resource-card__video {
+  display: block;
+  background: var(--brand-900);
+}
+
+.resource-card__video-tag {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--lime);
+  color: var(--brand-900);
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .resource-card__placeholder {
@@ -492,6 +637,17 @@ onMounted(() => {
   font-size: 13.5px;
 }
 
+.resource-card__desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 4px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--ink-500);
+}
+
 .resource-card__target {
   margin-top: 4px;
   overflow: hidden;
@@ -501,8 +657,17 @@ onMounted(() => {
   color: var(--ink-300);
 }
 
+.form-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 9.5px;
+  line-height: 1.6;
+  color: var(--ink-300);
+}
+
 .resource-card__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 10px;
   padding-top: 10px;

@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Close, Menu as MenuIcon, UserFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
+import { publicApi } from '../api'
+import type { PublicResource } from '../api/types'
 import { MOCK_ENABLED } from '../api/http'
 import { useConsoleEntry } from '../composables/useConsoleEntry'
 import LoginDialog from '../components/auth/LoginDialog.vue'
@@ -15,6 +17,8 @@ const route = useRoute()
 const mobileOpen = ref(false)
 /** 备案号属于部署信息，未配置时不展示占位号。 */
 const icpNumber = import.meta.env.VITE_ICP_NUMBER || ''
+/** 页脚合作伙伴取自门户资源里类型为 PARTNER 的条目，由管理端维护。 */
+const partners = ref<PublicResource[]>([])
 
 const {
   consoleLabel,
@@ -41,7 +45,20 @@ const inPreview = computed(
   () => route.name === 'portal-match-detail' && route.query.preview === '1',
 )
 
+async function loadPartners() {
+  try {
+    const res = await publicApi.resources()
+    partners.value = res.items.filter(
+      (item) => item.resourceType === 'PARTNER' && Boolean(item.title),
+    )
+  } catch {
+    // 页脚是辅助信息，接口异常时直接不展示，不影响门户主体。
+    partners.value = []
+  }
+}
+
 onMounted(async () => {
+  loadPartners()
   if (auth.token && !auth.user) {
     try {
       await auth.fetchMe()
@@ -130,7 +147,7 @@ function navigate(path: string) {
     </main>
 
     <footer class="portal-footer">
-      <div class="container footer-grid">
+      <div class="container footer-grid" :class="{ 'footer-grid--partners': partners.length }">
         <div class="footer-brand">
           <div class="brand">
             <span class="brand__mark brand__mark--footer">
@@ -167,6 +184,30 @@ function navigate(path: string) {
           <p>竞赛办公室：省教育厅体卫艺处</p>
           <p>服务时间：工作日 9:00 - 17:30</p>
           <p class="footer-note">赛况与公示以组委会确认结果为准</p>
+        </div>
+
+        <div v-if="partners.length" class="footer-col footer-partners">
+          <h4>合作伙伴</h4>
+          <component
+            :is="partner.targetUrl ? 'a' : 'span'"
+            v-for="partner in partners"
+            :key="partner.id"
+            class="partner-item"
+            :title="partner.description || partner.title"
+            :href="partner.targetUrl || undefined"
+            :target="partner.targetUrl ? '_blank' : undefined"
+            :rel="partner.targetUrl ? 'noopener noreferrer' : undefined"
+          >
+            <img
+              v-if="partner.imageUrl"
+              class="partner-item__logo"
+              :src="partner.imageUrl"
+              :alt="partner.title"
+            />
+            <span v-else class="partner-item__dot" aria-hidden="true" />
+            <span class="partner-item__name">{{ partner.title }}</span>
+          </component>
+          <p class="footer-note partner-note">诚邀更多单位共建校园足球</p>
         </div>
       </div>
 
@@ -469,6 +510,60 @@ function navigate(path: string) {
   color: var(--on-dark-3);
 }
 
+/* 合作伙伴：页脚右侧的简略展示，条目来自门户资源（PARTNER 类型）。 */
+.footer-grid--partners {
+  grid-template-columns: 1.4fr 0.7fr 0.7fr 1.25fr 1.05fr;
+}
+
+.footer-partners {
+  gap: 9px;
+}
+
+.partner-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  max-width: 100%;
+  color: var(--on-dark-2);
+  transition: color 0.15s;
+}
+
+a.partner-item:hover {
+  color: #fff;
+}
+
+.partner-item__dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  opacity: 0.85;
+}
+
+.partner-item__logo {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  object-fit: contain;
+}
+
+.partner-item__name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.partner-note {
+  margin-top: 2px;
+}
+
 .footer-bottom {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -576,6 +671,11 @@ function navigate(path: string) {
 
   .footer-brand {
     grid-column: 1 / -1;
+  }
+
+  /* 多一列合作伙伴后三列会挤，窄屏改成两列排。 */
+  .footer-grid--partners {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

@@ -3,7 +3,7 @@
 /**
  * 角色编码。UNIVERSITY 为接口沿用的历史编码，前端统一展示为“学校端”；
  * 学校端与 TEAM（球队端）是上下级关系，共用登录入口，按角色进入不同工作台并隔离数据。
- * 该编码只表示中小学学校端，不代表高校组别。
+ * 该编码只表示中小学学校端。
  */
 export type RoleCode =
   | 'TEAM'
@@ -579,8 +579,10 @@ export interface PortalResource {
   id: string
   resourceType: 'CAROUSEL' | 'NEWS_LINK_IMAGE' | 'PARTNER'
   title: string
+  description?: string
   imageUrl?: string
   imageFileId?: string
+  videoUrl?: string
   targetContentId?: string
   targetUrl?: string
   sortOrder?: number
@@ -762,7 +764,9 @@ export interface PublicResource {
   id: string
   resourceType: 'CAROUSEL' | 'NEWS_LINK_IMAGE' | 'PARTNER'
   title: string
+  description?: string
   imageUrl?: string
+  videoUrl?: string
   targetContentId?: string
   targetUrl?: string
   sortOrder?: number

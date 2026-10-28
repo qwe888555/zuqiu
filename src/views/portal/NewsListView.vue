@@ -13,6 +13,8 @@ const page = ref(1)
 const pageSize = 10
 const keyword = ref('')
 const activeType = ref('')
+/** 管理端「新闻配图」按关联内容覆盖资讯封面；未配置的仍用内容自带封面。 */
+const resourceCovers = ref<Map<string, string>>(new Map())
 
 const tabs = [
   { label: '全部资讯', value: '' },
@@ -22,7 +24,13 @@ const tabs = [
 ]
 
 const typeLabel = (type: string) =>
-  type === 'HIGHLIGHT' ? '精彩瞬间' : type === 'BEST_LINEUP' ? '最佳阵容' : '赛事动态'
+  type === 'HIGHLIGHT'
+    ? '精彩瞬间'
+    : type === 'BEST_LINEUP'
+      ? '最佳阵容'
+      : type === 'POLICY'
+        ? '政策公告'
+        : '赛事动态'
 
 // 公开接口没有置顶与排序参数，一次取回后按发布时间倒序；置顶需要后端字段才能可靠展示。
 const filteredItems = computed(() => {
@@ -58,6 +66,24 @@ async function load() {
   }
 }
 
+async function loadResourceCovers() {
+  try {
+    const res = await publicApi.resources({ resourceType: 'NEWS_LINK_IMAGE' })
+    const map = new Map<string, string>()
+    res.items.forEach((item) => {
+      if (item.targetContentId && item.imageUrl) map.set(item.targetContentId, item.imageUrl)
+    })
+    resourceCovers.value = map
+  } catch {
+    resourceCovers.value = new Map()
+  }
+}
+
+/** 管理端配图优先，其次内容封面，最后退回站内图片。 */
+function coverFor(item: PublicContent) {
+  return resourceCovers.value.get(item.id) || item.publicCoverUrl || IMG.training
+}
+
 function switchTab(value: string) {
   activeType.value = value
   page.value = 1
@@ -67,7 +93,10 @@ function search() {
   page.value = 1
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadResourceCovers()
+})
 </script>
 
 <template>
@@ -122,7 +151,7 @@ onMounted(load)
           :to="`/news/${featured.id}`"
           class="featured-card"
         >
-          <img :src="featured.publicCoverUrl || IMG.training" :alt="featured.title" />
+          <img :src="coverFor(featured)" :alt="featured.title" />
           <span class="featured-card__shade" />
           <div class="featured-card__top">
             <span class="featured-card__label">最新发布</span>
@@ -148,7 +177,7 @@ onMounted(load)
             class="news-card"
           >
             <div class="news-card__cover">
-              <img :src="item.publicCoverUrl || IMG.training" :alt="item.title" />
+              <img :src="coverFor(item)" :alt="item.title" />
               <span class="news-type-badge news-type-badge--light">{{ typeLabel(item.contentType) }}</span>
             </div>
             <div class="news-card__body">
