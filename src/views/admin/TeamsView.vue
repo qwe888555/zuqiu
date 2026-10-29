@@ -227,16 +227,13 @@ async function openDetail(team: Team) {
     if (detailRes.status === 'fulfilled') detail.value = detailRes.value
     if (memberRes.status === 'fulfilled') members.value = memberRes.value.items
 
-    // coaches / teams-matches 尚未在成员4后端实现（文档 §8.3、§12.1）；
-    // 真实联调下不再发必然 404 的请求，演示模式保留完整页签。
-    if (MOCK_ENABLED) {
-      const [coachRes, matchRes] = await Promise.allSettled([
-        teamApi.coaches(team.id, { page: 1, pageSize: 100 }),
-        teamApi.matches(team.id, { page: 1, pageSize: 6 }),
-      ])
-      if (coachRes.status === 'fulfilled') coaches.value = coachRes.value.items
-      if (matchRes.status === 'fulfilled') recentMatches.value = matchRes.value.items
-    }
+    // 教练与近期赛程独立加载：任一接口失败不影响球队详情与名单。
+    const [coachRes, matchRes] = await Promise.allSettled([
+      teamApi.coaches(team.id, { page: 1, pageSize: 100 }),
+      teamApi.matches(team.id, { page: 1, pageSize: 6 }),
+    ])
+    if (coachRes.status === 'fulfilled') coaches.value = coachRes.value.items
+    if (matchRes.status === 'fulfilled') recentMatches.value = matchRes.value.items
   } finally {
     detailLoading.value = false
   }
@@ -497,7 +494,7 @@ onMounted(async () => {
                 </template>
               </el-table-column>
               <template #empty>
-                <div class="drawer-empty">{{ MOCK_ENABLED ? '暂无教练' : '教练团队接口暂未开放' }}</div>
+                <div class="drawer-empty">暂无教练</div>
               </template>
             </el-table>
           </el-tab-pane>
@@ -517,9 +514,7 @@ onMounted(async () => {
                 <StatusTag :status="match.status" kind="match" />
               </div>
             </div>
-            <div v-else class="drawer-empty">
-              {{ MOCK_ENABLED ? '暂无比赛安排' : '球队赛程接口暂未开放' }}
-            </div>
+            <div v-else class="drawer-empty">暂无比赛安排</div>
           </el-tab-pane>
 
           <el-tab-pane name="materials">
