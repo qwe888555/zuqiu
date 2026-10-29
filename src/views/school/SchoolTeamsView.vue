@@ -15,6 +15,7 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const loading = ref(false)
+const loadError = ref('')
 const teams = ref<Team[]>([])
 const enrollments = ref<Enrollment[]>([])
 const createVisible = ref(false)
@@ -65,6 +66,7 @@ const latestEnrollment = computed(() => {
 
 async function load() {
   loading.value = true
+  loadError.value = ''
   try {
     const [teamList, enrollmentRes] = await Promise.all([
       meApi.teams(),
@@ -73,8 +75,8 @@ async function load() {
     teams.value = teamList
     enrollments.value = enrollmentRes.items
   } catch {
-    teams.value = []
-    enrollments.value = []
+    // 接口失败不能伪装成「本校还没有球队」：保留上次成功的数据并给出可重试的错误态。
+    loadError.value = '本校球队加载失败，请检查网络后重试'
   } finally {
     loading.value = false
   }
@@ -168,6 +170,17 @@ onMounted(load)
       <StatCard label="待认证" :value="pendingCount" hint="需补充资料的球队" :icon="Clock" tone="amber" />
     </div>
 
+    <el-alert
+      v-if="loadError && teams.length"
+      class="load-error"
+      type="warning"
+      show-icon
+      :closable="false"
+      :title="loadError"
+    >
+      <el-button link type="primary" :icon="Refresh" @click="load">重试</el-button>
+    </el-alert>
+
     <section v-loading="loading" class="page-card page-card--flush">
       <el-table :data="teams" style="width: 100%">
         <el-table-column label="球队" min-width="240">
@@ -237,7 +250,10 @@ onMounted(load)
         </el-table-column>
 
         <template #empty>
-          <el-empty description="本校还没有球队" :image-size="90">
+          <el-empty v-if="loadError" :description="loadError" :image-size="90">
+            <el-button type="primary" plain :icon="Refresh" @click="load">重新加载</el-button>
+          </el-empty>
+          <el-empty v-else description="本校还没有球队" :image-size="90">
             <el-button v-if="isSchoolAccount" type="primary" plain :icon="Plus" @click="openCreate">创建第一支球队</el-button>
           </el-empty>
         </template>
@@ -294,6 +310,10 @@ onMounted(load)
 </template>
 
 <style scoped>
+.load-error {
+  margin-bottom: 12px;
+}
+
 .school-scope {
   display: flex;
   align-items: center;

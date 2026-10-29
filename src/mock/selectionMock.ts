@@ -1,5 +1,6 @@
 import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import {
+  accounts,
   eventGroups,
   events,
   persons,
@@ -20,6 +21,7 @@ interface Ctx {
   params: Record<string, string>
   query: Record<string, unknown>
   body: Record<string, any>
+  config: InternalAxiosRequestConfig
 }
 
 type Handler = (ctx: Ctx) => unknown
@@ -825,6 +827,17 @@ on('POST', '/publicity/batch/', ({ body }) => {
   return { published, skipped, failed, errors, records }
 })
 
+on('GET', '/publicity/mine/', ({ config, query }) => {
+  // 后端按当前账号绑定的人员档案匹配公示记录（含已撤销）。
+  const raw = String((config.headers as Record<string, unknown>)?.Authorization || '')
+  const username = raw.replace(/^Bearer\s+/i, '').match(/^mock-token-(.+)$/)?.[1] || ''
+  const personId = accounts.find((item) => item.username === username)?.personId || ''
+  const items = personId
+    ? publicityRecords.filter((item) => item.source_id === personId)
+    : []
+  return pageOf(items.map(publicityOut), query)
+})
+
 on('GET', '/publicity/manage/', ({ query }) => {
   let items = publicityRecords
   if (query.event_id) items = items.filter((item) => item.event_id === query.event_id)
@@ -901,7 +914,7 @@ export const selectionMockAdapter: AxiosAdapter = async (config) => {
     return Promise.reject(makeError(404, `Mock 接口未实现：${method} ${path}`, internal))
   }
   try {
-    const result = matched.route.handler({ params: matched.params, query, body })
+    const result = matched.route.handler({ params: matched.params, query, body, config: internal })
     return {
       data: { code: 0, message: 'ok', data: result },
       status: 200,

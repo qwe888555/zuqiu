@@ -788,7 +788,7 @@ export const portalResources: PortalResource[] = [
 
 export const publications: Publication[] = [
   { id: 'pub_001', targetType: 'ENROLLMENT', targetId: 'enr_002', targetName: '宜宾人民路小学足球队', teamName: '宜宾人民路小学足球队', eventId: 'event_primary_2026', groupId: 'group_primary_boys', groupName: '小学男子组', cityName: '宜宾市', active: true, publishedAt: '2026-10-11T12:00:00+08:00', version: 1 },
-  { id: 'pub_003', targetType: 'ATHLETE', targetId: 'person_team_cd_syxx_001', targetName: '张子轩', teamName: '成都市实验小学', groupName: '小学男子组', cityName: '成都市', active: true, publishedAt: '2026-10-12T09:00:00+08:00', version: 1 },
+  { id: 'pub_003', targetType: 'ATHLETE', targetId: 'person_ath_001', targetName: '张子轩', teamName: '成都市实验小学', groupName: '小学男子组', cityName: '成都市', active: true, publishedAt: '2026-10-12T09:00:00+08:00', version: 1 },
   { id: 'pub_004', targetType: 'ATHLETE', targetId: 'person_team_my_ns_009', targetName: '郑博文', teamName: '绵阳南山中学', groupName: '初中男子组', cityName: '绵阳市', active: true, publishedAt: '2026-10-10T10:00:00+08:00', version: 1 },
   { id: 'pub_006', targetType: 'COACH', targetId: 'person_coach_001', targetName: '李建国', teamName: '成都市实验小学', groupName: '小学男子组', cityName: '成都市', active: true, publishedAt: '2026-10-08T10:00:00+08:00', version: 1 },
   { id: 'pub_007', targetType: 'COACH', targetId: 'person_coach_002', targetName: '王志强', teamName: '成都七中育才学校', groupName: '初中男子组', cityName: '成都市', active: true, publishedAt: '2026-10-07T10:00:00+08:00', version: 1 },

@@ -315,8 +315,13 @@ router.beforeEach(async (to) => {
     try {
       await auth.fetchMe()
     } catch (error) {
-      if (isUnauthenticated(error)) auth.clear()
-      return { name: 'login', query: { redirect: to.fullPath } }
+      if (isUnauthenticated(error)) {
+        auth.clear()
+        return { name: 'login', query: { redirect: to.fullPath } }
+      }
+      // 网络/网关异常不代表会话失效：保留令牌并放行，避免内网抖动时把已登录用户
+      // 踢回门户登录框。角色菜单暂缺不影响页面数据请求，后续路由会重试恢复用户信息。
+      return true
     }
   }
   if (to.meta.schoolOnly && !auth.roles.includes('UNIVERSITY')) {

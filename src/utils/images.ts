@@ -20,12 +20,25 @@ export function isFileServiceUrl(raw: string): boolean {
   }
 }
 
+/**
+ * 后端返回的签名地址常带绝对域名（联调时为 http://隧道域名/...）。
+ * 直接 fetch 会被 CORS 拦截，<img> 直读还会踩混合内容 / ORB；应用本身通过同源
+ * /api/v1 代理访问后端，因此统一改写成同源路径，保留签名参数。
+ */
+function toSameOrigin(raw: string): string {
+  const url = new URL(raw, window.location.origin)
+  // 只有接口本身走同源前缀时才改写；独立域名的 API 仍需保留绝对地址走 CORS。
+  const apiBase = new URL(import.meta.env.VITE_API_BASE_URL || '/api/v1', window.location.origin)
+  if (apiBase.origin !== window.location.origin) return url.href
+  return `${url.pathname}${url.search}`
+}
+
 function fetchObjectUrl(raw: string): Promise<string> {
   const cached = blobCache.get(raw)
   if (cached) return cached
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 15000)
-  const request = fetch(raw, { credentials: 'omit', signal: controller.signal })
+  const request = fetch(toSameOrigin(raw), { credentials: 'omit', signal: controller.signal })
     .then(async (response) => {
       if (!response.ok) throw new Error(`image request failed: ${response.status}`)
       const blob = await response.blob()
@@ -44,10 +57,10 @@ function fetchObjectUrl(raw: string): Promise<string> {
   return request
 }
 
-/** 文件服务地址转为可直接放进 img src 的 object URL；其他地址原样返回。 */
+/** 文件服务地址转为同源 URL（成功时是 object URL）；其他地址原样返回。 */
 export async function resolveImageUrl(raw: string): Promise<string> {
   if (!isFileServiceUrl(raw)) return raw
-  return (await fetchObjectUrl(raw)) || raw
+  return (await fetchObjectUrl(raw)) || toSameOrigin(raw)
 }
 
 let installed = false
