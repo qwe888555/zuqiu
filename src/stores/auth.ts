@@ -21,6 +21,12 @@ export function isUnauthenticated(error: unknown): boolean {
   return (error as { response?: { status?: number } })?.response?.status === 401
 }
 
+/** 后端个别账号的 displayName 存成了全问号/替换符，展示时回退到登录名，避免界面出现「?????」。 */
+function usableDisplayName(name?: string): string {
+  if (!name) return ''
+  return /^[?�\s]+$/u.test(name) ? '' : name
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem(TOKEN_KEY) || '')
   const user = ref<CurrentUser | null>(null)
@@ -29,7 +35,10 @@ export const useAuthStore = defineStore('auth', () => {
   let meInFlight: { token: string; promise: Promise<CurrentUser> } | null = null
 
   const roles = computed<RoleCode[]>(() => user.value?.roles ?? [])
-  const displayName = computed(() => user.value?.displayName || user.value?.username || '未登录')
+  const displayName = computed(
+    () =>
+      usableDisplayName(user.value?.displayName) || user.value?.username || '未登录',
+  )
   const isAdmin = computed(() => roles.value.includes('ADMIN'))
   const sections = computed(() => visibleSections(roles.value))
 
