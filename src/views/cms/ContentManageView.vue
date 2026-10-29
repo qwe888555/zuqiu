@@ -519,7 +519,7 @@ onMounted(() => {
               </div>
             </el-upload>
             <div class="cover-upload__hint">
-              <span>建议尺寸 16:9，支持 JPG / PNG / WebP，保存时统一上传。</span>
+              <span>选填。建议尺寸 16:9，支持 JPG / PNG / WebP；未上传时门户使用纯文字版式。</span>
               <el-button v-if="coverPreview" link type="danger" @click="clearCover">移除</el-button>
             </div>
           </div>

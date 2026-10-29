@@ -13,7 +13,6 @@ import type {
   PublicResource,
   PublicityRecord,
 } from '../../api/types'
-import { IMG } from '../../config/images'
 import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 import { useConsoleEntry } from '../../composables/useConsoleEntry'
@@ -55,9 +54,10 @@ const newsCoverMap = computed(() => {
   })
   return map
 })
+/** 封面非必填；没有配图时返回空串，首页焦点卡改用纯文字版式，不用站内图冒充。 */
 function newsCover(item: PublicContent | undefined) {
-  if (!item) return IMG.match
-  return newsCoverMap.value.get(item.id) || item.publicCoverUrl || IMG.match
+  if (!item) return ''
+  return newsCoverMap.value.get(item.id) || item.publicCoverUrl || ''
 }
 
 // 超过合理时长仍未确认赛果的场次不再占用“比赛动态”，统一归入“最新赛果”并标注待确认。
@@ -511,10 +511,22 @@ function publicationLink(star: PublicityRecord) {
         </router-link>
       </div>
 
-      <div v-loading="loading" class="news-board" :class="{ 'news-board--empty': !loading && !news.length }">
-        <router-link v-if="featured" :to="`/news/${featured.id}`" class="lead-card">
-          <SafeImage :src="newsCover(featured)" :alt="featured.title" />
-          <span class="lead-card__shade" />
+      <div
+        v-loading="loading"
+        class="news-board"
+        :class="{
+          'news-board--empty': !loading && !news.length,
+          'news-board--single': !loading && news.length === 1,
+        }"
+      >
+        <router-link
+          v-if="featured"
+          :to="`/news/${featured.id}`"
+          class="lead-card"
+          :class="{ 'lead-card--text': !newsCover(featured) }"
+        >
+          <SafeImage v-if="newsCover(featured)" :src="newsCover(featured)" :alt="featured.title" />
+          <span v-if="newsCover(featured)" class="lead-card__shade" />
           <div class="lead-card__body">
             <span class="lead-card__tag">焦点</span>
             <h3>{{ featured.title }}</h3>
@@ -528,7 +540,7 @@ function publicationLink(star: PublicityRecord) {
           </div>
         </router-link>
 
-        <div v-if="loading || news.length" class="news-side">
+        <div v-if="loading || newsRest.length" class="news-side">
           <header class="news-side__head">
             <span>最新发布</span>
             <span>{{ newsRest.length }} 条</span>
@@ -546,14 +558,9 @@ function publicationLink(star: PublicityRecord) {
             </span>
             <span class="news-line__date num">{{ formatDate(item.publishedAt) }}</span>
           </router-link>
-          <el-empty
-            v-if="!loading && !newsRest.length"
-            :description="news.length ? '暂无更多资讯' : '暂无资讯'"
-            :image-size="60"
-          />
         </div>
         <el-empty
-          v-else
+          v-if="!loading && !news.length"
           class="news-board__empty"
           description="暂无资讯"
           :image-size="60"
@@ -1357,6 +1364,11 @@ function publicationLink(star: PublicityRecord) {
   min-height: 0;
 }
 
+/* 只有一条资讯时不需要“最新发布”侧栏，焦点卡独占整行。 */
+.news-board--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .news-board__empty {
   padding: 26px 0 8px;
 }
@@ -1368,6 +1380,27 @@ function publicationLink(star: PublicityRecord) {
   overflow: hidden;
   border-radius: 12px;
   background: var(--brand-900);
+}
+
+.lead-card--text {
+  border-top: 3px solid var(--lime);
+  background:
+    radial-gradient(circle at 78% 22%, rgba(200, 243, 106, 0.13), transparent 36%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 112px),
+    linear-gradient(145deg, var(--brand-800), var(--brand-900) 58%);
+}
+
+.lead-card--text::before {
+  content: '';
+  position: absolute;
+  right: -70px;
+  top: 44%;
+  width: 250px;
+  height: 250px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .lead-card img {
