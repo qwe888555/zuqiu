@@ -60,6 +60,31 @@ export function reviewActionLabel(action?: string): string {
   return action ? REVIEW_ACTION_LABELS[action] || action : '提交报名'
 }
 
+export const EDUCATION_LABELS: Record<string, string> = {
+  PRIMARY: '小学',
+  JUNIOR: '初中',
+  SENIOR: '高中',
+  UNIVERSITY: '大学',
+}
+
+export function educationLabel(education?: string): string {
+  if (!education) return '未填写'
+  return EDUCATION_LABELS[education] || education
+}
+
+/** 后端 position 字典值：GK/DF/MF/FW。 */
+export const POSITION_LABELS: Record<string, string> = {
+  GK: '守门员',
+  DF: '后卫',
+  MF: '中场',
+  FW: '前锋',
+}
+
+export function positionLabel(position?: string): string {
+  if (!position) return '—'
+  return POSITION_LABELS[position] || position
+}
+
 export const COACH_CATEGORY_LABELS: Record<CoachCategory, string> = {
   HEAD_COACH: '主教练',
   ASSISTANT_COACH: '助理教练',

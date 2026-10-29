@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Close, Download, Refresh, RefreshLeft, Search, Stamp } from '@element-plus/icons-vue'
@@ -22,9 +22,13 @@ const pageSize = ref(10)
 const counts = reactive({ city: 0, province: 0, approved: 0, rejected: 0 })
 const isCity = computed(() => auth.roles.includes('CITY'))
 const isAdmin = computed(() => auth.roles.includes('ADMIN'))
-const activeStatus = ref(
-  auth.roles.includes('PROVINCE_REVIEWER') ? 'PENDING_PROVINCE_REVIEW' : 'PENDING_CITY_REVIEW',
-)
+function defaultStatusForRoles() {
+  // 市州只做初审；管理员默认从最前一环开始处理。
+  return auth.roles.includes('PROVINCE_REVIEWER') && !auth.roles.includes('CITY')
+    ? 'PENDING_PROVINCE_REVIEW'
+    : 'PENDING_CITY_REVIEW'
+}
+const activeStatus = ref(defaultStatusForRoles())
 const keyword = ref('')
 const events = ref<Event[]>([])
 const groups = ref<EventGroup[]>([])
@@ -75,7 +79,11 @@ const currentStageLabel = computed(() =>
   detail.value?.status === 'PENDING_CITY_REVIEW' ? '市州初审' : '省级终审',
 )
 
+// 首屏、切换页签与刷新可能并发；只允许最后一次请求落表。
+let loadSeq = 0
+
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   try {
     const res = await enrollmentApi.list({
@@ -86,26 +94,28 @@ async function load() {
       groupId: filters.groupId || undefined,
       teamName: keyword.value || undefined,
     })
+    if (seq !== loadSeq) return
     rows.value = res.items
     total.value = res.total
   } catch {
-    rows.value = []
+    if (seq === loadSeq) rows.value = []
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
 async function loadCounts() {
-  const [city, province, approved, rejected] = await Promise.all([
+  // 四个统计相互独立：任一失败不能把其余三项一起清零（Promise.all 会让整组作废）。
+  const [city, province, approved, rejected] = await Promise.allSettled([
     enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_CITY_REVIEW' }),
     enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_PROVINCE_REVIEW' }),
     enrollmentApi.list({ page: 1, pageSize: 1, status: 'APPROVED' }),
     enrollmentApi.list({ page: 1, pageSize: 1, status: 'REJECTED' }),
   ])
-  counts.city = city.total
-  counts.province = province.total
-  counts.approved = approved.total
-  counts.rejected = rejected.total
+  if (city.status === 'fulfilled') counts.city = city.value.total
+  if (province.status === 'fulfilled') counts.province = province.value.total
+  if (approved.status === 'fulfilled') counts.approved = approved.value.total
+  if (rejected.status === 'fulfilled') counts.rejected = rejected.value.total
 }
 
 async function openReview(row: Enrollment) {
@@ -337,6 +347,20 @@ function search() {
   page.value = 1
   load()
 }
+
+// 登录态恢复或切换账号后，按新角色重置默认页签并重新拉取，避免沿用上个账号的筛选。
+watch(
+  () => auth.user?.accountId,
+  (current, previous) => {
+    if (!current || current === previous) return
+    activeStatus.value = defaultStatusForRoles()
+    page.value = 1
+    selectedRows.value = []
+    loadEvents()
+    load()
+    loadCounts()
+  },
+)
 
 onMounted(() => {
   loadEvents()

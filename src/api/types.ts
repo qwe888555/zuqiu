@@ -105,6 +105,8 @@ export interface InviteBatchRow {
   expiresAt?: string
   error?: string
   code?: string
+  /** 逐行失败时的字段级原因，如 [{ field: 'idNumber', reason: '名单内重复' }] */
+  fieldErrors?: Array<{ field?: string; reason?: string }>
 }
 
 export interface InviteBatchResult {
@@ -462,8 +464,8 @@ export interface Match {
   groupName?: string
   homeTeamId: string
   awayTeamId: string
-  homeTeamName: string
-  awayTeamName: string
+  homeTeamName?: string
+  awayTeamName?: string
   kickoffAt: string
   venue?: string
   stage?: string
@@ -750,8 +752,8 @@ export interface PublicMatch {
   eventName?: string
   groupId: string
   groupName?: string
-  homeTeamName: string
-  awayTeamName: string
+  homeTeamName?: string
+  awayTeamName?: string
   kickoffAt?: string
   venue?: string
   status: MatchStatus
@@ -798,6 +800,10 @@ export interface PolicyCitation {
 export interface PolicyAnswer {
   status: 'ANSWERED' | 'NO_EVIDENCE' | 'UNAVAILABLE' | 'DISABLED'
   answer: string
+  /** GENERAL 表示日常/操作类答复，未引用政策原文；缺省时按政策答复渲染。 */
+  answerMode?: 'GENERAL' | string
+  /** 日常答复的免责说明，仅在 answerMode=GENERAL 时展示。 */
+  notice?: string
   citations: PolicyCitation[]
   fallbackPolicies: PolicyCitation[]
   aiGenerated: boolean

@@ -22,6 +22,7 @@ import { fileApi, matchApi } from '../../api'
 import type { LiveLink, LivePost, Match, MatchDocument, MatchEvent, MatchResult } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
+import SafeImage from '../../components/common/SafeImage.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -493,8 +494,8 @@ onMounted(loadAll)
 
         <main class="bigscreen__stage">
           <section class="bigscreen__team">
-            <span class="bigscreen__badge">{{ match.homeTeamName.slice(0, 1) }}</span>
-            <h2>{{ match.homeTeamName }}</h2>
+            <span class="bigscreen__badge">{{ (match.homeTeamName || '球').slice(0, 1) }}</span>
+            <h2>{{ match.homeTeamName || '未关联球队' }}</h2>
             <div class="bigscreen__tally">
               <span><i class="tally tally--goal" />进球 <b class="num">{{ homeTally.goals }}</b></span>
               <span><i class="tally tally--yellow" />黄牌 <b class="num">{{ homeTally.yellow }}</b></span>
@@ -513,8 +514,8 @@ onMounted(loadAll)
           </section>
 
           <section class="bigscreen__team bigscreen__team--away">
-            <span class="bigscreen__badge">{{ match.awayTeamName.slice(0, 1) }}</span>
-            <h2>{{ match.awayTeamName }}</h2>
+            <span class="bigscreen__badge">{{ (match.awayTeamName || '球').slice(0, 1) }}</span>
+            <h2>{{ match.awayTeamName || '未关联球队' }}</h2>
             <div class="bigscreen__tally">
               <span><i class="tally tally--goal" />进球 <b class="num">{{ awayTally.goals }}</b></span>
               <span><i class="tally tally--yellow" />黄牌 <b class="num">{{ awayTally.yellow }}</b></span>
@@ -543,10 +544,10 @@ onMounted(loadAll)
             <span class="bigscreen__eyebrow">快捷记录</span>
             <div>
               <el-button type="primary" :icon="Plus" @click="openEvent('GOAL', match.homeTeamId)">
-                {{ match.homeTeamName }} 进球
+                {{ match.homeTeamName || '主队' }} 进球
               </el-button>
               <el-button :icon="Plus" @click="openEvent('GOAL', match.awayTeamId)">
-                {{ match.awayTeamName }} 进球
+                {{ match.awayTeamName || '客队' }} 进球
               </el-button>
               <el-button @click="openEvent('PENALTY')">判罚</el-button>
               <el-button @click="openEvent('SUBSTITUTION')">换人</el-button>
@@ -563,8 +564,8 @@ onMounted(loadAll)
       </div>
       <div class="scoreboard__main">
         <div class="team team--home">
-          <span class="team__badge">{{ match.homeTeamName.slice(0, 1) }}</span>
-          <strong>{{ match.homeTeamName }}</strong>
+          <span class="team__badge">{{ (match.homeTeamName || '球').slice(0, 1) }}</span>
+          <strong>{{ match.homeTeamName || '未关联球队' }}</strong>
         </div>
         <div class="score">
           <div class="score__nums num">
@@ -575,16 +576,16 @@ onMounted(loadAll)
           <StatusTag :status="match.status" kind="match" />
         </div>
         <div class="team team--away">
-          <span class="team__badge">{{ match.awayTeamName.slice(0, 1) }}</span>
-          <strong>{{ match.awayTeamName }}</strong>
+          <span class="team__badge">{{ (match.awayTeamName || '球').slice(0, 1) }}</span>
+          <strong>{{ match.awayTeamName || '未关联球队' }}</strong>
         </div>
       </div>
       <div class="scoreboard__quick">
         <el-button type="primary" :icon="Plus" @click="openEvent('GOAL', match.homeTeamId)">
-          {{ match.homeTeamName }} 进球
+          {{ match.homeTeamName || '主队' }} 进球
         </el-button>
         <el-button :icon="Plus" @click="openEvent('GOAL', match.awayTeamId)">
-          {{ match.awayTeamName }} 进球
+          {{ match.awayTeamName || '客队' }} 进球
         </el-button>
         <el-button plain @click="openEvent('PENALTY')">记录判罚</el-button>
         <el-button plain @click="openEvent('SUBSTITUTION')">记录换人</el-button>
@@ -670,7 +671,7 @@ onMounted(loadAll)
               <div class="live-item__body">
                 <p>{{ post.text }}</p>
                 <div v-if="post.imageUrls?.length" class="live-item__images">
-                  <img v-for="url in post.imageUrls" :key="url" :src="url" alt="直播图片" />
+                  <SafeImage v-for="url in post.imageUrls" :key="url" :src="url" alt="直播图片" />
                 </div>
                 <small v-else-if="post.imageFileIds?.length" class="muted">
                   附图 {{ post.imageFileIds.length }} 张（门户展示）
@@ -752,7 +753,7 @@ onMounted(loadAll)
                   </el-radio-group>
                 </el-form-item>
                 <div class="result-score">
-                  <el-form-item :label="match.homeTeamName">
+                  <el-form-item :label="match.homeTeamName || '主队'">
                     <el-input-number
                       v-model="resultForm.manualHomeScore"
                       :min="0"
@@ -761,7 +762,7 @@ onMounted(loadAll)
                     />
                   </el-form-item>
                   <span class="result-score__sep">:</span>
-                  <el-form-item :label="match.awayTeamName">
+                  <el-form-item :label="match.awayTeamName || '客队'">
                     <el-input-number
                       v-model="resultForm.manualAwayScore"
                       :min="0"

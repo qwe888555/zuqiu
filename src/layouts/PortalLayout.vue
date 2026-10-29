@@ -3,13 +3,14 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Close, Menu as MenuIcon, UserFilled } from '@element-plus/icons-vue'
-import { useAuthStore } from '../stores/auth'
+import { isUnauthenticated, useAuthStore } from '../stores/auth'
 import { publicApi } from '../api'
 import type { PublicResource } from '../api/types'
 import { MOCK_ENABLED } from '../api/http'
 import { useConsoleEntry } from '../composables/useConsoleEntry'
 import LoginDialog from '../components/auth/LoginDialog.vue'
 import PolicyAssistant from '../components/portal/PolicyAssistant.vue'
+import SafeImage from '../components/common/SafeImage.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -62,8 +63,8 @@ onMounted(async () => {
   if (auth.token && !auth.user) {
     try {
       await auth.fetchMe()
-    } catch {
-      auth.clear()
+    } catch (error) {
+      if (isUnauthenticated(error)) auth.clear()
     }
   }
 })
@@ -198,7 +199,7 @@ function navigate(path: string) {
             :target="partner.targetUrl ? '_blank' : undefined"
             :rel="partner.targetUrl ? 'noopener noreferrer' : undefined"
           >
-            <img
+            <SafeImage
               v-if="partner.imageUrl"
               class="partner-item__logo"
               :src="partner.imageUrl"

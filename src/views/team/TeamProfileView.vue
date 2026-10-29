@@ -64,6 +64,7 @@ function openImagePreview(url: string, title: string) {
 }
 
 function genderLabel(value?: string) {
+  if (!value) return '未填写'
   return value === 'FEMALE' ? '女子' : value === 'MIXED' ? '混合' : '男子'
 }
 
@@ -362,7 +363,7 @@ onMounted(async () => {
               </el-tag>
             </div>
             <p>
-              {{ team?.schoolName || '未绑定学校' }} · {{ team?.campusName || '本部' }} ·
+              {{ team?.schoolName || '未绑定学校' }} · {{ team?.campusName || '—' }} ·
               {{ team?.category ? categoryLabel(team.category) : '学段未设置' }} · {{ genderLabel(team?.gender) }}
             </p>
             <div class="team-hero__meta">
@@ -415,7 +416,7 @@ onMounted(async () => {
             <div><span>球队全称</span><strong>{{ team?.name || '—' }}</strong></div>
             <div><span>球队简称</span><strong>{{ team?.shortName || '—' }}</strong></div>
             <div><span>所属学校</span><strong>{{ team?.schoolName || '—' }}</strong></div>
-            <div><span>校区 / 分校</span><strong>{{ team?.campusName || '本部' }}</strong></div>
+            <div><span>校区 / 分校</span><strong>{{ team?.campusName || '—' }}</strong></div>
             <div><span>所属市州</span><strong>{{ team?.cityName || '—' }}</strong></div>
             <div><span>学段</span><strong>{{ categoryLabel(team?.category) }}</strong></div>
             <div><span>球队性别</span><strong>{{ genderLabel(team?.gender) }}</strong></div>
@@ -424,12 +425,20 @@ onMounted(async () => {
         </template>
 
         <el-form v-else :model="form" label-position="top" class="edit-form">
+          <el-alert
+            class="unsupported-hint"
+            type="info"
+            :closable="false"
+            show-icon
+            title="当前版本仅支持修改球队全称、简介与图片"
+            description="简称、校区、性别与主教练由组织或人员档案带出，后端暂未开放本页修改。"
+          />
           <div class="form-grid">
             <el-form-item label="球队全称" required>
               <el-input v-model="form.name" placeholder="球队全称" />
             </el-form-item>
             <el-form-item label="球队简称">
-              <el-input v-model="form.shortName" placeholder="用于赛程展示，建议 4-6 字" />
+              <el-input v-model="form.shortName" disabled placeholder="暂不支持在本页修改" />
             </el-form-item>
             <el-form-item label="所属学校">
               <el-input v-model="form.schoolName" disabled placeholder="由账号归属学校自动带出" />
@@ -438,15 +447,15 @@ onMounted(async () => {
               <el-input v-model="form.cityName" disabled placeholder="由学校组织上级市州自动带出" />
             </el-form-item>
             <el-form-item label="校区 / 分校">
-              <el-input v-model="form.campusName" placeholder="如：水井坊校区；不填视为本部" />
+              <el-input v-model="form.campusName" disabled placeholder="由组织档案带出" />
             </el-form-item>
             <el-form-item label="球队性别">
-              <el-select v-model="form.gender" style="width: 100%">
+              <el-select v-model="form.gender" disabled style="width: 100%">
                 <el-option v-for="item in genderOptions" :key="item.value" :label="item.label" :value="item.value" />
               </el-select>
             </el-form-item>
             <el-form-item label="主教练">
-              <el-input v-model="form.coachName" placeholder="主教练姓名" />
+              <el-input v-model="form.coachName" disabled placeholder="由教练团队成员自动带出" />
             </el-form-item>
           </div>
           <el-form-item label="球队简介">
@@ -979,6 +988,10 @@ onMounted(async () => {
 
 .edit-form {
   margin-top: 22px;
+}
+
+.unsupported-hint {
+  margin-bottom: 14px;
 }
 
 .form-grid {

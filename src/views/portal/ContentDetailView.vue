@@ -6,6 +6,7 @@ import { ArrowLeft, ChatDotRound, Document } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { PublicContent } from '../../api/types'
 import { openPolicyAssistant } from '../../composables/usePolicyAssistant'
+import SafeImage from '../../components/common/SafeImage.vue'
 
 const route = useRoute()
 const loading = ref(false)
@@ -119,7 +120,7 @@ watch(() => route.params.id, load)
           </header>
 
           <div v-if="content.publicCoverUrl" class="article__cover">
-            <img :src="content.publicCoverUrl" :alt="content.title" />
+            <SafeImage :src="content.publicCoverUrl" :alt="content.title" />
           </div>
 
           <div class="article__body rich-text" v-html="content.bodyHtml" />

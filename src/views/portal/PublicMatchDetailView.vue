@@ -7,6 +7,7 @@ import { Back, Calendar, Football, Location, Switch, VideoCamera, View, Warning 
 import { matchApi, publicApi } from '../../api'
 import type { LiveLink, LivePost, MatchEvent, PublicLivePost, PublicMatch } from '../../api/types'
 import StatusTag from '../../components/common/StatusTag.vue'
+import SafeImage from '../../components/common/SafeImage.vue'
 import { refereeRoleLabel } from '../../config/labels'
 import { formatBeijing, matchDisplayStatus } from '../../utils/portal'
 
@@ -95,7 +96,7 @@ const briefText = computed(() => {
     return '本场比赛已取消，后续安排以组委会通知为准。'
   }
 
-  const score = `${current.homeTeamName} ${current.homeScore} : ${current.awayScore} ${current.awayTeamName}`
+  const score = `${current.homeTeamName || '主队'} ${current.homeScore} : ${current.awayScore} ${current.awayTeamName || '客队'}`
   const goals = sortedEvents.value
     .filter((event) => event.eventType === 'GOAL')
     .slice()
@@ -244,7 +245,7 @@ watch(() => route.params.id, load)
             <span>/</span>
             <router-link to="/matches">赛程与比分</router-link>
             <span>/</span>
-            <span class="crumbs__current">{{ match.homeTeamName }} vs {{ match.awayTeamName }}</span>
+            <span class="crumbs__current">{{ match.homeTeamName || '主队' }} vs {{ match.awayTeamName || '客队' }}</span>
           </nav>
 
           <div class="scoreboard__meta">
@@ -255,8 +256,8 @@ watch(() => route.params.id, load)
 
           <div class="scoreboard__main">
             <div class="side side--home">
-              <span class="side__badge">{{ match.homeTeamName.slice(0, 1) }}</span>
-              <strong>{{ match.homeTeamName }}</strong>
+              <span class="side__badge">{{ (match.homeTeamName || '球').slice(0, 1) }}</span>
+              <strong>{{ match.homeTeamName || '未关联球队' }}</strong>
               <small>主队</small>
             </div>
 
@@ -281,8 +282,8 @@ watch(() => route.params.id, load)
             </div>
 
             <div class="side side--away">
-              <span class="side__badge side__badge--away">{{ match.awayTeamName.slice(0, 1) }}</span>
-              <strong>{{ match.awayTeamName }}</strong>
+              <span class="side__badge side__badge--away">{{ (match.awayTeamName || '球').slice(0, 1) }}</span>
+              <strong>{{ match.awayTeamName || '未关联球队' }}</strong>
               <small>客队</small>
             </div>
           </div>
@@ -361,7 +362,7 @@ watch(() => route.params.id, load)
                 <div class="live-post__body">
                   <p>{{ post.text }}</p>
                   <div v-if="post.imageUrls?.length" class="live-post__images">
-                    <img v-for="img in post.imageUrls" :key="img" :src="img" alt="赛场图片" />
+                    <SafeImage v-for="img in post.imageUrls" :key="img" :src="img" alt="赛场图片" />
                   </div>
                   <span class="live-post__time">{{ post.updatedAt ? dayjs(post.updatedAt).format('HH:mm') : '' }}</span>
                 </div>

@@ -45,7 +45,7 @@ const keywordScoped = computed(() => {
   return allItems.value.filter((match) => {
     if (groupName.value && match.groupName !== groupName.value) return false
     if (kw) {
-      const haystack = `${match.homeTeamName} ${match.awayTeamName} ${match.venue || ''} ${match.groupName || ''}`
+      const haystack = `${match.homeTeamName || ''} ${match.awayTeamName || ''} ${match.venue || ''} ${match.groupName || ''}`
       if (!haystack.toLowerCase().includes(kw)) return false
     }
     return true
@@ -169,34 +169,51 @@ async function fetchMatches(id: string) {
   return res.items
 }
 
+// 赛事切换与首屏探测可能并发，只允许最后一次加载落表。
+let loadSeq = 0
+
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   try {
     // /public/events 免登录，匿名访客也能取得赛程所需的赛事上下文。
     if (!events.value.length) {
       const res = await publicApi.events({ page: 1, pageSize: 50 })
+      if (seq !== loadSeq) return
       events.value = sortPublicEvents(res.items)
     }
     if (eventId.value) {
-      allItems.value = await fetchMatches(eventId.value)
+      const items = await fetchMatches(eventId.value)
+      if (seq !== loadSeq) return
+      allItems.value = items
     } else {
       // 首次进入时按状态优先探测，跳过尚未发布任何对阵的赛事。
+      // 单个赛事探测失败（超时/网关抖动）只跳过该赛事，不能让整页变成 0 条。
+      let pickedId = ''
+      let pickedItems: PublicMatch[] = []
       for (const event of events.value) {
-        const items = await fetchMatches(event.id)
+        let items: PublicMatch[]
+        try {
+          items = await fetchMatches(event.id)
+        } catch {
+          continue
+        }
+        if (seq !== loadSeq) return
         if (items.length) {
-          eventId.value = event.id
-          allItems.value = items
+          pickedId = event.id
+          pickedItems = items
           break
         }
       }
-      if (!eventId.value) allItems.value = []
+      eventId.value = pickedId
+      allItems.value = pickedItems
     }
     if (!date.value && todayCount.value && viewMode.value === 'list') date.value = todayKey
     if (viewMode.value === 'calendar') selectDefaultDay()
   } catch {
-    allItems.value = []
+    if (seq === loadSeq) allItems.value = []
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -484,15 +501,15 @@ onMounted(load)
 
               <div class="agenda-matchup">
                 <div class="agenda-team">
-                  <span class="agenda-team__badge">{{ match.homeTeamName.slice(0, 1) }}</span>
-                  <span class="agenda-team__name">{{ match.homeTeamName }}</span>
+                  <span class="agenda-team__badge">{{ (match.homeTeamName || '球').slice(0, 1) }}</span>
+                  <span class="agenda-team__name">{{ match.homeTeamName || '未关联球队' }}</span>
                 </div>
                 <span class="agenda-score num" :class="{ 'is-upcoming': matchDisplayStatus(match) === 'SCHEDULED' }">
                   {{ agendaScore(match) }}
                 </span>
                 <div class="agenda-team agenda-team--away">
-                  <span class="agenda-team__badge">{{ match.awayTeamName.slice(0, 1) }}</span>
-                  <span class="agenda-team__name">{{ match.awayTeamName }}</span>
+                  <span class="agenda-team__badge">{{ (match.awayTeamName || '球').slice(0, 1) }}</span>
+                  <span class="agenda-team__name">{{ match.awayTeamName || '未关联球队' }}</span>
                 </div>
               </div>
 

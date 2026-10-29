@@ -1,4 +1,84 @@
-import type { RoleCode } from '../api/types'
+import type { Organization, RoleCode } from '../api/types'
+
+/**
+ * 与后端 `common.scopes.ROLE_POLICY` 对齐的账号角色策略。
+ * 建号（可授予）与改号（可管理目标）共用：能建的角色必须能管。
+ */
+export const ACCOUNT_ROLE_POLICY: Record<RoleCode, readonly RoleCode[]> = {
+  ADMIN: [
+    'ADMIN',
+    'PROVINCE_REVIEWER',
+    'CITY',
+    'UNIVERSITY',
+    'TEAM',
+    'MATCH_RECORDER',
+    'ATHLETE',
+    'COACH',
+  ],
+  PROVINCE_REVIEWER: ['CITY', 'UNIVERSITY', 'TEAM', 'MATCH_RECORDER', 'ATHLETE', 'COACH'],
+  CITY: ['UNIVERSITY', 'TEAM', 'MATCH_RECORDER', 'ATHLETE', 'COACH'],
+  UNIVERSITY: ['TEAM', 'ATHLETE', 'COACH'],
+  TEAM: [],
+  ATHLETE: [],
+  COACH: [],
+  MATCH_RECORDER: [],
+}
+
+/** 当前登录账号可授予、可管理的角色并集（多角色取并集）。 */
+export function accountPolicyRoles(roles: readonly RoleCode[]): Set<RoleCode> {
+  const allowed = new Set<RoleCode>()
+  for (const role of roles) {
+    for (const target of ACCOUNT_ROLE_POLICY[role] || []) allowed.add(target)
+  }
+  return allowed
+}
+
+/**
+ * 与后端 `ROLE_ORG_TYPES` 对齐：角色只能绑定指定类型的组织节点。
+ * 未列出的角色（ATHLETE/COACH/MATCH_RECORDER/ADMIN）不限制组织类型。
+ */
+export const ROLE_ORG_TYPES: Partial<
+  Record<RoleCode, readonly Organization['orgType'][]>
+> = {
+  TEAM: ['TEAM'],
+  UNIVERSITY: ['UNIVERSITY', 'SCHOOL'],
+  CITY: ['CITY'],
+  PROVINCE_REVIEWER: ['PROVINCE'],
+}
+
+/**
+ * 从当前账号自身角色推断其固定组织节点类型。
+ * 多角色取交集；无法确定时返回空集合，只允许不限制组织类型的角色。
+ */
+export function accountOrgTypes(
+  roles: readonly RoleCode[],
+): Set<Organization['orgType']> {
+  let inferred: Set<Organization['orgType']> | null = null
+  for (const role of roles) {
+    const types = ROLE_ORG_TYPES[role]
+    if (!types?.length) continue
+    const current = new Set<Organization['orgType']>(types)
+    if (!inferred) {
+      inferred = current
+      continue
+    }
+    for (const type of inferred) {
+      if (!current.has(type)) inferred.delete(type)
+    }
+    if (!inferred.size) break
+  }
+  return inferred || new Set()
+}
+
+/** 角色能否绑定到指定的组织节点类型。 */
+export function roleFitsOrg(
+  role: RoleCode,
+  orgTypes: ReadonlySet<Organization['orgType']>,
+): boolean {
+  const required = ROLE_ORG_TYPES[role]
+  if (!required?.length) return true
+  return required.some((type) => orgTypes.has(type))
+}
 
 /**
  * 每个角色进入控制台后的默认落点。

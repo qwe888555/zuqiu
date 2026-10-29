@@ -8,7 +8,18 @@ declare module 'axios' {
   export interface AxiosRequestConfig {
     /** 静默模式：失败时不弹全局提示，也不做登录跳转，由调用方给出统一文案。 */
     silentError?: boolean
+    /** 公开端点（免登录）：不携带本地令牌，401 也不视为登录态失效。 */
+    skipAuth?: boolean
   }
+}
+
+/** 公开接口前缀：不得附带 Authorization，否则过期令牌会让匿名浏览被判 401。 */
+export function isPublicRequest(url?: string): boolean {
+  if (!url) return false
+  // logout 需要带上令牌才能注销服务端会话，因此不在此列。
+  return ['/public/', '/health', '/auth/login', '/auth/registrations'].some((prefix) =>
+    url.startsWith(prefix),
+  )
 }
 
 const useMock = import.meta.env.VITE_USE_MOCK !== 'false'
@@ -31,6 +42,10 @@ if (useMock) {
 }
 
 instance.interceptors.request.use((config) => {
+  if (isPublicRequest(config.url)) {
+    config.skipAuth = true
+    return config
+  }
   const token = localStorage.getItem(TOKEN_KEY)
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
@@ -49,7 +64,9 @@ instance.interceptors.response.use(
   },
   async (error) => {
     const status = error?.response?.status
-    const silent = Boolean((error?.config as AxiosRequestConfig | undefined)?.silentError)
+    const requestConfig = error?.config as AxiosRequestConfig | undefined
+    const silent = Boolean(requestConfig?.silentError)
+    const skipAuth = Boolean(requestConfig?.skipAuth)
     // 批量导入/导出使用 responseType=blob；后端出错时返回的是 JSON 封装，
     // 需要先读出 Blob 文本，否则只能看到 axios 的通用错误。
     if (error?.response?.data instanceof Blob) {
@@ -65,7 +82,8 @@ instance.interceptors.response.use(
     }
     const message =
       error?.response?.data?.message || error?.message || '网络异常，请稍后重试'
-    if (status === 401 && !silent) {
+    // 公开端点的 401 与登录态无关（例如接口配置问题），不能因此清令牌或跳登录页。
+    if (status === 401 && !silent && !skipAuth) {
       localStorage.removeItem(TOKEN_KEY)
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login'

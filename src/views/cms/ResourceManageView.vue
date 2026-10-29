@@ -5,6 +5,7 @@ import { Delete, Edit, Picture, Plus, Refresh, UploadFilled, View } from '@eleme
 import { contentApi, fileApi, resourceApi } from '../../api'
 import type { Content, PortalResource } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
+import SafeImage from '../../components/common/SafeImage.vue'
 
 const loading = ref(false)
 const rows = ref<PortalResource[]>([])
@@ -371,7 +372,7 @@ onMounted(() => {
                 playsinline
                 preload="metadata"
               />
-              <img v-else-if="row.imageUrl" :src="row.imageUrl" alt="" />
+              <SafeImage v-else-if="row.imageUrl" :src="row.imageUrl" alt="" />
               <span v-else class="resource-card__placeholder"><el-icon :size="22"><Picture /></el-icon></span>
             </component>
             <el-tag class="resource-card__status" :type="row.enabled ? 'success' : 'info'" size="small" effect="dark">
@@ -433,7 +434,7 @@ onMounted(() => {
           <div class="image-upload">
             <el-upload :show-file-list="false" :http-request="pickImage" accept=".jpg,.jpeg,.png">
               <div class="image-upload__box">
-                <img v-if="imagePreview" :src="imagePreview" alt="资源图片预览" />
+                <SafeImage v-if="imagePreview" :src="imagePreview" alt="资源图片预览" />
                 <template v-else>
                   <el-icon><UploadFilled /></el-icon>
                   <span>点击上传图片</span>

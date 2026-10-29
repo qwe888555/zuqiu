@@ -510,9 +510,9 @@ onMounted(async () => {
                   <small>{{ dayjs(match.kickoffAt).format('HH:mm') }}</small>
                 </div>
                 <div class="match-teams">
-                  <span>{{ match.homeTeamName }}</span>
+                  <span>{{ match.homeTeamName || '未关联球队' }}</span>
                   <strong>{{ matchScore(match) }}</strong>
-                  <span>{{ match.awayTeamName }}</span>
+                  <span>{{ match.awayTeamName || '未关联球队' }}</span>
                 </div>
                 <StatusTag :status="match.status" kind="match" />
               </div>

@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { Close, Key, Lock, User, WarningFilled } from '@element-plus/icons-vue'
 import { authApi } from '../../api'
-import { loginErrorMessage, useAuthStore } from '../../stores/auth'
+import { isUnauthenticated, loginErrorMessage, useAuthStore } from '../../stores/auth'
 import { canEnroll, canOpenEnrollment, homeForRoles, workspaceLabelForRoles } from '../../utils/roles'
 import { useLoginDialog } from '../../composables/useLoginDialog'
 
@@ -202,8 +202,13 @@ async function continueCurrent() {
   if (!auth.user) {
     try {
       await auth.fetchMe()
-    } catch {
-      auth.clear()
+    } catch (error) {
+      if (isUnauthenticated(error)) {
+        auth.clear()
+        return
+      }
+      // 网络抖动时不销毁登录态，提示后留在弹窗内可再次重试。
+      ElMessage.error('登录状态校验失败，请稍后重试')
       return
     }
   }

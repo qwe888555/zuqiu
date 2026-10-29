@@ -35,7 +35,7 @@ import { useAuthStore } from '../../stores/auth'
 import { canEnroll } from '../../utils/roles'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
-import { reviewActionLabel } from '../../config/labels'
+import { positionLabel, reviewActionLabel } from '../../config/labels'
 
 const route = useRoute()
 const router = useRouter()
@@ -105,6 +105,31 @@ const canReview = computed(() => {
   if (auth.roles.includes('CITY')) return status === 'PENDING_CITY_REVIEW'
   return status === 'PENDING_PROVINCE_REVIEW'
 })
+
+// 后端 latestReviewReason 取的是最近一条带原因的审核记录，审核通过意见也会返回，
+// 不能直接当作驳回原因展示；以审核记录中的最近一次动作为准。
+const latestReview = computed<ReviewRecord | null>(() => {
+  if (!reviews.value.length) return null
+  const sorted = [...reviews.value].sort((a, b) =>
+    (a.createdAt || '').localeCompare(b.createdAt || ''),
+  )
+  return sorted[sorted.length - 1] || null
+})
+const latestRejectReason = computed(() => {
+  const record = latestReview.value
+  if (record) {
+    return record.action === 'REJECT' || record.action === 'RETURN_FOR_CORRECTION'
+      ? record.reason || ''
+      : ''
+  }
+  // 审核记录不可用时，仅在当前状态确为驳回时回退到详情字段。
+  return detail.value?.status === 'REJECTED' ? detail.value.latestReviewReason || '' : ''
+})
+const latestRejectTitle = computed(() =>
+  latestReview.value?.action === 'RETURN_FOR_CORRECTION'
+    ? `最近一次退回补正原因：${latestRejectReason.value}`
+    : `最近一次驳回原因：${latestRejectReason.value}`,
+)
 
 const timeline = computed<ReviewRecord[]>(() => {
   if (reviews.value.length) return reviews.value
@@ -558,7 +583,7 @@ onMounted(load)
               <h2>{{ detail.teamName }}</h2>
               <StatusTag :status="detail.status" kind="enrollment" size="default" />
             </div>
-            <p>{{ detail.eventName }} · {{ detail.groupName }} · {{ detail.schoolName || '—' }} · {{ detail.campusName || '本部' }}</p>
+            <p>{{ detail.eventName }} · {{ detail.groupName }} · {{ detail.schoolName || '—' }} · {{ detail.campusName || '—' }}</p>
           </div>
         </div>
         <div class="enrollment-hero__meta">
@@ -588,7 +613,7 @@ onMounted(load)
             <div class="info-grid">
               <div class="info-item"><span class="info-item__label">报送主体</span><strong>学校报送</strong></div>
               <div class="info-item"><span class="info-item__label">参赛学校</span><strong>{{ detail.schoolName || '—' }}</strong></div>
-              <div class="info-item"><span class="info-item__label">校区</span><strong>{{ detail.campusName || '本部' }}</strong></div>
+              <div class="info-item"><span class="info-item__label">校区</span><strong>{{ detail.campusName || '—' }}</strong></div>
               <div class="info-item"><span class="info-item__label">所属市州</span><strong>{{ detail.cityName || '—' }}</strong></div>
               <div class="info-item"><span class="info-item__label">领队 / 联系人</span><strong>{{ detail.contactName }}</strong></div>
               <div class="info-item"><span class="info-item__label">联系电话</span><strong>{{ detail.maskedContactPhone || '—' }}</strong></div>
@@ -599,12 +624,12 @@ onMounted(load)
               </div>
             </div>
             <el-alert
-              v-if="detail.latestReviewReason"
+              v-if="latestRejectReason"
               class="reject-reason"
-              type="error"
+              :type="latestReview?.action === 'RETURN_FOR_CORRECTION' ? 'warning' : 'error'"
               :closable="false"
               show-icon
-              :title="`最近一次驳回原因：${detail.latestReviewReason}`"
+              :title="latestRejectTitle"
             />
           </section>
 
@@ -642,7 +667,9 @@ onMounted(load)
                   <span class="num">{{ row.jerseyNumber ?? '—' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="position" label="位置" width="90" />
+              <el-table-column label="位置" width="90">
+                <template #default="{ row }">{{ positionLabel(row.position) }}</template>
+              </el-table-column>
               <el-table-column prop="schoolName" label="所在学校" min-width="160" />
               <el-table-column v-if="canEdit" label="操作" width="140" align="right">
                 <template #default="{ row }">

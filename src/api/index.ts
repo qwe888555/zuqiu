@@ -1,4 +1,5 @@
 import { http, newIdempotencyKey } from './http'
+import { normalizeOptionItems } from '../utils/options'
 import type {
   Account,
   AuditLog,
@@ -26,7 +27,6 @@ import type {
   Material,
   Message,
   MyAffiliation,
-  OptionItem,
   Organization,
   PageResult,
   Person,
@@ -72,10 +72,6 @@ export const meApi = {
   /** 本人档案更新：version 必填（乐观锁），缺失后端返回 400 INVALID_ARGUMENT。 */
   updateProfile: (data: Partial<Person> & { version: number }) =>
     http.put<Person>('/me/profile', data),
-  /** 提交档案复核：version 必填（成员4文档 §7.2.4）。 */
-  confirmProfile: (version: number) =>
-    http.post<Person>('/me/profile-confirmation', { version }),
-  profileMatch: () => http.get<Record<string, unknown>>('/me/profile-match'),
   teams: (options?: RequestOptions) => http.get<Team[]>('/me/teams', undefined, options),
   affiliations: (params: Query, options?: RequestOptions) =>
     http.get<PageResult<MyAffiliation>>('/me/team-affiliations', params, options),
@@ -106,28 +102,18 @@ export const accountApi = {
       data,
     ),
   /**
-   * 批量签发注册邀请。后端 `format=csv` 直接返回 CSV（含明文凭证，仅此一次），
-   * Mock 模式返回同格式 CSV 文本，这里统一转成 Blob 交给页面解析与下载。
+   * 批量签发注册邀请，返回逐行结果（成功行含一次性明文凭证）。
+   * 页面据此渲染每行 code/error/fieldErrors，并在前端生成 CSV 供下载。
    */
-  inviteBatchCsv: async (
+  inviteBatch: (
     file: File,
     options: { orgId?: string; expiresInMinutes?: number } = {},
-  ): Promise<Blob> => {
+  ): Promise<InviteBatchResult> => {
     const form = new FormData()
     form.append('file', file)
     form.append('expiresInMinutes', String(options.expiresInMinutes ?? 1440))
     if (options.orgId) form.append('orgId', options.orgId)
-    const result = await http.postFormBlob<Blob | string | InviteBatchResult>(
-      '/accounts/registration-invitations/batch',
-      form,
-      { format: 'csv' },
-    )
-    if (result instanceof Blob) return result
-    if (typeof result === 'string') {
-      return new Blob([result], { type: 'text/csv;charset=utf-8' })
-    }
-    // 理论上不会走到这里；保留兜底，避免把对象当成文件下载。
-    return new Blob([JSON.stringify(result)], { type: 'application/json' })
+    return http.postForm<InviteBatchResult>('/accounts/registration-invitations/batch', form)
   },
 }
 
@@ -141,7 +127,9 @@ export const orgApi = {
 
 export const dictApi = {
   list: (params: Query) => http.get<PageResult<DictionaryItem>>('/dictionary-items', params),
-  options: (dictType: string) => http.get<OptionItem[]>(`/dictionaries/${dictType}/options`),
+  /** 不同后端版本返回结构不一，统一归一化并剔除无 value 的项。 */
+  options: async (dictType: string) =>
+    normalizeOptionItems(await http.get<unknown>(`/dictionaries/${dictType}/options`)),
   get: (id: string) => http.get<DictionaryItem>(`/dictionary-items/${id}`),
   create: (data: Query) => http.post<DictionaryItem>('/dictionary-items', data),
   update: (id: string, data: Query) => http.put<DictionaryItem>(`/dictionary-items/${id}`, data),
@@ -213,8 +201,10 @@ export const dictTypeApi = {
   /** 物理删除（存在字典项→409 STATE_CONFLICT）。 */
   remove: (id: string) => http.delete<{ success: boolean; id: string }>(`/base-data/dict-types/${id}`),
   /** 按类型编码取启用字典项；未知 typeCode 返回空数组。 */
-  options: (typeCode: string) =>
-    http.get<OptionItem[]>(`/base-data/dict-types/${typeCode}/options`),
+  options: async (typeCode: string) =>
+    normalizeOptionItems(
+      await http.get<unknown>(`/base-data/dict-types/${typeCode}/options`),
+    ),
 }
 
 /** 字典项 DictItem：5 条端点。 */

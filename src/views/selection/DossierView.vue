@@ -269,8 +269,8 @@ onMounted(async () => {
               <div v-for="match in detailMatches" :key="match.id" class="match-row">
                 <span class="match-row__date">{{ match.kickoffAt ? dayjs(match.kickoffAt).format('MM-DD') : '—' }}</span>
                 <span class="match-row__teams">
-                  {{ match.homeTeamName }} <b class="num">{{ match.homeScore ?? 0 }} : {{ match.awayScore ?? 0 }}</b>
-                  {{ match.awayTeamName }}
+                  {{ match.homeTeamName || '主队' }} <b class="num">{{ match.homeScore ?? 0 }} : {{ match.awayScore ?? 0 }}</b>
+                  {{ match.awayTeamName || '客队' }}
                 </span>
                 <StatusTag :status="match.status" kind="match" />
               </div>

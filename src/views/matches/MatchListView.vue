@@ -67,7 +67,11 @@ const refereeRoles = [
   { value: 'OTHER', label: '比赛监督' },
 ]
 
+// 首屏请求与「查询/翻页」可能并发；只允许最后一次请求落表，避免慢响应把新结果覆盖成空。
+let loadSeq = 0
+
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   try {
     const res = await matchApi.list({
@@ -78,12 +82,13 @@ async function load() {
       // 成员5 对阵列表支持 teamName 模糊筛选，没有 keyword 参数。
       teamName: filters.keyword || undefined,
     })
+    if (seq !== loadSeq) return
     rows.value = res.items
     total.value = res.total
   } catch {
-    rows.value = []
+    if (seq === loadSeq) rows.value = []
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -155,8 +160,8 @@ async function openEdit(row: Match) {
   editingId.value = row.id
   editingVersion.value = row.version
   editingTeams.value = [
-    { id: row.homeTeamId, name: row.homeTeamName },
-    { id: row.awayTeamId, name: row.awayTeamName },
+    { id: row.homeTeamId, name: row.homeTeamName || '主队' },
+    { id: row.awayTeamId, name: row.awayTeamName || '客队' },
   ]
   form.eventId = row.eventId
   form.homeTeamId = row.homeTeamId
@@ -231,7 +236,7 @@ async function togglePublish(row: Match) {
 
 async function removeMatch(row: Match) {
   try {
-    await ElMessageBox.confirm(`确认删除「${row.homeTeamName} vs ${row.awayTeamName}」？该操作不可恢复。`, '删除比赛', {
+    await ElMessageBox.confirm(`确认删除「${row.homeTeamName || '未关联球队'} vs ${row.awayTeamName || '未关联球队'}」？该操作不可恢复。`, '删除比赛', {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
       type: 'warning',
@@ -290,11 +295,11 @@ onMounted(() => {
           <template #default="{ row }">
             <div class="match-cell">
               <div class="match-cell__teams">
-                <strong>{{ row.homeTeamName }}</strong>
+                <strong>{{ row.homeTeamName || '未关联球队' }}</strong>
                 <span class="match-cell__score num">
                   {{ row.status === 'SCHEDULED' ? 'VS' : `${row.homeScore ?? 0} : ${row.awayScore ?? 0}` }}
                 </span>
-                <strong>{{ row.awayTeamName }}</strong>
+                <strong>{{ row.awayTeamName || '未关联球队' }}</strong>
               </div>
               <small>{{ row.groupName }} · {{ row.stage || '小组赛' }}</small>
             </div>

@@ -16,10 +16,17 @@ export function loginErrorMessage(error: unknown): string {
   return '登录失败，请检查网络后重试'
 }
 
+/** 只有 401 才代表登录态失效；网络抖动/网关 5xx 不能清除本地令牌。 */
+export function isUnauthenticated(error: unknown): boolean {
+  return (error as { response?: { status?: number } })?.response?.status === 401
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem(TOKEN_KEY) || '')
   const user = ref<CurrentUser | null>(null)
   const loading = ref(false)
+  /** 同一令牌下复用进行中的 /me 请求，避免布局、路由守卫、入口按钮重复请求。 */
+  let meInFlight: { token: string; promise: Promise<CurrentUser> } | null = null
 
   const roles = computed<RoleCode[]>(() => user.value?.roles ?? [])
   const displayName = computed(() => user.value?.displayName || user.value?.username || '未登录')
@@ -43,10 +50,19 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchMe() {
-    if (!token.value) return null
-    const me = await meApi.get()
-    user.value = me
-    return me
+    const currentToken = token.value
+    if (!currentToken) return null
+    if (meInFlight?.token === currentToken) return meInFlight.promise
+    const request = meApi.get().then((me) => {
+      // 请求期间已退出或切换账号时，丢弃旧令牌的响应。
+      if (token.value === currentToken) user.value = me
+      return me
+    })
+    const tracked = request.finally(() => {
+      if (meInFlight?.token === currentToken) meInFlight = null
+    })
+    meInFlight = { token: currentToken, promise: tracked }
+    return tracked
   }
 
   async function logout() {

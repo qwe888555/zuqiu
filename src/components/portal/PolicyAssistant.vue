@@ -420,7 +420,7 @@ onBeforeUnmount(() => {
 
           <div class="intro-note">
             <el-icon><Reading /></el-icon>
-            回答只取自已发布的政策文件；涉及个人隐私的问题不会被处理。
+            政策问题引用已发布文件；日常操作类答复仅供参考。涉及个人隐私的问题不会被处理。
           </div>
         </div>
 
@@ -438,54 +438,62 @@ onBeforeUnmount(() => {
               </div>
 
               <template v-else-if="item.answer">
-                <div class="answer-head">
-                  <span>{{ item.answer.aiGenerated ? '综合政策原文整理' : '政策知识库回答' }}</span>
-                  <span
-                    class="answer-status"
-                    :class="{ 'is-limited': item.answer.status !== 'ANSWERED' }"
-                  >
-                    {{ item.answer.status === 'ANSWERED' ? '已找到依据' : '依据有限' }}
-                  </span>
-                </div>
+                <!-- 日常/操作类答复没有政策依据，不展示引用卡片和“依据有限”标签。 -->
+                <template v-if="item.answer.answerMode === 'GENERAL'">
+                  <p class="answer-text answer-text--general">{{ item.answer.answer }}</p>
+                  <p v-if="item.answer.notice" class="general-notice">{{ item.answer.notice }}</p>
+                </template>
 
-                <p class="answer-text">{{ item.answer.answer }}</p>
-
-                <div v-if="item.answer.citations.length" class="sources">
-                  <span class="sources__label">原文依据 · {{ item.answer.citations.length }}</span>
-                  <router-link
-                    v-for="(citation, sourceIndex) in item.answer.citations"
-                    :key="citation.contentId"
-                    :to="citation.publicUrl"
-                    class="source-card"
-                    @click="open = false"
-                  >
-                    <span class="source-card__no num">{{ sourceIndex + 1 }}</span>
-                    <span class="source-card__body">
-                      <strong>{{ citation.title }}</strong>
-                      <span>{{ citation.excerpt }}</span>
-                      <small>第 {{ citation.revision }} 版 · 查看原文</small>
+                <template v-else>
+                  <div class="answer-head">
+                    <span>{{ item.answer.aiGenerated ? '综合政策原文整理' : '政策知识库回答' }}</span>
+                    <span
+                      class="answer-status"
+                      :class="{ 'is-limited': item.answer.status !== 'ANSWERED' }"
+                    >
+                      {{ item.answer.status === 'ANSWERED' ? '已找到依据' : '依据有限' }}
                     </span>
-                    <el-icon><ArrowRight /></el-icon>
-                  </router-link>
-                </div>
+                  </div>
 
-                <div v-if="item.answer.fallbackPolicies.length" class="sources sources--soft">
-                  <span class="sources__label">还可以参考</span>
-                  <router-link
-                    v-for="citation in item.answer.fallbackPolicies"
-                    :key="citation.contentId"
-                    :to="citation.publicUrl"
-                    class="source-link"
-                    @click="open = false"
-                  >
-                    {{ citation.title }}
-                    <el-icon><ArrowRight /></el-icon>
-                  </router-link>
-                </div>
+                  <p class="answer-text">{{ item.answer.answer }}</p>
 
-                <span class="ai-note">
-                  {{ item.answer.aiGenerated ? 'AI 辅助生成，最终以正式文件为准' : '回答来自政策知识库，最终以正式文件为准' }}
-                </span>
+                  <div v-if="item.answer.citations.length" class="sources">
+                    <span class="sources__label">原文依据 · {{ item.answer.citations.length }}</span>
+                    <router-link
+                      v-for="(citation, sourceIndex) in item.answer.citations"
+                      :key="citation.contentId"
+                      :to="citation.publicUrl"
+                      class="source-card"
+                      @click="open = false"
+                    >
+                      <span class="source-card__no num">{{ sourceIndex + 1 }}</span>
+                      <span class="source-card__body">
+                        <strong>{{ citation.title }}</strong>
+                        <span>{{ citation.excerpt }}</span>
+                        <small>第 {{ citation.revision }} 版 · 查看原文</small>
+                      </span>
+                      <el-icon><ArrowRight /></el-icon>
+                    </router-link>
+                  </div>
+
+                  <div v-if="item.answer.fallbackPolicies.length" class="sources sources--soft">
+                    <span class="sources__label">还可以参考</span>
+                    <router-link
+                      v-for="citation in item.answer.fallbackPolicies"
+                      :key="citation.contentId"
+                      :to="citation.publicUrl"
+                      class="source-link"
+                      @click="open = false"
+                    >
+                      {{ citation.title }}
+                      <el-icon><ArrowRight /></el-icon>
+                    </router-link>
+                  </div>
+
+                  <span class="ai-note">
+                    {{ item.answer.aiGenerated ? 'AI 辅助生成，最终以正式文件为准' : '回答来自政策知识库，最终以正式文件为准' }}
+                  </span>
+                </template>
               </template>
             </div>
           </div>
@@ -1205,6 +1213,17 @@ onBeforeUnmount(() => {
   line-height: 1.85;
   color: var(--ink-700);
   white-space: pre-line;
+}
+
+.answer-text--general {
+  margin-top: 0;
+}
+
+.general-notice {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: var(--ink-300);
 }
 
 .sources {

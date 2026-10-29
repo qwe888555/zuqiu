@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useAuthStore } from '../stores/auth'
+import { isUnauthenticated, useAuthStore } from '../stores/auth'
 import { homeForRoles } from '../utils/roles'
 import type { RoleCode } from '../api/types'
 
@@ -298,8 +298,9 @@ router.beforeEach(async (to) => {
     if (!auth.user) {
       try {
         await auth.fetchMe()
-      } catch {
-        auth.clear()
+      } catch (error) {
+        // 网络/服务异常不代表会话失效，保留令牌让后续请求自行恢复。
+        if (isUnauthenticated(error)) auth.clear()
         return true
       }
     }
@@ -313,8 +314,8 @@ router.beforeEach(async (to) => {
   if (!auth.user) {
     try {
       await auth.fetchMe()
-    } catch {
-      auth.clear()
+    } catch (error) {
+      if (isUnauthenticated(error)) auth.clear()
       return { name: 'login', query: { redirect: to.fullPath } }
     }
   }

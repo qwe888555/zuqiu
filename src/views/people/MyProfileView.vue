@@ -2,21 +2,19 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { CircleCheck, Collection, Lock, Refresh } from '@element-plus/icons-vue'
+import { Collection, Lock, Refresh } from '@element-plus/icons-vue'
 import { meApi } from '../../api'
 import type { Person } from '../../api/types'
-import { COACH_CATEGORY_LABELS } from '../../config/labels'
+import { COACH_CATEGORY_LABELS, EDUCATION_LABELS, educationLabel, coachCategoryLabel } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import PageHeader from '../../components/common/PageHeader.vue'
-import StatusTag from '../../components/common/StatusTag.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 const loading = ref(false)
 const saving = ref(false)
-const confirming = ref(false)
+const editing = ref(false)
 const person = ref<Person | null>(null)
-const profileMatch = ref<Record<string, unknown> | null>(null)
 
 const form = reactive({
   realName: '',
@@ -26,52 +24,20 @@ const form = reactive({
   coachCategory: '',
 })
 
+const GENDER_LABELS: Record<string, string> = {
+  MALE: '男',
+  FEMALE: '女',
+  UNSPECIFIED: '未说明',
+}
+
+const genderLabel = computed(() => (form.gender ? GENDER_LABELS[form.gender] || form.gender : '未填写'))
+const educationDisplay = computed(() => educationLabel(form.education))
+const coachCategoryDisplay = computed(() => coachCategoryLabel(form.coachCategory))
+
 const isCoach = computed(() => person.value?.kinds.includes('COACH') ?? false)
 const kindLabel = computed(() => {
   const kinds = person.value?.kinds || []
   return kinds.map((kind) => (kind === 'ATHLETE' ? '运动员' : '教练员')).join(' / ') || '未设置'
-})
-
-/** 只有 DRAFT 才需要本人确认；PENDING 已提交、APPROVED/REJECTED 由管理员处理。 */
-const canConfirm = computed(() => person.value?.reviewStatus === 'DRAFT')
-const confirmLabel = computed(() => {
-  switch (person.value?.reviewStatus) {
-    case 'DRAFT':
-      return '确认档案无误'
-    case 'PENDING':
-      return '复核中'
-    case 'APPROVED':
-      return '档案已复核'
-    case 'REJECTED':
-      return '已被驳回'
-    default:
-      return '暂不可确认'
-  }
-})
-const matchHint = computed(() => {
-  switch (person.value?.reviewStatus) {
-    case 'APPROVED':
-      return '档案已通过管理员复核，无需再次确认。'
-    case 'PENDING':
-      return '档案已提交复核，请等待管理员处理。'
-    case 'REJECTED':
-      return '档案已被驳回，请联系管理员处理。'
-    default:
-      return profileMatch.value?.result === 'NO_MATCH'
-        ? '当前账号尚未匹配到人员档案，请联系管理员。'
-        : '请核对姓名、学校与证件信息，确认后提交管理员复核。'
-  }
-})
-const matchLabel = computed(() => {
-  if (profileMatch.value?.result === 'MATCHED_TO_SELF') return '比对一致'
-  if (profileMatch.value?.result === 'REVIEW_REQUIRED') return '复核中'
-  if (profileMatch.value?.result === 'NO_MATCH') return '未匹配'
-  return '未比对'
-})
-const matchTagType = computed<'success' | 'warning' | 'info'>(() => {
-  if (profileMatch.value?.result === 'MATCHED_TO_SELF') return 'success'
-  if (profileMatch.value?.result === 'REVIEW_REQUIRED') return 'warning'
-  return 'info'
 })
 
 async function load() {
@@ -87,12 +53,6 @@ async function load() {
     })
   } catch {
     person.value = null
-  }
-  // 比对结果是独立展示项，接口异常不应把已加载的档案一并清空。
-  try {
-    profileMatch.value = await meApi.profileMatch()
-  } catch {
-    profileMatch.value = null
   } finally {
     loading.value = false
   }
@@ -122,6 +82,7 @@ async function save() {
     })
     ElMessage.success('档案已更新')
     await auth.fetchMe()
+    editing.value = false
   } catch {
     // 拦截器提示
   } finally {
@@ -129,19 +90,23 @@ async function save() {
   }
 }
 
-async function confirmProfile() {
-  if (!person.value) return ElMessage.warning('档案尚未加载，请刷新后重试')
-  if (!canConfirm.value) return ElMessage.info('当前状态无需再次确认')
-  confirming.value = true
-  try {
-    await meApi.confirmProfile(person.value.version)
-    ElMessage.success('档案已确认，等待管理员复核')
-    await load()
-  } catch {
-    // 拦截器提示
-  } finally {
-    confirming.value = false
+function startEdit() {
+  editing.value = true
+}
+
+function cancelEdit() {
+  if (!person.value) {
+    editing.value = false
+    return
   }
+  Object.assign(form, {
+    realName: person.value.realName,
+    gender: person.value.gender || 'MALE',
+    birthDate: person.value.birthDate || '',
+    education: person.value.education || '',
+    coachCategory: person.value.coachCategory || '',
+  })
+  editing.value = false
 }
 
 onMounted(load)
@@ -154,8 +119,14 @@ onMounted(load)
       description="维护真实姓名、性别、出生日期、学历与教练员类别。学校与证件信息由管理员档案维护。"
     >
       <template #actions>
-        <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存资料</el-button>
+        <template v-if="editing">
+          <el-button @click="cancelEdit">取消</el-button>
+          <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        </template>
+        <template v-else>
+          <el-button :icon="Refresh" @click="load">刷新</el-button>
+          <el-button type="primary" @click="startEdit">编辑资料</el-button>
+        </template>
       </template>
     </PageHeader>
 
@@ -169,7 +140,6 @@ onMounted(load)
           <div class="profile-hero__info">
             <div class="profile-hero__title">
               <h2>{{ person?.realName || auth.displayName }}</h2>
-              <StatusTag v-if="person?.reviewStatus" :status="person.reviewStatus" kind="review" />
             </div>
             <p>{{ kindLabel }} · {{ person?.schoolName || '学校未登记' }}</p>
             <small>档案编号 {{ person?.id || '—' }}</small>
@@ -177,7 +147,37 @@ onMounted(load)
         </div>
 
         <div class="section-title">基础信息</div>
-        <el-form :model="form" label-position="top" class="profile-form">
+
+        <!-- 查看模式 -->
+        <div v-if="!editing" class="info-grid">
+          <div class="info-item">
+            <span class="info-item__label">真实姓名</span>
+            <span class="info-item__value">{{ form.realName || '未填写' }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-item__label">性别</span>
+            <span class="info-item__value">{{ genderLabel }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-item__label">出生日期</span>
+            <span class="info-item__value">{{ form.birthDate || '未填写' }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-item__label">学校 / 单位</span>
+            <span class="info-item__value">{{ person?.schoolName || '未登记' }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-item__label">学历</span>
+            <span class="info-item__value">{{ educationDisplay }}</span>
+          </div>
+          <div v-if="isCoach" class="info-item">
+            <span class="info-item__label">教练员类别</span>
+            <span class="info-item__value">{{ coachCategoryDisplay }}</span>
+          </div>
+        </div>
+
+        <!-- 编辑模式 -->
+        <el-form v-else :model="form" label-position="top" class="profile-form">
           <div class="form-grid">
             <el-form-item label="真实姓名" required>
               <el-input v-model="form.realName" placeholder="与身份证保持一致" />
@@ -202,7 +202,14 @@ onMounted(load)
               <div class="readonly-field">{{ person?.schoolName || '未登记' }}</div>
             </el-form-item>
             <el-form-item label="学历">
-              <el-input v-model="form.education" placeholder="如：本科" maxlength="50" />
+              <el-select v-model="form.education" style="width: 100%" clearable placeholder="选择学历">
+                <el-option
+                  v-for="(label, value) in EDUCATION_LABELS"
+                  :key="value"
+                  :label="label"
+                  :value="value"
+                />
+              </el-select>
             </el-form-item>
             <el-form-item v-if="isCoach" label="教练员类别">
               <el-select v-model="form.coachCategory" style="width: 100%" clearable placeholder="选择类别">
@@ -215,53 +222,29 @@ onMounted(load)
               </el-select>
             </el-form-item>
           </div>
-
-          <div class="readonly-grid">
-            <div>
-              <span>身份证号</span>
-              <strong>{{ person?.maskedIdNumber || '未登记' }}</strong>
-            </div>
-            <div>
-              <span>手机号</span>
-              <strong>{{ person?.maskedPhone || '未登记' }}</strong>
-            </div>
-            <div>
-              <span>学籍号</span>
-              <strong>{{ person?.maskedStudentNumber || '未登记' }}</strong>
-            </div>
-          </div>
-          <p class="form-tip">
-            <el-icon><Lock /></el-icon>
-            学校 / 单位由管理员档案维护；身份证号与手机号需提交证明材料后由管理员变更。
-          </p>
         </el-form>
+
+        <div class="readonly-grid">
+          <div>
+            <span>身份证号</span>
+            <strong>{{ person?.maskedIdNumber || '未登记' }}</strong>
+          </div>
+          <div>
+            <span>手机号</span>
+            <strong>{{ person?.maskedPhone || '未登记' }}</strong>
+          </div>
+          <div>
+            <span>学籍号</span>
+            <strong>{{ person?.maskedStudentNumber || '未登记' }}</strong>
+          </div>
+        </div>
+        <p class="form-tip">
+          <el-icon><Lock /></el-icon>
+          学校 / 单位由管理员档案维护；身份证号与手机号需提交证明材料后由管理员变更。
+        </p>
       </section>
 
       <aside class="profile-side">
-        <div class="page-card side-card">
-          <div class="side-card__head">
-            <el-icon class="side-card__icon" :size="19"><CircleCheck /></el-icon>
-            <h3>档案确认</h3>
-          </div>
-          <p class="side-card__text">{{ matchHint }}</p>
-          <div class="verify-row">
-            <span>比对结果</span>
-            <el-tag :type="matchTagType" size="small" effect="plain">
-              {{ matchLabel }}
-            </el-tag>
-          </div>
-          <el-button
-            type="primary"
-            plain
-            style="width: 100%; margin-top: 14px"
-            :loading="confirming"
-            :disabled="!canConfirm"
-            @click="confirmProfile"
-          >
-            {{ confirmLabel }}
-          </el-button>
-        </div>
-
         <div class="page-card side-card">
           <div class="side-card__head">
             <el-icon class="side-card__icon" :size="19"><Collection /></el-icon>
@@ -339,27 +322,61 @@ onMounted(load)
   color: var(--ink-300);
 }
 
+.section-title {
+  margin: 8px 0 20px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
 .profile-form {
-  margin-top: 6px;
+  margin-top: 0;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 24px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-item__label {
+  font-size: 12px;
+  color: var(--ink-300);
+}
+
+.info-item__value {
+  font-size: 14px;
+  color: var(--ink-700);
+  font-weight: 500;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0 16px;
+  gap: 20px 24px;
+}
+
+.form-grid :deep(.el-form-item) {
+  margin-bottom: 0;
 }
 
 .readonly-field {
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 32px;
-  padding: 0 11px;
+  min-height: 36px;
+  padding: 0 14px;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--paper);
   color: var(--ink-500);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .readonly-field.is-muted {
@@ -369,26 +386,26 @@ onMounted(load)
 .readonly-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 6px;
+  gap: 14px;
+  margin-top: 24px;
 }
 
 .readonly-grid > div {
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-radius: 10px;
   background: var(--paper);
 }
 
 .readonly-grid span {
   display: block;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--ink-300);
 }
 
 .readonly-grid strong {
   display: block;
-  margin-top: 4px;
-  font-size: 12px;
+  margin-top: 6px;
+  font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.03em;
 }
@@ -397,8 +414,8 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 14px;
-  font-size: 10px;
+  margin-top: 18px;
+  font-size: 11px;
   color: var(--ink-300);
 }
 

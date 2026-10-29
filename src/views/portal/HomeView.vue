@@ -15,6 +15,7 @@ import type {
 } from '../../api/types'
 import { IMG } from '../../config/images'
 import StatusTag from '../../components/common/StatusTag.vue'
+import SafeImage from '../../components/common/SafeImage.vue'
 import { useConsoleEntry } from '../../composables/useConsoleEntry'
 import { matchDisplayStatus, policyKind, sortPublicEvents } from '../../utils/portal'
 import { publicityNoticeKey } from '../../utils/publications'
@@ -117,7 +118,6 @@ const stripHasUpcoming = computed(() => {
 
 // 首屏只使用后勤配置的轮播图；没有配置时不加载外部图片，退回品牌色渐变底。
 const heroImage = computed(() => banners.value[0]?.imageUrl || '')
-const heroMobileImage = computed(() => banners.value[0]?.imageUrl || '')
 
 /** 首屏直播：有直播链接时用视频/播放器顶替轮播图，没有则原样展示轮播图。 */
 type HeroLiveMode = 'video' | 'iframe' | 'link'
@@ -200,7 +200,7 @@ async function loadHeroLive(match: PublicMatch | undefined) {
       usable[0]
     if (!picked) return
     heroLive.value = {
-      title: picked.title || `${match.homeTeamName} vs ${match.awayTeamName}`,
+      title: picked.title || `${match.homeTeamName || '主队'} vs ${match.awayTeamName || '客队'}`,
       url: picked.url,
       mode: liveMode(picked.url),
     }
@@ -241,9 +241,11 @@ async function loadHome() {
     let matchItems: PublicMatch[] = []
     let goalRows: GoalRankingRow[] = []
     for (const event of sortPublicEvents(eventRes.items)) {
+      // 首页固定展示小学组，必须与榜单标题一起按 category 过滤；
+      // 不传 category 时后端会返回跨组别排名，中学组球员会混入。
       const [matchRes, goalRes] = await Promise.all([
         publicApi.matches({ eventId: event.id, page: 1, pageSize: 50 }),
-        publicApi.goals({ eventId: event.id }),
+        publicApi.goals({ eventId: event.id, category: 'PRIMARY' }),
       ])
       if (!matchRes.items.length && !goalRes.rows.length) continue
       publicEventId = event.id
@@ -330,10 +332,7 @@ function publicationLink(star: PublicityRecord) {
   <div class="home">
     <section class="hero">
       <div class="hero__bg">
-        <picture v-if="heroImage">
-          <source media="(max-width: 760px)" :srcset="heroMobileImage" />
-          <img :src="heroImage" alt="青少年足球联赛" />
-        </picture>
+        <SafeImage v-if="heroImage" :src="heroImage" alt="青少年足球联赛" />
         <video
           v-if="showHeroVideo && !heroResting"
           class="hero__video"
@@ -445,8 +444,8 @@ function publicationLink(star: PublicityRecord) {
 
           <div class="scoreboard__board">
             <div class="scoreboard__team">
-              <span class="scoreboard__crest">{{ featuredMatch.homeTeamName.slice(0, 1) }}</span>
-              <strong>{{ featuredMatch.homeTeamName }}</strong>
+              <span class="scoreboard__crest">{{ (featuredMatch.homeTeamName || '球').slice(0, 1) }}</span>
+              <strong>{{ featuredMatch.homeTeamName || '未关联球队' }}</strong>
               <span class="scoreboard__score num" :class="{ 'is-live': featuredStatus === 'LIVE' }">
                 {{ homeScoreText(featuredMatch) }}
               </span>
@@ -459,8 +458,8 @@ function publicationLink(star: PublicityRecord) {
               <span v-else class="scoreboard__colon">:</span>
             </div>
             <div class="scoreboard__team">
-              <span class="scoreboard__crest scoreboard__crest--away">{{ featuredMatch.awayTeamName.slice(0, 1) }}</span>
-              <strong>{{ featuredMatch.awayTeamName }}</strong>
+              <span class="scoreboard__crest scoreboard__crest--away">{{ (featuredMatch.awayTeamName || '球').slice(0, 1) }}</span>
+              <strong>{{ featuredMatch.awayTeamName || '未关联球队' }}</strong>
               <span class="scoreboard__score num" :class="{ 'is-live': featuredStatus === 'LIVE' }">
                 {{ awayScoreText(featuredMatch) }}
               </span>
@@ -514,7 +513,7 @@ function publicationLink(star: PublicityRecord) {
 
       <div v-loading="loading" class="news-board" :class="{ 'news-board--empty': !loading && !news.length }">
         <router-link v-if="featured" :to="`/news/${featured.id}`" class="lead-card">
-          <img :src="newsCover(featured)" :alt="featured.title" />
+          <SafeImage :src="newsCover(featured)" :alt="featured.title" />
           <span class="lead-card__shade" />
           <div class="lead-card__body">
             <span class="lead-card__tag">焦点</span>
@@ -621,15 +620,15 @@ function publicationLink(star: PublicityRecord) {
               <StatusTag :status="matchDisplayStatus(match)" kind="match" />
             </div>
             <div class="match-card__team-row">
-              <span class="match-card__crest">{{ match.homeTeamName.slice(0, 1) }}</span>
-              <span class="match-card__name">{{ match.homeTeamName }}</span>
+              <span class="match-card__crest">{{ (match.homeTeamName || '球').slice(0, 1) }}</span>
+              <span class="match-card__name">{{ match.homeTeamName || '未关联球队' }}</span>
               <strong class="match-card__score num" :class="{ 'is-live': matchDisplayStatus(match) === 'LIVE' }">
                 {{ homeScoreText(match) }}
               </strong>
             </div>
             <div class="match-card__team-row">
-              <span class="match-card__crest match-card__crest--away">{{ match.awayTeamName.slice(0, 1) }}</span>
-              <span class="match-card__name">{{ match.awayTeamName }}</span>
+              <span class="match-card__crest match-card__crest--away">{{ (match.awayTeamName || '球').slice(0, 1) }}</span>
+              <span class="match-card__name">{{ match.awayTeamName || '未关联球队' }}</span>
               <strong class="match-card__score num" :class="{ 'is-live': matchDisplayStatus(match) === 'LIVE' }">
                 {{ awayScoreText(match) }}
               </strong>
@@ -733,12 +732,6 @@ function publicationLink(star: PublicityRecord) {
 .hero__bg {
   position: absolute;
   inset: 0;
-}
-
-.hero__bg picture {
-  display: block;
-  width: 100%;
-  height: 100%;
 }
 
 .hero__bg img {

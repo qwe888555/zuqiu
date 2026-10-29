@@ -5,11 +5,13 @@ import { Camera, Delete, Edit, Plus, Refresh, Search, User } from '@element-plus
 import { fileApi, personApi, teamApi } from '../../api'
 import type { Person, TeamMember } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
+import { POSITION_LABELS, positionLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
+import SafeImage from '../../components/common/SafeImage.vue'
 
 const { teams, teamId, loadTeams } = useTeamScope()
 const loading = ref(false)
@@ -25,7 +27,7 @@ const searchKeyword = ref('')
 const searching = ref(false)
 const candidates = ref<Person[]>([])
 const selected = ref<Person | null>(null)
-const memberForm = reactive({ jerseyNumber: 1, position: '中场' })
+const memberForm = reactive({ jerseyNumber: 1, position: 'MF' })
 const editVisible = ref(false)
 const editingMember = ref<TeamMember | null>(null)
 const savingEdit = ref(false)
@@ -36,18 +38,47 @@ const editForm = reactive({
   effectiveTo: '',
 })
 const uploadingPhotoId = ref('')
+/** 头像走私有文件签名地址；按 fileId 缓存，避免翻页/刷新重复签发。 */
+const avatarUrls = ref<Record<string, string>>({})
 
-const positions = ['门将', '后卫', '中场', '前锋']
+const positions = Object.entries(POSITION_LABELS).map(([value, label]) => ({ value, label }))
 
 // 成员状态是 CURRENT/EXITED（冻结关系枚举），不是报名或审核状态。
 const currentCount = computed(() => rows.value.filter((m) => m.status === 'CURRENT').length)
 const exitedCount = computed(() => rows.value.filter((m) => m.status === 'EXITED').length)
 const positionStats = computed(() =>
-  positions.map((position) => ({
-    position,
-    count: rows.value.filter((m) => m.position === position).length,
+  positions.map(({ value, label }) => ({
+    value,
+    label,
+    count: rows.value.filter((m) => m.position === value).length,
   })),
 )
+
+function memberAvatar(member: TeamMember): string {
+  return member.avatarFileId ? avatarUrls.value[member.avatarFileId] || '' : ''
+}
+
+async function hydrateAvatars(items: TeamMember[]) {
+  const pending = items.filter(
+    (item) => item.avatarFileId && !avatarUrls.value[item.avatarFileId],
+  )
+  if (!pending.length) return
+  const resolved = await Promise.all(
+    pending.map(async (item) => {
+      try {
+        const { url } = await fileApi.signedUrl(item.avatarFileId!, 'thumbnail')
+        return [item.avatarFileId!, url] as const
+      } catch {
+        return null
+      }
+    }),
+  )
+  const next = { ...avatarUrls.value }
+  for (const pair of resolved) {
+    if (pair) next[pair[0]] = pair[1]
+  }
+  avatarUrls.value = next
+}
 
 async function load() {
   if (!teamId.value) return
@@ -60,6 +91,7 @@ async function load() {
     })
     rows.value = res.items
     total.value = res.total
+    void hydrateAvatars(res.items)
   } catch {
     rows.value = []
   } finally {
@@ -84,7 +116,7 @@ function openAdd() {
   candidates.value = []
   selected.value = null
   memberForm.jerseyNumber = rows.value.length + 1
-  memberForm.position = '中场'
+  memberForm.position = 'MF'
 }
 
 async function searchPeople() {
@@ -159,12 +191,21 @@ async function uploadPhoto(member: TeamMember, options: UploadRequestOptions) {
   try {
     const record = await fileApi.upload(options.file, 'PERSON', member.athleteId, 'AVATAR')
     const person = await personApi.get(member.athleteId)
+    // 人员更新是“必填字段全量替换”：仅传 kinds/realName 会把性别、出生日期清空。
     await personApi.update(person.id, {
       kinds: person.kinds,
       realName: person.realName,
+      gender: person.gender,
+      birthDate: person.birthDate,
       avatarFileId: record.id,
       version: person.version,
     })
+    try {
+      const { url } = await fileApi.signedUrl(record.id, 'thumbnail')
+      avatarUrls.value = { ...avatarUrls.value, [record.id]: url }
+    } catch {
+      // 头像地址签发失败不阻断上传结果，下次加载列表会重试。
+    }
     ElMessage.success('球员照片已更新')
     await load()
   } catch {
@@ -223,7 +264,7 @@ onMounted(async () => {
       <StatCard
         label="本页覆盖位置"
         :value="positionStats.filter((p) => p.count > 0).length"
-        hint="门将 / 后卫 / 中场 / 前锋"
+        hint="守门员 / 后卫 / 中场 / 前锋"
         :icon="User"
         tone="blue"
       />
@@ -243,8 +284,8 @@ onMounted(async () => {
         <el-button type="primary" plain @click="search">查询</el-button>
         <span class="filter-bar__spacer" />
         <div class="position-chips">
-          <span v-for="item in positionStats" :key="item.position" class="position-chip">
-            {{ item.position }} <b class="num">{{ item.count }}</b>
+          <span v-for="item in positionStats" :key="item.value" class="position-chip">
+            {{ item.label }} <b class="num">{{ item.count }}</b>
           </span>
         </div>
       </FilterBar>
@@ -254,7 +295,7 @@ onMounted(async () => {
           <template #default="{ row }">
             <div class="person-cell">
               <span class="person-cell__avatar">
-                <img v-if="row.photoUrl" :src="row.photoUrl" alt="" />
+                <SafeImage v-if="memberAvatar(row)" :src="memberAvatar(row)" alt="" />
                 <template v-else>{{ row.athleteName.slice(0, 1) }}</template>
               </span>
               <div>
@@ -269,23 +310,28 @@ onMounted(async () => {
             <span class="jersey num">{{ row.jerseyNumber ?? '—' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="position" label="位置" width="100" />
+        <el-table-column label="位置" width="100">
+          <template #default="{ row }">{{ positionLabel(row.position) }}</template>
+        </el-table-column>
         <el-table-column label="资格状态" width="120">
           <template #default="{ row }"><StatusTag :status="row.status" kind="member" /></template>
         </el-table-column>
         <el-table-column label="操作" width="250" align="right">
           <template #default="{ row }">
-            <el-upload
-              :show-file-list="false"
-              :http-request="(options: UploadRequestOptions) => uploadPhoto(row, options)"
-              accept=".jpg,.jpeg,.png"
-            >
-              <el-button link type="primary" :icon="Camera" :loading="uploadingPhotoId === row.id">
-                照片
-              </el-button>
-            </el-upload>
-            <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" :icon="Delete" @click="removeMember(row)">移出</el-button>
+            <template v-if="row.status === 'CURRENT'">
+              <el-upload
+                :show-file-list="false"
+                :http-request="(options: UploadRequestOptions) => uploadPhoto(row, options)"
+                accept=".jpg,.jpeg,.png"
+              >
+                <el-button link type="primary" :icon="Camera" :loading="uploadingPhotoId === row.id">
+                  照片
+                </el-button>
+              </el-upload>
+              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <el-button link type="danger" :icon="Delete" @click="removeMember(row)">移出</el-button>
+            </template>
+            <span v-else class="muted">已离队</span>
           </template>
         </el-table-column>
       </el-table>
@@ -339,7 +385,12 @@ onMounted(async () => {
           </el-form-item>
           <el-form-item label="场上位置">
             <el-select v-model="memberForm.position" style="width: 100%">
-              <el-option v-for="position in positions" :key="position" :label="position" :value="position" />
+              <el-option
+                v-for="position in positions"
+                :key="position.value"
+                :label="position.label"
+                :value="position.value"
+              />
             </el-select>
           </el-form-item>
         </div>
@@ -369,7 +420,12 @@ onMounted(async () => {
           </el-form-item>
           <el-form-item label="场上位置">
             <el-select v-model="editForm.position" clearable style="width: 100%">
-              <el-option v-for="position in positions" :key="position" :label="position" :value="position" />
+              <el-option
+                v-for="position in positions"
+                :key="position.value"
+                :label="position.label"
+                :value="position.value"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="生效日期" required>

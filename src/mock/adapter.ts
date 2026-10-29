@@ -321,34 +321,6 @@ on('PUT', '/me/profile', ({ config, body }) => {
   return person
 })
 
-on('POST', '/me/profile-confirmation', ({ config, body }) => {
-  const account = requireAccount(config)
-  const person = persons.find((p) => p.id === account.personId)
-  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '尚未绑定人员档案')
-  ensureVersion(person.version, body.version)
-  // DRAFT → PENDING；PENDING 幂等；APPROVED/REJECTED 409
-  if (person.reviewStatus === 'APPROVED') {
-    throw new MockHttpError(409, 'STATE_CONFLICT', '档案已复核')
-  }
-  if (person.reviewStatus === 'REJECTED') {
-    throw new MockHttpError(409, 'STATE_CONFLICT', '档案已被驳回')
-  }
-  person.reviewStatus = 'PENDING'
-  person.version += 1
-  return person
-})
-
-on('GET', '/me/profile-match', ({ config }) => {
-  const account = requireAccount(config)
-  const person = persons.find((p) => p.id === account.personId)
-  if (!person) return { result: 'NO_MATCH' }
-  return {
-    result: 'MATCHED_TO_SELF',
-    personId: person.id,
-    maskedIdNumber: person.maskedIdNumber,
-  }
-})
-
 on('GET', '/me/teams', ({ config }) => {
   const account = requireAccount(config)
   // 学校端以学校组织为范围，自动覆盖本校全部分校/校区球队，不依赖 teamIds。
@@ -430,51 +402,94 @@ on('POST', '/accounts', ({ body }) => {
   return acc
 })
 
-on('POST', '/accounts/registration-invitations', () => ({
-  registrationToken: `invite_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`,
-  expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-}))
+on('POST', '/accounts/registration-invitations', ({ body }) => {
+  const org = organizations.find((item) => item.id === str(body.orgId))
+  if (!org) throw new MockHttpError(404, 'NOT_FOUND', '组织不存在')
+  if (!['SCHOOL', 'UNIVERSITY', 'TEAM'].includes(org.orgType)) {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', '邀请只能挂学校或球队组织')
+  }
+  const person = persons.find((item) => item.id === str(body.personId))
+  if (person?.schoolOrgId && org.orgType !== 'TEAM' && person.schoolOrgId !== org.id) {
+    throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '人员所属学校与邀请组织不一致')
+  }
+  return {
+    registrationToken: `invite_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`,
+    expiresAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+  }
+})
 
-on('POST', '/accounts/registration-invitations/batch', ({ query }) => {
+on('POST', '/accounts/registration-invitations/batch', () => {
   const token = `invite_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
   const expiresAt = new Date(Date.now() + 24 * 3600 * 1000).toISOString()
-  const result = {
-    total: 2,
-    successCount: 1,
-    failureCount: 1,
-    rows: [
-      {
-        rowNo: 2,
-        realName: '演示运动员',
-        maskedIdNumber: '510101********1234',
-        kind: 'ATHLETE',
-        orgCode: 'SCH001',
-        status: 'OK',
-        registrationToken: token,
-        expiresAt,
-      },
-      {
-        rowNo: 3,
-        realName: '未建档人员',
-        maskedIdNumber: '510101********5678',
-        kind: 'ATHLETE',
-        orgCode: 'SCH001',
-        status: 'FAILED',
-        error: '未找到人员档案，请先在人员管理中建档',
-      },
-    ],
+  const rows = [
+    {
+      rowNo: 2,
+      realName: '张子轩',
+      maskedIdNumber: '510101********1234',
+      kind: 'ATHLETE',
+      orgCode: 'CD-SYXX',
+      status: 'OK',
+      registrationToken: token,
+      expiresAt,
+    },
+    {
+      rowNo: 3,
+      realName: '未建档人员',
+      kind: 'ATHLETE',
+      orgCode: 'CD-SYXX',
+      status: 'FAILED',
+      error: '未找到人员档案',
+      code: 'INVALID_ARGUMENT',
+      fieldErrors: [{ field: 'idNumber', reason: '请先在人员管理中建档后再发账号' }],
+    },
+    {
+      rowNo: 4,
+      realName: '重复人员',
+      kind: 'ATHLETE',
+      orgCode: 'CD-SYXX',
+      status: 'FAILED',
+      error: '名单内身份证号重复（与第 2 行相同）',
+      code: 'DUPLICATE_RESOURCE',
+      fieldErrors: [{ field: 'idNumber', reason: '名单内重复' }],
+    },
+    {
+      rowNo: 5,
+      realName: '姓名不符',
+      kind: 'COACH',
+      orgCode: 'CD-QZYC',
+      status: 'FAILED',
+      error: '姓名与人员档案不一致',
+      code: 'INVALID_ARGUMENT',
+      fieldErrors: [{ field: 'realName', reason: '与身份证匹配到的档案姓名不符' }],
+    },
+    {
+      rowNo: 6,
+      realName: '跨范围人员',
+      kind: 'ATHLETE',
+      orgCode: 'MY-NSZX',
+      status: 'FAILED',
+      error: '人员不在当前账号数据范围内',
+      code: 'DATA_SCOPE_DENIED',
+      fieldErrors: [{ field: 'idNumber', reason: '所属学校超出当前账号范围' }],
+    },
+    {
+      rowNo: 7,
+      realName: '省节点人员',
+      kind: 'ATHLETE',
+      orgCode: 'CD',
+      status: 'FAILED',
+      error: '邀请只能挂学校或球队组织',
+      code: 'INVALID_ARGUMENT',
+      fieldErrors: [{ field: 'orgCode', reason: '不可挂省/市州节点' }],
+    },
+  ]
+  const successCount = rows.filter((row) => row.status === 'OK').length
+  return {
+    total: rows.length,
+    successCount,
+    failureCount: rows.length - successCount,
+    rows,
   }
-  if (query.format === 'csv') {
-    return (
-      '﻿' +
-      [
-        '序号,姓名,证件号,角色,组织编码,状态,邀请凭证,过期时间,失败原因',
-        `2,演示运动员,510101********1234,ATHLETE,SCH001,OK,${token},${expiresAt},`,
-        '3,未建档人员,510101********5678,ATHLETE,SCH001,FAILED,,,未找到人员档案，请先在人员管理中建档',
-      ].join('\r\n')
-    )
-  }
-  return result
 })
 
 on('GET', '/accounts/:id', ({ params }) => {
@@ -2989,6 +3004,34 @@ on('POST', '/public/policy-questions', ({ body }) => {
       citations: [],
       fallbackPolicies: [],
       aiGenerated: false,
+      requestId: `req_${Date.now()}`,
+    }
+  }
+  // 政策类关键词优先生效：报名/资格等没有依据时仍返回 NO_EVIDENCE，
+  // 只有明确的日常/操作类问题才走 GENERAL 答复。
+  const policyTopic = /报名|资格|材料|审核|截止|名额|年龄|组别|学籍|盖章|赛制|规程|名次|奖励|安全|医疗|天气|政策/.test(
+    question,
+  )
+  const generalTopic =
+    /^(你好|您好|在吗|嗨|hello|hi)|谢谢|感谢|忘记密码|怎么(注册|登录|使用|操作|上传|下载)|如何(注册|登录|使用|操作|上传|下载)|平台(怎么|如何|能做什么)|系统(怎么|如何)|越位|足球(是什么|比赛几|一场)/i.test(
+      question,
+    )
+  if (!policyTopic && generalTopic) {
+    const help = /密码/.test(question)
+      ? '如忘记密码，请联系所属学校或组委会账号管理员重置；重置后首次登录需要修改新密码。'
+      : /注册|邀请/.test(question)
+        ? '注册参赛账号需要使用管理员签发的一次性邀请链接；填写姓名、身份证号和手机号后即可完成注册，邀请凭证仅可使用一次。'
+        : /登录/.test(question)
+          ? '请使用管理员发放的账号登录；首次登录会要求修改初始密码。如账号被停用，请联系所属机构管理员。'
+          : '这是平台日常使用问题，可先通过页面导航进入对应功能，具体以页面提示为准；涉及政策与报名要求时，请查看已发布文件。'
+    return {
+      status: 'ANSWERED',
+      answer: help,
+      answerMode: 'GENERAL',
+      notice: '该答复未引用政策原文，仅供参考；政策与报名要求以平台发布为准。',
+      citations: [],
+      fallbackPolicies: [],
+      aiGenerated: true,
       requestId: `req_${Date.now()}`,
     }
   }

@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useAuthStore } from '../stores/auth'
+import { isUnauthenticated, useAuthStore } from '../stores/auth'
 import { canEnroll, canOpenEnrollment, homeForRoles, workspaceLabelForRoles } from '../utils/roles'
 import { openLoginDialog } from './useLoginDialog'
 
@@ -27,8 +27,8 @@ export function useConsoleEntry() {
     if (!auth.user) {
       try {
         await auth.fetchMe()
-      } catch {
-        auth.clear()
+      } catch (error) {
+        if (isUnauthenticated(error)) auth.clear()
         openLoginDialog()
         return
       }

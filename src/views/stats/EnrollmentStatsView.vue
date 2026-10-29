@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { DataAnalysis, Download, Refresh, Setting, Trophy, User, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { enrollmentApi, eventApi } from '../../api'
 import type { Event, StatRow } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
+import { useAuthStore } from '../../stores/auth'
 import { pickDefaultEventId } from '../../utils/events'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import CityHeatMap from '../../components/stats/CityHeatMap.vue'
 
 const { can } = usePermission()
+const auth = useAuthStore()
 const router = useRouter()
 const loading = ref(false)
 const eventsLoading = ref(false)
@@ -92,9 +94,14 @@ const emptyEventDescription = computed(() =>
     : '当前账号数据范围内没有可统计的赛事。请联系赛事管理员创建或开放赛事后重试。',
 )
 
+// 刷新与维度切换可能并发；只允许最后一次请求落表。
+let loadSeq = 0
+
 async function load() {
+  const seq = ++loadSeq
   if (!eventId.value) {
     rows.value = []
+    loading.value = false
     return
   }
   loading.value = true
@@ -110,6 +117,7 @@ async function load() {
         page,
         pageSize: 100,
       })
+      if (seq !== loadSeq) return
       collected.push(...res.items)
       total = res.total
       if (res.items.length < (res.pageSize || 100)) break
@@ -117,27 +125,31 @@ async function load() {
     } while (collected.length < total && page <= 50)
     rows.value = collected
   } catch {
-    rows.value = []
+    if (seq === loadSeq) rows.value = []
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
+let eventsSeq = 0
+
 async function loadEvents() {
+  const seq = ++eventsSeq
   eventsLoading.value = true
   try {
     // /events 仅 ADMIN、PROVINCE_REVIEWER 可用；市州账号改走全角色可见的赛事列表。
     const res = can('event.manage')
       ? await eventApi.list({ page: 1, pageSize: 100 })
       : await eventApi.available({ page: 1, pageSize: 100 })
+    if (seq !== eventsSeq) return
     events.value = res.items
     if (!eventId.value || !events.value.some((event) => event.id === eventId.value)) {
       eventId.value = pickDefaultEventId(events.value)
     }
   } catch {
-    events.value = []
+    if (seq === eventsSeq) events.value = []
   } finally {
-    eventsLoading.value = false
+    if (seq === eventsSeq) eventsLoading.value = false
   }
 }
 
@@ -174,6 +186,14 @@ async function exportData(kind: 'xlsx' | 'zip') {
     exporting.value = ''
   }
 }
+
+// 首屏若早于登录态恢复挂载，roles 为空会走错赛事接口导致空态；身份就绪后补拉一次。
+watch(
+  () => auth.user?.accountId,
+  (current, previous) => {
+    if (current && current !== previous) refresh()
+  },
+)
 
 onMounted(refresh)
 </script>

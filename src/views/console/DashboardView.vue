@@ -55,6 +55,15 @@ const isPlayer = computed(() => auth.roles.includes('ATHLETE') || auth.roles.inc
 const isRecorder = computed(() => auth.roles.includes('MATCH_RECORDER'))
 const isAdmin = computed(() => auth.roles.includes('ADMIN'))
 const workspaceLabel = computed(() => workspaceLabelForRoles(auth.roles))
+/** /me 不返回 team/school 组织名时，按角色从已加载的球队数据回填，避免误显示为组委会。 */
+const organizationText = computed(() => {
+  if (auth.user?.orgName) return auth.user.orgName
+  if (isTeam.value || isSchool.value) {
+    return schoolTeams.value[0]?.schoolName || schoolTeams.value[0]?.name || '所属球队'
+  }
+  if (isPlayer.value) return myTeams.value[0]?.name || '—'
+  return '省级联赛组委会'
+})
 const schoolMemberTotal = computed(() =>
   schoolTeams.value.reduce((sum, team) => sum + (team.memberCount || 0), 0),
 )
@@ -249,7 +258,7 @@ const statCards = computed(() => {
         tone: 'lime' as const,
       },
       { label: '未读消息', value: app.unreadCount, hint: '来自组委会的通知', icon: Bell, tone: 'amber' as const },
-      { label: '账号角色', value: auth.roles.includes('COACH') ? '教练员' : '运动员', hint: auth.user?.orgName || '—', icon: User, tone: 'blue' as const },
+      { label: '账号角色', value: auth.roles.includes('COACH') ? '教练员' : '运动员', hint: organizationText.value, icon: User, tone: 'blue' as const },
     ]
   }
   if (isSchool.value) {
@@ -413,7 +422,7 @@ onMounted(load)
         <div class="welcome-card__meta">
           <span><el-icon><Calendar /></el-icon>{{ today }}</span>
           <span class="dot" />
-          <span>{{ auth.user?.orgName || '省级联赛组委会' }}</span>
+          <span>{{ organizationText }}</span>
         </div>
       </div>
       <button v-if="app.unreadCount" type="button" class="welcome-card__notice" @click="go('/console/messages')">
@@ -526,7 +535,7 @@ onMounted(load)
             >
               <span class="mini-row__icon"><el-icon><Trophy /></el-icon></span>
               <div class="mini-row__body">
-                <strong>{{ match.homeTeamName }} vs {{ match.awayTeamName }}</strong>
+                <strong>{{ match.homeTeamName || '未关联球队' }} vs {{ match.awayTeamName || '未关联球队' }}</strong>
                 <small>{{ match.groupName }} · {{ dayjs(match.kickoffAt).format('MM-DD HH:mm') }} · {{ match.venue }}</small>
               </div>
               <StatusTag :status="match.status" kind="match" />

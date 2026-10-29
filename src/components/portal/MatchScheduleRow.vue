@@ -49,13 +49,13 @@ function formatTime(value?: string) {
     <span class="match-row__group">{{ match.groupName || '组别待定' }}</span>
 
     <div class="match-row__teams">
-      <span class="team team--home">{{ match.homeTeamName }}</span>
+      <span class="team team--home">{{ match.homeTeamName || '未关联球队' }}</span>
       <span class="score num" :class="{ 'is-upcoming': isScheduled }">
         <template v-if="isScheduled">VS</template>
         <template v-else-if="isCancelled">—</template>
         <template v-else>{{ match.homeScore }} : {{ match.awayScore }}</template>
       </span>
-      <span class="team team--away">{{ match.awayTeamName }}</span>
+      <span class="team team--away">{{ match.awayTeamName || '未关联球队' }}</span>
     </div>
 
     <div class="match-row__venue">

@@ -1,6 +1,6 @@
 /**
  * 最小 CSV 解析器：支持引号、转义引号、CRLF 与 UTF-8 BOM。
- * 仅用于后端批量邀请导出（字段由 csv.writer 生成），不追求通用表格语义。
+ * 当前用于读取后端导出文件，不追求通用表格语义。
  */
 export function parseCsv(text: string): string[][] {
   const source = text.replace(/^﻿/, '')
@@ -46,4 +46,18 @@ export function parseCsv(text: string): string[][] {
     rows.push(row)
   }
   return rows.filter((cells) => cells.some((cell) => cell.length > 0))
+}
+
+/** 将二维数据序列化为 CSV 文本（CRLF 行尾，按需加引号）。 */
+export function toCsv(rows: Array<Array<string | number | null | undefined>>): string {
+  return rows
+    .map((row) =>
+      row
+        .map((cell) => {
+          const text = cell === null || cell === undefined ? '' : String(cell)
+          return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+        })
+        .join(','),
+    )
+    .join('\r\n')
 }

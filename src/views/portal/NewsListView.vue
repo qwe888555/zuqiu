@@ -6,6 +6,7 @@ import { publicApi } from '../../api'
 import type { PublicContent } from '../../api/types'
 import { IMG } from '../../config/images'
 import PaginationBar from '../../components/common/PaginationBar.vue'
+import SafeImage from '../../components/common/SafeImage.vue'
 
 const loading = ref(false)
 const allItems = ref<PublicContent[]>([])
@@ -151,7 +152,7 @@ onMounted(() => {
           :to="`/news/${featured.id}`"
           class="featured-card"
         >
-          <img :src="coverFor(featured)" :alt="featured.title" />
+          <SafeImage :src="coverFor(featured)" :alt="featured.title" />
           <span class="featured-card__shade" />
           <div class="featured-card__top">
             <span class="featured-card__label">最新发布</span>
@@ -177,7 +178,7 @@ onMounted(() => {
             class="news-card"
           >
             <div class="news-card__cover">
-              <img :src="coverFor(item)" :alt="item.title" />
+              <SafeImage :src="coverFor(item)" :alt="item.title" />
               <span class="news-type-badge news-type-badge--light">{{ typeLabel(item.contentType) }}</span>
             </div>
             <div class="news-card__body">

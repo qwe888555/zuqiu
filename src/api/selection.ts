@@ -47,7 +47,26 @@ if (useMock) {
   }
 }
 
+/**
+ * 门户可匿名访问的公示查询（列表 / 详情 / 城市）。
+ * 这些接口免登录，不能附带令牌，否则令牌过期会把匿名访客踢到登录页。
+ */
+function isPublicSelectionRequest(config: { method?: string; url?: string }): boolean {
+  const method = (config.method || 'get').toLowerCase()
+  const url = config.url || ''
+  if (method !== 'get') return false
+  return (
+    url.startsWith('/publicity/') &&
+    !url.startsWith('/publicity/manage') &&
+    !url.startsWith('/publicity/mine')
+  )
+}
+
 instance.interceptors.request.use((config) => {
+  if (isPublicSelectionRequest(config)) {
+    config.skipAuth = true
+    return config
+  }
   const token = localStorage.getItem(TOKEN_KEY)
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
@@ -77,7 +96,8 @@ instance.interceptors.response.use(
   (error) => {
     const status = error?.response?.status
     const message = error?.response?.data?.message || error?.message || '网络异常，请稍后重试'
-    if (status === 401) {
+    // 匿名公示查询收到 401 不代表登录态失效，不能清令牌或跳登录页。
+    if (status === 401 && !error?.config?.skipAuth) {
       localStorage.removeItem(TOKEN_KEY)
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login'

@@ -25,7 +25,8 @@ import type {
 } from '../../api/types'
 import { ROLE_LABELS } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
-import { parseCsv } from '../../utils/csv'
+import { toCsv } from '../../utils/csv'
+import { accountOrgTypes, accountPolicyRoles, roleFitsOrg } from '../../utils/roles'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
@@ -33,11 +34,19 @@ import FilterBar from '../../components/common/FilterBar.vue'
 
 const auth = useAuthStore()
 const ACCOUNT_MANAGER_ROLES: RoleCode[] = ['ADMIN', 'PROVINCE_REVIEWER', 'CITY', 'UNIVERSITY']
+/** 邀请只能挂在组织树中的学校或球队节点。 */
+const INVITATION_ORG_TYPES: Array<Organization['orgType']> = ['SCHOOL', 'UNIVERSITY', 'TEAM']
+const ORG_TYPE_LABELS: Record<Organization['orgType'], string> = {
+  PROVINCE: '省级',
+  CITY: '市州',
+  SCHOOL: '学校',
+  UNIVERSITY: '学校',
+  TEAM: '球队',
+}
 
 const canInvite = computed(() =>
   ACCOUNT_MANAGER_ROLES.some((role) => auth.roles.includes(role)),
 )
-const canCreate = canInvite
 const canReset = computed(
   () => auth.isAdmin || auth.roles.includes('PROVINCE_REVIEWER'),
 )
@@ -46,28 +55,13 @@ const canDelete = canReset
 const roleOptions = Object.entries(ROLE_LABELS)
   .filter(([value]) => auth.isAdmin || value !== 'ADMIN')
   .map(([value, label]) => ({ value, label }))
-
-/** 与后端 ROLE_ORG_TYPES 对齐：带机构类型的角色只能挂在同类型机构下。 */
-const ORG_SCOPED_ROLES: RoleCode[] = ['PROVINCE_REVIEWER', 'CITY', 'UNIVERSITY', 'TEAM']
-const GENERIC_CREATE_ROLES: RoleCode[] = ['ATHLETE', 'COACH', 'MATCH_RECORDER']
-
-const createRoleOptions = computed(() => {
-  if (auth.isAdmin) return roleOptions
-  const actorOrgRole = ORG_SCOPED_ROLES.find((role) => auth.roles.includes(role))
-  const allowed = roleOptions.filter(
-    (option) =>
-      GENERIC_CREATE_ROLES.includes(option.value as RoleCode) || option.value === actorOrgRole,
-  )
-  // 编辑市州/学校范围内更高层级的账号时（如球队账号），保留其现有角色可见，
-  // 避免角色勾选项消失导致保存时被误解为清空。
-  for (const role of editingRow.value?.roles || []) {
-    if (!allowed.some((option) => option.value === role)) {
-      const option = roleOptions.find((item) => item.value === role)
-      if (option) allowed.push(option)
-    }
-  }
-  return allowed
-})
+const grantableRoles = computed(() => accountPolicyRoles(auth.roles))
+const createRoleOptions = computed(() =>
+  roleOptions.filter((option) => grantableRoles.value.has(option.value as RoleCode)),
+)
+const canCreate = computed(
+  () => canInvite.value && createRoleOptions.value.length > 0,
+)
 
 const defaultRole = (): RoleCode => (auth.isAdmin ? 'TEAM' : 'ATHLETE')
 
@@ -76,8 +70,22 @@ function orgLabel(row: Account) {
   return orgs.value.find((org) => org.id === row.orgId)?.name || row.orgId || '—'
 }
 
+function manageDeniedReason(row: Account) {
+  if (row.id === auth.user?.accountId) return '不能对本账号执行该操作'
+  if (row.roles.some((role) => !grantableRoles.value.has(role))) {
+    return '不能操作同级或更高权限的账号'
+  }
+  return ''
+}
+
 function canManageRow(row: Account) {
-  return auth.isAdmin || !row.roles.includes('ADMIN')
+  return !manageDeniedReason(row)
+}
+
+function ensureManageable(row: Account) {
+  const reason = manageDeniedReason(row)
+  if (reason) ElMessage.warning(reason)
+  return !reason
 }
 
 const loading = ref(false)
@@ -91,6 +99,20 @@ const teams = ref<Team[]>([])
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
+const ownOrgTypes = computed(() => accountOrgTypes(auth.roles))
+
+/**
+ * 非管理员建号时机构固定为本人所属节点，不能选择下级组织。
+ * 角色要求的组织类型与本人机构不一致时，后端会返回 400，这里提前禁用。
+ * 编辑既有账号不受影响：目标账号可位于下级组织。
+ */
+function roleBlocked(role: RoleCode) {
+  return (
+    !auth.isAdmin &&
+    !editingId.value &&
+    !roleFitsOrg(role, ownOrgTypes.value)
+  )
+}
 const editingRow = ref<Account | null>(null)
 const saving = ref(false)
 const inviteVisible = ref(false)
@@ -137,6 +159,30 @@ const formOrgLabel = computed(() => {
   if (editingRow.value) return editingRow.value.orgName || editingRow.value.orgId || ownOrgName.value
   return ownOrgName.value
 })
+
+/** 管理员可按组织树选择；学校端只能使用本人所属学校节点。 */
+const inviteOrgOptions = computed(() =>
+  orgs.value.filter((org) => INVITATION_ORG_TYPES.includes(org.orgType)),
+)
+const canUseOwnOrgForInvite = computed(
+  () => !auth.isAdmin && auth.roles.includes('UNIVERSITY'),
+)
+const canOpenPeople = computed(
+  () => auth.isAdmin || auth.roles.includes('PROVINCE_REVIEWER'),
+)
+const selectedInvitePerson = computed(() =>
+  personOptions.value.find((person) => person.id === inviteForm.personId),
+)
+const inviteOrgLabel = computed(() => {
+  if (selectedInvitePerson.value?.schoolName) return selectedInvitePerson.value.schoolName
+  const org = orgs.value.find((item) => item.id === inviteForm.orgId)
+  if (org) return org.name
+  if (inviteForm.orgId && inviteForm.orgId === ownOrgId.value) return ownOrgName.value
+  return inviteForm.orgId || '未选择'
+})
+const batchFallbackOrgLabel = computed(() =>
+  canUseOwnOrgForInvite.value ? ownOrgName.value : '按名单组织编码逐行匹配',
+)
 
 const enabledCount = computed(() => rows.value.filter((row) => row.enabled).length)
 const disabledCount = computed(() => rows.value.filter((row) => !row.enabled).length)
@@ -239,7 +285,7 @@ function openCreate() {
 }
 
 function openEdit(row: Account) {
-  if (!canManageRow(row)) return ElMessage.warning('仅管理员可修改管理员账号')
+  if (!ensureManageable(row)) return
   editingId.value = row.id
   editingRow.value = row
   Object.assign(form, {
@@ -273,6 +319,12 @@ async function save() {
   if (!form.username.trim()) return ElMessage.warning('请填写登录账号')
   if (!form.displayName.trim()) return ElMessage.warning('请填写账号名称')
   if (!form.roles.length) return ElMessage.warning('请至少选择一个角色')
+  if (form.roles.some((role) => !grantableRoles.value.has(role))) {
+    return ElMessage.warning('无权授予所选角色')
+  }
+  if (form.roles.some((role) => roleBlocked(role))) {
+    return ElMessage.warning('所选角色需要绑定下级组织，当前账号只能在本机构建号')
+  }
   if (!auth.isAdmin && !form.orgId) form.orgId = ownOrgId.value
   if (!form.orgId) {
     return ElMessage.warning(auth.isAdmin ? '请选择所属机构' : '当前账号未绑定机构，无法建号')
@@ -312,7 +364,7 @@ async function save() {
 }
 
 async function toggleEnabled(row: Account) {
-  if (!canManageRow(row)) return ElMessage.warning('仅管理员可操作管理员账号')
+  if (!ensureManageable(row)) return
   if (!row.orgId) return ElMessage.warning('该账号未绑定机构，无法修改状态')
   try {
     await accountApi.update(row.id, { ...accountPayload(row), enabled: !row.enabled })
@@ -324,7 +376,7 @@ async function toggleEnabled(row: Account) {
 }
 
 async function resetPassword(row: Account) {
-  if (!canManageRow(row)) return ElMessage.warning('仅管理员可重置管理员密码')
+  if (!ensureManageable(row)) return
   try {
     const { value } = await ElMessageBox.prompt(
       `为「${row.displayName}」设置新的登录密码，重置后该账号现有登录状态将失效。`,
@@ -350,7 +402,7 @@ async function resetPassword(row: Account) {
 }
 
 async function removeAccount(row: Account) {
-  if (!canManageRow(row)) return ElMessage.warning('仅管理员可删除管理员账号')
+  if (!ensureManageable(row)) return
   try {
     await ElMessageBox.confirm(`确认删除账号「${row.username}」？删除后无法登录系统。`, '删除账号', {
       confirmButtonText: '删除',
@@ -370,12 +422,74 @@ function invite() {
   inviteInfo.value = null
   inviteLoading.value = false
   inviteForm.kind = 'ATHLETE'
-  inviteForm.orgId = auth.isAdmin ? '' : ownOrgId.value
+  inviteForm.orgId = auth.isAdmin
+    ? ''
+    : canUseOwnOrgForInvite.value
+      ? ownOrgId.value
+      : ''
   inviteForm.personId = ''
 }
 
+function onInvitePersonChange() {
+  const person = selectedInvitePerson.value
+  if (!person) {
+    inviteForm.orgId = auth.isAdmin
+      ? ''
+      : canUseOwnOrgForInvite.value
+        ? ownOrgId.value
+        : ''
+    return
+  }
+  if (!person.schoolOrgId) {
+    if (!auth.isAdmin) {
+      inviteForm.orgId = canUseOwnOrgForInvite.value ? ownOrgId.value : ''
+      ElMessage.warning('该人员未登记所属学校，无法发放邀请')
+    }
+    return
+  }
+  const current = orgs.value.find((org) => org.id === inviteForm.orgId)
+  // 管理员可保留已选的球队节点；其余情况按人员所属学校自动对齐。
+  if (!auth.isAdmin || !current || current.orgType !== 'TEAM') {
+    inviteForm.orgId = person.schoolOrgId
+  }
+}
+
+function validateInviteOrg(person?: Person) {
+  if (!person?.schoolOrgId) return true
+  const org = orgs.value.find((item) => item.id === inviteForm.orgId)
+  if (!org) return true
+  if (!INVITATION_ORG_TYPES.includes(org.orgType)) {
+    ElMessage.warning('邀请只能挂学校或球队组织')
+    return false
+  }
+  const matches =
+    org.orgType === 'TEAM' ? org.parentId === person.schoolOrgId : org.id === person.schoolOrgId
+  if (!matches) {
+    ElMessage.warning('人员所属学校与邀请组织不一致')
+    return false
+  }
+  return true
+}
+
 async function generateInvite() {
-  if (!inviteForm.orgId) return ElMessage.warning('请选择受邀人员所属机构')
+  const person = selectedInvitePerson.value
+  if (person && !person.schoolOrgId) {
+    return ElMessage.warning('该人员未登记所属学校，无法发放邀请')
+  }
+  if (person?.schoolOrgId) {
+    const current = orgs.value.find((org) => org.id === inviteForm.orgId)
+    if (!auth.isAdmin || !current || current.orgType !== 'TEAM') {
+      inviteForm.orgId = person.schoolOrgId
+    }
+  }
+  if (!inviteForm.orgId) {
+    return ElMessage.warning(
+      auth.isAdmin || canUseOwnOrgForInvite.value
+        ? '请选择受邀人员所属学校或球队'
+        : '省/市州账号请先选择人员档案，系统将按人员所属学校匹配邀请组织',
+    )
+  }
+  if (!validateInviteOrg(person)) return
   inviteLoading.value = true
   try {
     inviteInfo.value = await accountApi.invite({
@@ -416,7 +530,11 @@ function openBatch() {
   batchVisible.value = true
   batchFile.value = null
   batchLoading.value = false
-  batchOrgId.value = auth.isAdmin ? '' : ownOrgId.value
+  batchOrgId.value = auth.isAdmin
+    ? ''
+    : canUseOwnOrgForInvite.value
+      ? ownOrgId.value
+      : ''
   batchExpiresMinutes.value = 1440
   batchSummary.value = null
   batchRows.value = []
@@ -448,22 +566,35 @@ function clearBatchFile() {
   if (batchFileInput.value) batchFileInput.value.value = ''
 }
 
-function parseBatchCsv(text: string): InviteBatchRow[] {
-  const [header, ...dataRows] = parseCsv(text)
-  if (!header || header[0] !== '序号') return []
-  return dataRows.map((cells) => {
-    const [rowNo, realName, maskedIdNumber, kind, orgCode, status, , expiresAt, error] = cells
-    return {
-      rowNo: Number(rowNo) || 0,
-      realName: realName || '',
-      maskedIdNumber: maskedIdNumber || '',
-      kind: kind || '',
-      orgCode: orgCode || '',
-      status: status === 'OK' ? 'OK' : 'FAILED',
-      expiresAt: expiresAt || '',
-      error: error || '',
-    }
-  })
+function batchFieldErrors(row: InviteBatchRow) {
+  return (row.fieldErrors || [])
+    .map((item) => [item.field, item.reason].filter(Boolean).join('：'))
+    .filter(Boolean)
+    .join('；')
+}
+
+function batchRowReason(row: InviteBatchRow) {
+  return [row.error, batchFieldErrors(row)].filter(Boolean).join('；')
+}
+
+/** 接口返回逐行 JSON；明文凭证只在此次响应中，前端立即生成 CSV 供下载。 */
+function buildBatchCsvBlob(rows: InviteBatchRow[]) {
+  const csv = toCsv([
+    ['序号', '姓名', '证件号', '角色', '组织编码', '状态', '邀请凭证', '过期时间', '失败原因'],
+    ...rows.map((row) => [
+      row.rowNo,
+      row.realName,
+      row.maskedIdNumber || '',
+      row.kind,
+      row.orgCode,
+      row.status,
+      row.registrationToken || '',
+      row.expiresAt || '',
+      batchRowReason(row),
+    ]),
+  ])
+  // UTF-8 BOM：Excel 双击打开不乱码
+  return new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
 }
 
 async function submitBatch() {
@@ -487,21 +618,21 @@ async function submitBatch() {
   batchCsvBlob.value = null
   batchCsvName.value = ''
   try {
-    const blob = await accountApi.inviteBatchCsv(batchFile.value, {
+    const result = await accountApi.inviteBatch(batchFile.value, {
       orgId: batchOrgId.value || undefined,
       expiresInMinutes: batchExpiresMinutes.value,
     })
-    const text = await blob.text()
-    const parsed = parseBatchCsv(text)
-    const success = parsed.filter((row) => row.status === 'OK').length
-    const failure = parsed.length - success
-    batchRows.value = parsed
-    batchSummary.value = { total: parsed.length, success, failure }
+    const resultRows = result.rows || []
+    const success = result.successCount ?? resultRows.filter((row) => row.status === 'OK').length
+    const failure = result.failureCount ?? resultRows.length - success
+    batchRows.value = resultRows
+    batchSummary.value = { total: result.total ?? resultRows.length, success, failure }
+    const blob = buildBatchCsvBlob(resultRows)
     batchCsvBlob.value = blob
     batchCsvName.value = `批量邀请-${dayjs().format('YYYYMMDD-HHmmss')}.csv`
     http.saveBlob(blob, batchCsvName.value)
     if (failure > 0) {
-      ElMessage.warning(`已签发 ${success} 条，${failure} 条失败，失败原因见导出 CSV`)
+      ElMessage.warning(`已签发 ${success} 条，${failure} 条失败，失败原因见下方列表与导出 CSV`)
     } else {
       ElMessage.success(`已签发 ${success} 条邀请，凭证已随 CSV 下载`)
     }
@@ -546,7 +677,7 @@ onMounted(() => {
       :closable="false"
       show-icon
       title="当前仅显示本机构及下级账号"
-      description="新建账号默认归属当前机构；人员检索与邀请发放同样受组织数据范围限制。"
+      description="只能授予角色策略允许的角色；本账号、同级或更高权限账号不可操作。人员检索与邀请发放同样受组织数据范围限制。"
     />
 
     <div class="stat-grid">
@@ -633,7 +764,7 @@ onMounted(() => {
                 删除
               </el-button>
             </template>
-            <span v-else class="muted">无权操作</span>
+            <span v-else class="muted">{{ manageDeniedReason(row) || '无权操作' }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -659,12 +790,21 @@ onMounted(() => {
         </div>
         <el-form-item label="角色权限" required>
           <el-checkbox-group v-model="form.roles">
-            <el-checkbox v-for="role in createRoleOptions" :key="role.value" :value="role.value">
+            <el-checkbox
+              v-for="role in createRoleOptions"
+              :key="role.value"
+              :value="role.value"
+              :disabled="roleBlocked(role.value as RoleCode)"
+            >
               {{ role.label }}
+              <span v-if="roleBlocked(role.value as RoleCode)" class="role-blocked">
+                （需下级组织）
+              </span>
             </el-checkbox>
           </el-checkbox-group>
-          <p v-if="!auth.isAdmin" class="field-hint">
-            仅显示当前机构可授予的角色；市州/学校账号默认归属本机构。
+          <p class="field-hint">
+            仅显示当前账号角色策略内可授予的角色；新建账号默认归属当前机构。
+            标记“需下级组织”的角色请由管理员选择对应下级组织后创建。
           </p>
         </el-form-item>
         <el-form-item label="所属机构" required>
@@ -731,17 +871,22 @@ onMounted(() => {
               <el-radio-button value="COACH">教练员</el-radio-button>
             </el-radio-group>
           </el-form-item>
-          <el-form-item label="所属机构" required>
+          <el-form-item label="邀请组织" required>
             <el-select
               v-if="auth.isAdmin"
               v-model="inviteForm.orgId"
               filterable
               style="width: 100%"
-              placeholder="请选择受邀人员所属机构"
+              placeholder="请选择受邀人员所属学校或球队"
             >
-              <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
+              <el-option
+                v-for="org in inviteOrgOptions"
+                :key="org.id"
+                :label="`${org.name}（${ORG_TYPE_LABELS[org.orgType]}）`"
+                :value="org.id"
+              />
             </el-select>
-            <el-input v-else :model-value="ownOrgName" disabled />
+            <el-input v-else :model-value="inviteOrgLabel" disabled />
           </el-form-item>
           <el-form-item label="关联人员档案">
             <el-select
@@ -753,6 +898,7 @@ onMounted(() => {
               :loading="personLoading"
               style="width: 100%"
               placeholder="可选，绑定后注册账号即可读取本人档案与球队"
+              @change="onInvitePersonChange"
             >
               <el-option
                 v-for="person in personOptions"
@@ -762,6 +908,9 @@ onMounted(() => {
               />
             </el-select>
           </el-form-item>
+          <p class="field-hint invite-rule">
+            邀请只能挂学校或球队组织，不能挂省/市州节点。选择人员档案后，邀请组织必须与人员所属学校一致。
+          </p>
           <p class="muted invite-tip">令牌 24 小时内有效且仅可使用一次，请通过安全渠道发送给受邀人。</p>
         </el-form>
         <template v-else>
@@ -797,7 +946,17 @@ onMounted(() => {
         <div>
           <strong>用 Excel 名单批量签发注册邀请</strong>
           <p class="muted">
-            仅给人员主档中已建档的人员发放；未建档、姓名不符、已绑定账号或已有未使用邀请的行会失败。
+            仅给人员主档中已建档的人员发放（按身份证号匹配）；未建档、姓名不符、已绑定账号或已有未使用邀请的行会失败。
+          </p>
+          <p class="people-hint">
+            <template v-if="canOpenPeople">
+              名单必须先有人员主档，请
+              <router-link to="/console/admin/people">先去人员管理建档</router-link>
+              。
+            </template>
+            <template v-else>
+              名单必须先有人员主档，请先去人员管理建档（可联系省级或学校账号录入）。
+            </template>
           </p>
         </div>
         <a class="template-link" :href="templateUrl" download="批量邀请模板.xlsx">
@@ -808,7 +967,7 @@ onMounted(() => {
 
       <el-form label-position="top">
         <div class="form-grid">
-          <el-form-item label="默认所属机构（可选）">
+          <el-form-item label="默认邀请组织（可选）">
             <el-select
               v-if="auth.isAdmin"
               v-model="batchOrgId"
@@ -817,9 +976,17 @@ onMounted(() => {
               style="width: 100%"
               placeholder="表格组织编码为空时使用"
             >
-              <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
+              <el-option
+                v-for="org in inviteOrgOptions"
+                :key="org.id"
+                :label="`${org.name}（${ORG_TYPE_LABELS[org.orgType]}）`"
+                :value="org.id"
+              />
             </el-select>
-            <el-input v-else :model-value="ownOrgName" disabled />
+            <el-input v-else :model-value="batchFallbackOrgLabel" disabled />
+            <p class="field-hint">
+              名单每行必须填写学校/球队组织编码，不能使用省/市州节点；组织编码留空时才使用默认值。
+            </p>
           </el-form-item>
           <el-form-item label="邀请有效期">
             <el-select v-model="batchExpiresMinutes" style="width: 100%">
@@ -867,14 +1034,36 @@ onMounted(() => {
           max-height="240"
           style="width: 100%"
         >
-          <el-table-column prop="rowNo" label="行号" width="64" />
-          <el-table-column prop="realName" label="姓名" width="110" />
-          <el-table-column prop="maskedIdNumber" label="证件号" width="150" />
-          <el-table-column label="角色" width="90">
+          <el-table-column prop="rowNo" label="行号" width="62" />
+          <el-table-column prop="realName" label="姓名" width="100" />
+          <el-table-column prop="maskedIdNumber" label="证件号" width="145" />
+          <el-table-column label="角色" width="82">
             <template #default="{ row }">{{ roleLabel(row.kind) }}</template>
           </el-table-column>
-          <el-table-column prop="orgCode" label="组织编码" width="120" />
-          <el-table-column prop="error" label="失败原因" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="orgCode" label="组织编码" width="110" />
+          <el-table-column label="错误码" width="145">
+            <template #default="{ row }">
+              <el-tag v-if="row.code" type="danger" size="small" effect="plain">
+                {{ row.code }}
+              </el-tag>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="error" label="失败原因" min-width="180" show-overflow-tooltip />
+          <el-table-column label="字段错误" min-width="210">
+            <template #default="{ row }">
+              <span v-if="row.fieldErrors?.length" class="field-errors">
+                <span
+                  v-for="(item, index) in row.fieldErrors"
+                  :key="index"
+                  class="field-errors__item"
+                >
+                  {{ [item.field, item.reason].filter(Boolean).join('：') }}
+                </span>
+              </span>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
         </el-table>
         <p class="muted batch-footnote">
           成功行的邀请凭证只在本次下载的 CSV 中；如文件丢失，需等待原邀请过期后重新签发。
@@ -940,6 +1129,12 @@ onMounted(() => {
   margin: 2px 4px 2px 0;
 }
 
+.role-blocked {
+  margin-left: 2px;
+  font-size: 10px;
+  color: var(--ink-300);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -961,6 +1156,38 @@ onMounted(() => {
   font-size: 11px;
   line-height: 1.6;
   color: var(--ink-300);
+}
+
+.invite-rule {
+  margin: 0 0 8px;
+}
+
+.people-hint {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--brand-700);
+}
+
+.people-hint a {
+  color: var(--brand-700);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.field-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.field-errors__item {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--live-soft, #fdf0ed);
+  color: var(--danger-600, #b33a3a);
+  font-size: 10.5px;
+  line-height: 1.45;
 }
 
 .batch-head {

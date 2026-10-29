@@ -9,6 +9,7 @@ import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
+import SafeImage from '../../components/common/SafeImage.vue'
 
 const loading = ref(false)
 const rows = ref<Content[]>([])
@@ -64,7 +65,10 @@ const typeLabel: Record<string, string> = {
 const publishedCount = computed(() => rows.value.filter((row) => row.status === 'PUBLISHED').length)
 const draftCount = computed(() => rows.value.filter((row) => row.status === 'DRAFT').length)
 
+let loadSeq = 0
+
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
   try {
     const res = await contentApi.list({
@@ -77,12 +81,13 @@ async function load() {
       status: filters.status || undefined,
       keyword: filters.keyword || undefined,
     })
+    if (seq !== loadSeq) return
     rows.value = res.items
     total.value = res.total
   } catch {
-    rows.value = []
+    if (seq === loadSeq) rows.value = []
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -580,7 +585,7 @@ onMounted(() => {
           <span>{{ dayjs(preview.publishedAt || preview.createdAt).format('YYYY-MM-DD HH:mm') }}</span>
           <StatusTag :status="preview.status" kind="content" />
         </div>
-        <img v-if="preview.coverUrl" :src="preview.coverUrl" alt="" class="preview__cover" />
+        <SafeImage v-if="preview.coverUrl" :src="preview.coverUrl" alt="" class="preview__cover" />
         <p v-if="preview.summary" class="preview__summary">{{ preview.summary }}</p>
         <div class="rich-text" v-html="preview.bodyHtml" />
       </div>

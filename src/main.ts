@@ -7,6 +7,10 @@ import 'element-plus/dist/index.css'
 import './styles/index.css'
 import App from './App.vue'
 import router from './router'
+import { installImageFallback } from './utils/images'
+
+// 富文本等动态图片无法逐个使用 SafeImage，统一在图片加载失败时兜底。
+installImageFallback()
 
 const app = createApp(App)
 

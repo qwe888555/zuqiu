@@ -74,7 +74,7 @@ async function enrichCheck(check: IdentityCheck): Promise<IdentityCheck> {
     athleteName: athlete?.athleteName,
     teamName: enrollment?.teamName,
     groupName,
-    matchLabel: match ? `${match.homeTeamName} vs ${match.awayTeamName}` : undefined,
+    matchLabel: match ? `${match.homeTeamName || '主队'} vs ${match.awayTeamName || '客队'}` : undefined,
     reviewerName:
       reviewer?.displayName || reviewer?.username || check.reviewerName,
   }
@@ -477,7 +477,7 @@ onBeforeUnmount(() => {
             <el-option
               v-for="match in matches"
               :key="match.id"
-              :label="`${match.homeTeamName} vs ${match.awayTeamName} · ${dayjs(match.kickoffAt).format('MM-DD HH:mm')}`"
+              :label="`${match.homeTeamName || '主队'} vs ${match.awayTeamName || '客队'} · ${dayjs(match.kickoffAt).format('MM-DD HH:mm')}`"
               :value="match.id"
             />
           </el-select>
