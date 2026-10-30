@@ -9,6 +9,7 @@ import type { LiveLink, LivePost, MatchEvent, PublicLivePost, PublicMatch } from
 import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 import { refereeRoleLabel } from '../../config/labels'
+import { httpStatusOf } from '../../utils/httpError'
 import { formatBeijing, matchDisplayStatus } from '../../utils/portal'
 
 interface MatchDetail extends PublicMatch {
@@ -23,6 +24,9 @@ const match = ref<MatchDetail | null>(null)
 const liveFeed = ref<PublicLivePost[]>([])
 const liveLinks = ref<LiveLink[]>([])
 const activeTab = ref('events')
+/** 预览账号无权读取记录台数据时，区分「没有数据」与「无权查看」，避免误导。 */
+const eventsRestricted = ref(false)
+const feedRestricted = ref(false)
 let timer: number | undefined
 
 /** 管理端「门户预览」携带 preview=1，可查看尚未发布的比赛。 */
@@ -146,32 +150,36 @@ function toPublicPosts(posts: LivePost[]): PublicLivePost[] {
 
 /** 未发布比赛无法通过门户接口读取，预览时改走管理端接口。 */
 async function loadPreviewDetail(id: string): Promise<boolean> {
-  try {
-    const [detail, events, posts, links] = await Promise.all([
-      matchApi.get(id),
-      matchApi.events(id, { page: 1, pageSize: 200 }),
-      matchApi.livePosts(id, { page: 1, pageSize: 200 }),
-      matchApi.liveLinks(id),
-    ])
-    published.value = detail.published
-    match.value = {
-      ...detail,
-      homeScore: detail.homeScore ?? 0,
-      awayScore: detail.awayScore ?? 0,
-      events: events.items,
-    }
-    liveFeed.value = toPublicPosts(posts.items)
-    liveLinks.value = normalizeLinks(links)
-    defaultTab()
-    return true
-  } catch {
-    return false
+  // 比赛本体是预览的必备数据；事件流、图文与直播链接属于记录台数据，
+  // 市州等只读角色没有对应权限，补充数据失败时应降级为空而不是整页报错。
+  const [detailRes, eventsRes, postsRes, linksRes] = await Promise.allSettled([
+    matchApi.get(id),
+    matchApi.events(id, { page: 1, pageSize: 200 }, { silentError: true }),
+    matchApi.livePosts(id, { page: 1, pageSize: 200 }, { silentError: true }),
+    matchApi.liveLinks(id, { silentError: true }),
+  ])
+  if (detailRes.status === 'rejected') return false
+  const detail = detailRes.value
+  published.value = detail.published
+  match.value = {
+    ...detail,
+    homeScore: detail.homeScore ?? 0,
+    awayScore: detail.awayScore ?? 0,
+    events: eventsRes.status === 'fulfilled' ? eventsRes.value.items : [],
   }
+  liveFeed.value = postsRes.status === 'fulfilled' ? toPublicPosts(postsRes.value.items) : []
+  liveLinks.value = linksRes.status === 'fulfilled' ? normalizeLinks(linksRes.value) : []
+  eventsRestricted.value = eventsRes.status === 'rejected' && httpStatusOf(eventsRes.reason) === 403
+  feedRestricted.value = postsRes.status === 'rejected' && httpStatusOf(postsRes.reason) === 403
+  defaultTab()
+  return true
 }
 
 async function load() {
   const id = String(route.params.id)
   loading.value = true
+  eventsRestricted.value = false
+  feedRestricted.value = false
   try {
     if (previewMode.value) {
       if (!(await loadPreviewDetail(id))) match.value = null
@@ -205,7 +213,11 @@ async function refreshLive() {
   if (!match.value || !isLive.value) return
   try {
     if (previewMode.value) {
-      const feed = await matchApi.livePosts(match.value.id, { page: 1, pageSize: 200 })
+      const feed = await matchApi.livePosts(
+        match.value.id,
+        { page: 1, pageSize: 200 },
+        { silentError: true },
+      )
       liveFeed.value = toPublicPosts(feed.items)
       return
     }
@@ -352,7 +364,11 @@ watch(() => route.params.id, load)
                 </span>
               </div>
             </div>
-            <el-empty v-else description="暂无比赛事件" :image-size="90" />
+            <el-empty
+              v-else
+              :description="eventsRestricted ? '当前角色无权查看赛况事件' : '暂无比赛事件'"
+              :image-size="90"
+            />
           </div>
 
           <div v-show="activeTab === 'live'" class="panel">
@@ -368,7 +384,11 @@ watch(() => route.params.id, load)
                 </div>
               </article>
             </div>
-            <el-empty v-else description="暂无图文直播" :image-size="90" />
+            <el-empty
+              v-else
+              :description="feedRestricted ? '当前角色无权查看图文直播' : '暂无图文直播'"
+              :image-size="90"
+            />
           </div>
 
           <div v-show="activeTab === 'info'" class="panel">

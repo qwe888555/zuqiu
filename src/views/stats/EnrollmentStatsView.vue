@@ -27,6 +27,8 @@ const selectedCity = ref('')
 
 function cityKey(label: string) {
   return label
+    // 统计接口按市州组织聚合，label 通常是「成都市教育局」这类机构名。
+    .replace(/(教育和体育局|教育体育局|教育局|教育委员会|教体局|体育局)$/g, '')
     .replace(/(藏族羌族自治州|彝族自治州|藏族自治州|自治州|地区|市|州)$/g, '')
     .trim()
 }

@@ -36,6 +36,9 @@ const counts = ref({ all: 0, pendingCity: 0, pendingProvince: 0, approved: 0, re
 const upcomingMatchTotal = ref(0)
 const recentEnrollments = ref<Enrollment[]>([])
 const recentMatches = ref<Match[]>([])
+/** 记录员卡片的「进行中/未开赛」是全场次统计，不能只数最近 5 场。 */
+const liveMatchTotal = ref(0)
+const scheduledMatchTotal = ref(0)
 const materials = ref<Material[]>([])
 const myTeams = ref<{ id: string; name: string }[]>([])
 const schoolTeams = ref<Team[]>([])
@@ -58,7 +61,10 @@ const workspaceLabel = computed(() => workspaceLabelForRoles(auth.roles))
 /** /me 不返回 team/school 组织名时，按角色从已加载的球队数据回填，避免误显示为组委会。 */
 const organizationText = computed(() => {
   if (auth.user?.orgName) return auth.user.orgName
-  if (isTeam.value || isSchool.value) {
+  if (isSchool.value) {
+    return schoolTeams.value[0]?.schoolName || '本校'
+  }
+  if (isTeam.value) {
     return schoolTeams.value[0]?.schoolName || schoolTeams.value[0]?.name || '所属球队'
   }
   if (isPlayer.value) return myTeams.value[0]?.name || '—'
@@ -67,15 +73,10 @@ const organizationText = computed(() => {
 const schoolMemberTotal = computed(() =>
   schoolTeams.value.reduce((sum, team) => sum + (team.memberCount || 0), 0),
 )
-const recorderMatchStats = computed(() => {
-  const stats = { live: 0, scheduled: 0, finished: 0 }
-  recentMatches.value.forEach((match) => {
-    if (match.status === 'LIVE') stats.live += 1
-    else if (match.status === 'SCHEDULED') stats.scheduled += 1
-    else if (match.status === 'FINISHED') stats.finished += 1
-  })
-  return stats
-})
+const recorderMatchStats = computed(() => ({
+  live: liveMatchTotal.value,
+  scheduled: scheduledMatchTotal.value,
+}))
 
 /**
  * 「待审核」对不同角色含义不同：
@@ -347,6 +348,18 @@ async function load() {
           schoolTeams.value = []
         }
       }
+      // 记录员的卡片数量按状态单独取 total。请求在这里先发出，
+      // 与下面的报名/比赛批次并行，避免仪表盘多等一个隧道往返。
+      const recorderCountRequests =
+        isRecorder.value && !isAdmin.value
+          ? Promise.allSettled([
+              matchApi.list({ page: 1, pageSize: 1, status: 'LIVE' }, { silentError: true }),
+              matchApi.list(
+                { page: 1, pageSize: 1, status: 'SCHEDULED' },
+                { silentError: true },
+              ),
+            ])
+          : null
       // 报名与比赛是不同权限点：记录员无报名权限时不能让整页数据一起失败。
       const [recentRes, pcRes, pvRes, approvedRes, rejectedRes, matchesRes] =
         await Promise.allSettled([
@@ -394,6 +407,18 @@ async function load() {
       } else {
         upcomingMatchTotal.value = matches.total
         recentMatches.value = matches.items
+      }
+      if (recorderCountRequests) {
+        // 最近 5 场只是列表取样；卡片数量改用 status 过滤后的 total，避免把 0 当成全省实际值。
+        const [liveRes, scheduledRes] = await recorderCountRequests
+        const countInRecent = (status: Match['status']) =>
+          matches.items.filter((match) => match.status === status).length
+        liveMatchTotal.value =
+          liveRes.status === 'fulfilled' ? liveRes.value.total : countInRecent('LIVE')
+        scheduledMatchTotal.value =
+          scheduledRes.status === 'fulfilled'
+            ? scheduledRes.value.total
+            : countInRecent('SCHEDULED')
       }
     }
   } catch {

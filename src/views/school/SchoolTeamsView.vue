@@ -68,15 +68,22 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [teamList, enrollmentRes] = await Promise.all([
+    const [teamRes, enrollmentRes] = await Promise.allSettled([
       meApi.teams(),
       enrollmentApi.list({ page: 1, pageSize: 200 }),
     ])
-    teams.value = teamList
-    enrollments.value = enrollmentRes.items
-  } catch {
-    // 接口失败不能伪装成「本校还没有球队」：保留上次成功的数据并给出可重试的错误态。
-    loadError.value = '本校球队加载失败，请检查网络后重试'
+    if (teamRes.status === 'fulfilled') {
+      teams.value = teamRes.value
+    } else {
+      // 球队是页面主体；失败时保留上次成功的数据并给出可重试的错误态。
+      loadError.value = '本校球队加载失败，请检查网络后重试'
+    }
+    // 报名只是「最新报名」列的补充信息，失败不应连带清空球队列表。
+    if (enrollmentRes.status === 'fulfilled') {
+      enrollments.value = enrollmentRes.value.items
+    } else {
+      enrollments.value = []
+    }
   } finally {
     loading.value = false
   }
@@ -152,7 +159,7 @@ onMounted(load)
     <section class="school-scope page-card">
       <div class="school-scope__body">
         <span class="school-scope__eyebrow">学校端 · 数据范围</span>
-        <h2>{{ auth.user?.orgName || '本校' }}</h2>
+        <h2>{{ auth.user?.orgName || teams[0]?.schoolName || '本校' }}</h2>
         <p>
           仅可查看和维护本校球队、球员、报名与材料。分校/校区作为球队属性管理，与本校共享同一学校名额；切换球队后，球员名单、教练团队和球队材料会同步切换。
         </p>
@@ -267,7 +274,11 @@ onMounted(load)
           :closable="false"
           show-icon
           title="球队归属当前学校"
-          :description="auth.user?.orgName || '当前账号未绑定学校'"
+          :description="
+            auth.user?.orgName ||
+            teams[0]?.schoolName ||
+            (auth.user?.orgId ? '本校' : '当前账号未绑定学校')
+          "
         />
         <el-form-item label="球队名称" prop="name">
           <el-input v-model="form.name" placeholder="如：成都七中初中男子足球队" />

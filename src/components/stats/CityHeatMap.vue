@@ -46,6 +46,9 @@ const CITY_TILES: CityTile[] = [
 
 function cityKey(label: string) {
   return label
+    // 统计接口按市州组织聚合，label 通常是「成都市教育局」这类机构名；
+    // 先去掉机构后缀，再去掉行政区划后缀，才能和内置市州 key 对齐。
+    .replace(/(教育和体育局|教育体育局|教育局|教育委员会|教体局|体育局)$/g, '')
     .replace(/(藏族羌族自治州|彝族自治州|藏族自治州|自治州|地区|市|州)$/g, '')
     .trim()
 }
@@ -72,6 +75,43 @@ const maxTeams = computed(() => Math.max(1, ...Array.from(statsByCity.value.valu
 const unmapped = computed(() =>
   props.rows.filter((row) => !CITY_TILES.some((tile) => tile.key === cityKey(row.label))),
 )
+
+/**
+ * 内置 21 市州始终完整展示（无报名的显示 0），
+ * 名称匹配不上的统计项在下方单独列出，避免数据被隐藏。
+ */
+const unmappedTiles = computed(() => {
+  const map = new Map<string, StatRow>()
+  for (const row of unmapped.value) {
+    const key = cityKey(row.label) || row.key || row.label
+    const current = map.get(key)
+    if (current) {
+      current.teamCount += row.teamCount
+      current.athleteCount += row.athleteCount
+      current.pendingCount = (current.pendingCount || 0) + (row.pendingCount || 0)
+      current.approvedCount = (current.approvedCount || 0) + (row.approvedCount || 0)
+      current.rejectedCount = (current.rejectedCount || 0) + (row.rejectedCount || 0)
+    } else {
+      map.set(key, { ...row, key })
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => b.teamCount - a.teamCount || b.athleteCount - a.athleteCount,
+  )
+})
+
+const dynamicMax = computed(() =>
+  Math.max(1, ...unmappedTiles.value.map((row) => row.teamCount)),
+)
+
+function dynamicLevel(row: StatRow) {
+  if (!row.teamCount) return 0
+  return Math.min(4, Math.max(1, Math.ceil((row.teamCount / dynamicMax.value) * 4)))
+}
+
+function dynamicTip(row: StatRow) {
+  return `${row.label}：${row.teamCount} 支球队 / ${row.athleteCount} 名球员 / 待审 ${row.pendingCount || 0}`
+}
 
 function tileStat(tile: CityTile) {
   return statsByCity.value.get(tile.key)
@@ -109,6 +149,28 @@ function tipOf(tile: CityTile) {
       </button>
     </div>
 
+    <div v-if="unmappedTiles.length" class="city-heatmap__extra">
+      <div class="city-heatmap__extra-head">
+        <span>未匹配内置市州的统计项</span>
+        <span>接口返回的名称与 21 市州不一致，按实际名称列出</span>
+      </div>
+      <div class="city-heatmap__grid city-heatmap__grid--dynamic">
+        <button
+          v-for="row in unmappedTiles"
+          :key="row.key"
+          type="button"
+          class="city-tile"
+          :class="[`level-${dynamicLevel(row)}`, { 'is-selected': selected === row.key }]"
+          :title="dynamicTip(row)"
+          @click="$emit('select', row.key)"
+        >
+          <span class="city-tile__name">{{ row.label }}</span>
+          <span class="city-tile__value num">{{ row.teamCount }}</span>
+          <span class="city-tile__unit">支</span>
+        </button>
+      </div>
+    </div>
+
     <div class="city-heatmap__foot">
       <div class="heat-legend">
         <span>报名热度</span>
@@ -116,7 +178,7 @@ function tipOf(tile: CityTile) {
         <span>低 → 高</span>
       </div>
       <span v-if="unmapped.length" class="city-heatmap__note">
-        另有 {{ unmapped.length }} 条未匹配市州的记录已计入明细
+        另有 {{ unmapped.length }} 条未匹配市州的记录已单独列出
       </span>
     </div>
   </div>
@@ -134,6 +196,45 @@ function tipOf(tile: CityTile) {
   grid-template-columns: repeat(6, minmax(0, 1fr));
   grid-auto-rows: 58px;
   gap: 6px;
+}
+
+/* 未匹配内置市州的统计项：保持完整市州图的同时单独补充展示。 */
+.city-heatmap__extra {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.city-heatmap__extra-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: var(--ink-300);
+}
+
+.city-heatmap__extra-head span:first-child {
+  font-weight: 600;
+  color: var(--ink-500);
+}
+
+/* 市州名称无法匹配内置布局时，按实际统计项自适应排布。 */
+.city-heatmap__grid--dynamic {
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  grid-auto-rows: 66px;
+}
+
+.city-heatmap__grid--dynamic .city-tile__name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .city-tile {

@@ -297,7 +297,8 @@ export const materialApi = {
 
 export const teamApi = {
   list: (params: Query) => http.get<PageResult<Team>>('/teams', params),
-  get: (id: string) => http.get<Team>(`/teams/${id}`),
+  get: (id: string, options?: { silentError?: boolean }) =>
+    http.get<Team>(`/teams/${id}`, undefined, options),
   create: (data: Query) => http.post<Team>('/teams', data),
   update: (id: string, data: Query) => http.put<Team>(`/teams/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/teams/${id}`, { version }),
@@ -310,8 +311,8 @@ export const teamApi = {
     http.put<TeamMember>(`/teams/${id}/members/${memberId}`, data),
   removeMember: (id: string, memberId: string, version?: number) =>
     http.delete<{ success: boolean }>(`/teams/${id}/members/${memberId}`, { version }),
-  coaches: (id: string, params: Query) =>
-    http.get<PageResult<TeamCoach>>(`/teams/${id}/coaches`, params),
+  coaches: (id: string, params: Query, options?: { silentError?: boolean }) =>
+    http.get<PageResult<TeamCoach>>(`/teams/${id}/coaches`, params, options),
   addCoach: (id: string, data: Query) => http.post<TeamCoach>(`/teams/${id}/coaches`, data),
   removeCoach: (id: string, coachId: string, version?: number) =>
     http.delete<{ success: boolean }>(`/teams/${id}/coaches/${coachId}`, { version }),
@@ -495,7 +496,8 @@ function unwrapPage<T>(payload: PageResult<T> | T[]): T[] {
 }
 
 export const matchApi = {
-  list: async (params: Query) => normalizeMatchPage(await http.get<PageResult<Match>>('/matches', params)),
+  list: async (params: Query, options?: { silentError?: boolean }) =>
+    normalizeMatchPage(await http.get<PageResult<Match>>('/matches', params, options)),
   get: async (id: string) => normalizeMatch(await http.get<Match>(`/matches/${id}`)),
   create: async (data: Query) => normalizeMatch(await http.post<Match>('/matches', data)),
   update: async (id: string, data: Query) =>
@@ -506,8 +508,8 @@ export const matchApi = {
   /** 下线需填写原因并带 version，后端会写入审计 */
   unpublish: (id: string, version: number, reason: string) =>
     http.post<{ success: boolean }>(`/matches/${id}/unpublish`, { version, reason }),
-  events: (id: string, params?: Query) =>
-    http.get<PageResult<MatchEvent>>(`/matches/${id}/events`, params),
+  events: (id: string, params?: Query, options?: { silentError?: boolean }) =>
+    http.get<PageResult<MatchEvent>>(`/matches/${id}/events`, params, options),
   /** 事件录入必带 Idempotency-Key，重复提交不会重复计分 */
   addEvent: (id: string, data: Query) =>
     http.postIdempotent<MatchEvent>(`/matches/${id}/events`, data, newIdempotencyKey('event')),
@@ -531,15 +533,21 @@ export const matchApi = {
     const doc = await http.post<MatchDocument>(`/matches/${id}/documents`, data)
     return { ...doc, fileName: doc.fileName || doc.fileId || '' }
   },
-  livePosts: (id: string, params?: Query) =>
-    http.get<PageResult<LivePost>>(`/matches/${id}/live-posts`, params),
+  livePosts: (id: string, params?: Query, options?: { silentError?: boolean }) =>
+    http.get<PageResult<LivePost>>(`/matches/${id}/live-posts`, params, options),
   addLivePost: (id: string, data: Query) => http.post<LivePost>(`/matches/${id}/live-posts`, data),
   updateLivePost: (id: string, pid: string, data: Query) =>
     http.put<LivePost>(`/matches/${id}/live-posts/${pid}`, data),
   removeLivePost: (id: string, pid: string, version?: number) =>
     http.delete<{ success: boolean }>(`/matches/${id}/live-posts/${pid}`, { version }),
-  liveLinks: async (id: string) =>
-    unwrapPage(await http.get<PageResult<LiveLink> | LiveLink[]>(`/matches/${id}/live-links`)),
+  liveLinks: async (id: string, options?: { silentError?: boolean }) =>
+    unwrapPage(
+      await http.get<PageResult<LiveLink> | LiveLink[]>(
+        `/matches/${id}/live-links`,
+        undefined,
+        options,
+      ),
+    ),
   addLiveLink: (id: string, data: Query) => http.post<LiveLink>(`/matches/${id}/live-links`, data),
   updateLiveLink: (id: string, lid: string, data: Query) =>
     http.put<LiveLink>(`/matches/${id}/live-links/${lid}`, data),

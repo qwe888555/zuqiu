@@ -50,6 +50,23 @@ const form = reactive({
   intro: '',
 })
 
+/**
+ * 后端 TeamUpdateBody 声明了简称/校区/性别，但部分部署的 GET 详情并不返回这些字段，
+ * 此时强行编辑会出现「保存成功但刷新后值消失」。按实际响应做能力探测，接口补齐后自动开放。
+ */
+const supportedFields = reactive({
+  shortName: false,
+  campusName: false,
+  gender: false,
+})
+const unsupportedFieldLabels = computed(() => {
+  const labels: string[] = []
+  if (!supportedFields.shortName) labels.push('球队简称')
+  if (!supportedFields.campusName) labels.push('校区')
+  if (!supportedFields.gender) labels.push('球队性别')
+  return labels
+})
+
 const imagePreview = reactive({
   visible: false,
   url: '',
@@ -102,14 +119,18 @@ const profileCompletion = computed(() =>
   ),
 )
 
-async function loadTeam() {
+async function loadTeam(options?: { silentError?: boolean }) {
   if (!teamId.value) {
     team.value = null
     return
   }
   detailLoading.value = true
   try {
-    team.value = await teamApi.get(teamId.value)
+    const detail = await teamApi.get(teamId.value, options)
+    team.value = detail
+    supportedFields.shortName = 'shortName' in detail
+    supportedFields.campusName = 'campusName' in detail
+    supportedFields.gender = 'gender' in detail
     Object.assign(form, {
       name: team.value.name,
       shortName: team.value.shortName || '',
@@ -130,7 +151,7 @@ async function loadTeam() {
     })
     editing.value = false
   } catch {
-    team.value = null
+    // 刷新失败时保留上次成功数据：写操作已成功时，不能因为一次网关抖动把页面清空。
   } finally {
     detailLoading.value = false
   }
@@ -205,20 +226,31 @@ async function save() {
   if (!form.name.trim()) return ElMessage.warning('请填写球队名称')
   saving.value = true
   try {
-    const updated = await teamApi.update(team.value.id, {
-      ...form,
+    const id = team.value.id
+    const payload: Record<string, unknown> = {
+      name: form.name,
+      intro: form.intro,
+      coachName: form.coachName,
       schoolOrgId: team.value.orgId,
       groupCategory: team.value.category,
       flagFileId: media.flagFileId || undefined,
       emblemFileId: media.emblemFileId || undefined,
       groupPhotoFileId: media.groupPhotoFileId || undefined,
       version: team.value.version,
-    })
-    // 演示环境的 mock 会原地修改并返回同一对象，复制一份才能让资料清单重新计算。
-    team.value = { ...updated }
+    }
+    // 只提交后端确实会回显的字段，避免「保存成功但值消失」。
+    if (supportedFields.shortName) payload.shortName = form.shortName
+    if (supportedFields.campusName) payload.campusName = form.campusName
+    if (supportedFields.gender) payload.gender = form.gender
+    // 写接口现在返回完整球队对象；先原地合并，界面立即显示保存结果，
+    // 再静默回读服务端兜底，避免刷新请求抖动被误报成“保存失败”。
+    const updated = await teamApi.update(id, payload)
+    team.value = { ...team.value, ...updated }
+    const teamIndex = teams.value.findIndex((item) => item.id === id)
+    if (teamIndex >= 0) teams.value[teamIndex] = { ...teams.value[teamIndex], ...updated }
     ElMessage.success('球队资料已保存')
     editing.value = false
-    await loadTeams(team.value.id)
+    await loadTeam({ silentError: true })
   } catch {
     // 拦截器提示
   } finally {
@@ -425,12 +457,26 @@ onMounted(async () => {
         </template>
 
         <el-form v-else :model="form" label-position="top" class="edit-form">
+          <el-alert
+            v-if="unsupportedFieldLabels.length"
+            class="feature-hint"
+            type="info"
+            :closable="false"
+            show-icon
+            :title="`当前后端版本暂未返回${unsupportedFieldLabels.join('、')}，相关表单项已锁定`"
+            description="避免保存后字段值不生效；待后端在球队详情中返回这些字段后会自动开放。"
+          />
           <div class="form-grid">
             <el-form-item label="球队全称" required>
               <el-input v-model="form.name" placeholder="球队全称" />
             </el-form-item>
             <el-form-item label="球队简称">
-              <el-input v-model="form.shortName" placeholder="如：七中初中男足" maxlength="20" />
+              <el-input
+                v-model="form.shortName"
+                :disabled="!supportedFields.shortName"
+                placeholder="如：七中初中男足"
+                maxlength="20"
+              />
             </el-form-item>
             <el-form-item label="所属学校">
               <el-input v-model="form.schoolName" disabled placeholder="由账号归属学校自动带出" />
@@ -439,10 +485,15 @@ onMounted(async () => {
               <el-input v-model="form.cityName" disabled placeholder="由学校组织上级市州自动带出" />
             </el-form-item>
             <el-form-item label="校区 / 分校">
-              <el-input v-model="form.campusName" placeholder="如：水井坊校区；留空视为本部" maxlength="30" />
+              <el-input
+                v-model="form.campusName"
+                :disabled="!supportedFields.campusName"
+                placeholder="如：水井坊校区；留空视为本部"
+                maxlength="30"
+              />
             </el-form-item>
             <el-form-item label="球队性别">
-              <el-select v-model="form.gender" style="width: 100%">
+              <el-select v-model="form.gender" :disabled="!supportedFields.gender" style="width: 100%">
                 <el-option v-for="item in genderOptions" :key="item.value" :label="item.label" :value="item.value" />
               </el-select>
             </el-form-item>
@@ -596,7 +647,11 @@ onMounted(async () => {
           :closable="false"
           show-icon
           title="球队归属当前账号所在学校"
-          :description="auth.user?.orgName || '当前账号未绑定学校'"
+          :description="
+            auth.user?.orgName ||
+            team?.schoolName ||
+            (auth.user?.orgId ? '本校' : '当前账号未绑定学校')
+          "
         />
         <el-form-item label="球队名称" required>
           <el-input v-model="createForm.name" placeholder="如：成都七中初中男子足球队" />
@@ -980,6 +1035,10 @@ onMounted(async () => {
 
 .edit-form {
   margin-top: 22px;
+}
+
+.feature-hint {
+  margin-bottom: 16px;
 }
 
 .form-grid {

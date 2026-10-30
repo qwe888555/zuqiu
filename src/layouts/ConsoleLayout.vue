@@ -235,7 +235,7 @@ async function handleCommand(command: string) {
       </nav>
 
       <div v-show="!app.sidebarCollapsed || isMobile" class="sidebar-foot">
-        <span>2026 赛季 · 管理端</span>
+        <span>2026 赛季 · {{ workspaceLabelForRoles(auth.roles) }}</span>
         <span class="dot" />
         <span>v0.1</span>
       </div>

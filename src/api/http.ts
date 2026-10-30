@@ -13,6 +13,11 @@ declare module 'axios' {
   }
 }
 
+/** 404 表示接口未部署或对象不存在；用于功能探测，不能当成「没有数据」。 */
+export function isNotFound(error: unknown): boolean {
+  return (error as { response?: { status?: number } } | undefined)?.response?.status === 404
+}
+
 /** 公开接口前缀：不得附带 Authorization，否则过期令牌会让匿名浏览被判 401。 */
 export function isPublicRequest(url?: string): boolean {
   if (!url) return false
@@ -80,8 +85,13 @@ instance.interceptors.response.use(
         // 非 JSON 响应（例如网关 HTML），保留原始错误
       }
     }
+    // 网关 5xx 往往返回 HTML 或空响应，axios 的英文默认文案不适合直接展示给用户。
     const message =
-      error?.response?.data?.message || error?.message || '网络异常，请稍后重试'
+      status && status >= 500
+        ? '服务暂时不可用，请稍后重试'
+        : !error?.response
+          ? '网络异常，请稍后重试'
+          : error.response.data?.message || error.message || '请求失败'
     // 公开端点的 401 与登录态无关（例如接口配置问题），不能因此清令牌或跳登录页。
     if (status === 401 && !silent && !skipAuth) {
       localStorage.removeItem(TOKEN_KEY)
