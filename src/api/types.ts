@@ -15,7 +15,7 @@ export type RoleCode =
   | 'ADMIN'
   | 'MATCH_RECORDER'
 
-export type SubjectType = 'SCHOOL_TEAM' | 'CITY'
+export type SubjectType = 'SCHOOL_TEAM' | 'UNIVERSITY' | 'CITY'
 
 export type EnrollmentStatus =
   | 'DRAFT'
@@ -762,6 +762,12 @@ export interface PublicMatch {
   scoreRevision?: number
 }
 
+/** 公开比赛详情：逐场事件与裁判为可选能力，后端未提供时页面需降级展示。 */
+export interface PublicMatchDetail extends PublicMatch {
+  events?: MatchEvent[]
+  referees?: Match['referees']
+}
+
 export interface PublicResource {
   id: string
   resourceType: 'CAROUSEL' | 'NEWS_LINK_IMAGE' | 'PARTNER'
@@ -849,6 +855,8 @@ export interface StatRow {
   pendingCount?: number
   approvedCount?: number
   rejectedCount?: number
+  /** 报名列表未返回球员人数时置 true，页面以“—”展示，避免把未知当 0。 */
+  athleteCountUnavailable?: boolean
 }
 
 export interface OptionItem {

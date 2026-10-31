@@ -1,26 +1,32 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Plus, Refresh, Setting, Delete } from '@element-plus/icons-vue'
 import { eventApi } from '../../api'
 import type { Event, EventGroup, GroupCategory } from '../../api/types'
-import { CATEGORY_LABELS } from '../../config/labels'
+import { CATEGORY_LABELS, EVENT_LEVELS, eventLevelLabel } from '../../config/labels'
+import { httpStatusOf } from '../../utils/httpError'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
+const router = useRouter()
 const loading = ref(false)
 const rows = ref<Event[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
+const levelFilter = ref('')
+const changingStatusId = ref('')
 
 const eventVisible = ref(false)
 const editingId = ref<string | null>(null)
 const editingVersion = ref(0)
+const editingStatus = ref('')
 const savingEvent = ref(false)
 const eventForm = reactive({
   name: '',
@@ -61,6 +67,7 @@ async function load() {
       pageSize: pageSize.value,
       // 成员5 赛事列表的查询参数是 name，没有 keyword。
       name: keyword.value || undefined,
+      eventCategory: levelFilter.value || undefined,
     })
     rows.value = res.items
     total.value = res.total
@@ -79,6 +86,7 @@ function search() {
 function openCreate() {
   editingId.value = null
   editingVersion.value = 0
+  editingStatus.value = ''
   Object.assign(eventForm, {
     name: '',
     season: `${new Date().getFullYear()} 赛季`,
@@ -94,6 +102,7 @@ function openCreate() {
 function openEdit(row: Event) {
   editingId.value = row.id
   editingVersion.value = row.version
+  editingStatus.value = row.status
   Object.assign(eventForm, {
     name: row.name,
     season: row.season,
@@ -112,6 +121,19 @@ async function saveEvent() {
   // 成员5 的创建/修改接口要求报名开放期必填。
   if (!eventForm.registrationOpensAt) return ElMessage.warning('请选择报名开始时间')
   if (!eventForm.registrationClosesAt) return ElMessage.warning('请选择报名截止时间')
+  if (editingId.value && eventForm.status === 'REGISTRATION_OPEN' && editingStatus.value !== 'REGISTRATION_OPEN') {
+    if (dayjs(eventForm.registrationClosesAt).isBefore(dayjs())) {
+      return ElMessage.warning('报名截止时间已过，无法开放报名')
+    }
+    try {
+      const groups = await eventApi.groups(editingId.value)
+      if (!groups.items.length) {
+        return ElMessage.warning('该赛事尚未配置组别，请先关闭弹窗并完成组别配置')
+      }
+    } catch {
+      return
+    }
+  }
   savingEvent.value = true
   try {
     if (editingId.value) {
@@ -150,6 +172,106 @@ async function removeEvent(row: Event) {
   } catch {
     // 取消
   }
+}
+
+type StatusAction = {
+  label: string
+  status: string
+  type: 'success' | 'warning' | 'primary'
+  confirm: string
+}
+
+function statusActionOf(row: Event): StatusAction | null {
+  if (row.status === 'DRAFT') {
+    return {
+      label: '发布并开放报名',
+      status: 'REGISTRATION_OPEN',
+      type: 'success',
+      confirm: `确认发布「${row.name}」并开放球队报名？发布后门户报名页将展示该赛事。`,
+    }
+  }
+  if (row.status === 'REGISTRATION_OPEN') {
+    return {
+      label: '关闭报名',
+      status: 'REGISTRATION_CLOSED',
+      type: 'warning',
+      confirm: `确认关闭「${row.name}」的报名？关闭后学校端与门户将不再接收新报名。`,
+    }
+  }
+  if (row.status === 'REGISTRATION_CLOSED') {
+    return {
+      label: '重新开放报名',
+      status: 'REGISTRATION_OPEN',
+      type: 'primary',
+      confirm: `确认重新开放「${row.name}」的报名？请确认报名截止时间尚未过期。`,
+    }
+  }
+  return null
+}
+
+function baseEventPayload(row: Event) {
+  return {
+    name: row.name,
+    season: row.season,
+    eventCategory: row.eventCategory || '',
+    registrationOpensAt: row.registrationOpensAt,
+    registrationClosesAt: row.registrationClosesAt,
+    description: row.description || '',
+  }
+}
+
+async function changeStatus(row: Event, action: StatusAction) {
+  if (action.status === 'REGISTRATION_OPEN') {
+    if (!row.registrationOpensAt || !row.registrationClosesAt) {
+      ElMessage.warning('请先在编辑弹窗中填写完整的报名开放期')
+      return
+    }
+    if (dayjs(row.registrationClosesAt).isBefore(dayjs())) {
+      ElMessage.warning('报名截止时间已过，请先编辑调整报名开放期')
+      return
+    }
+  }
+  try {
+    await ElMessageBox.confirm(action.confirm, action.label, {
+      confirmButtonText: action.label,
+      cancelButtonText: '取消',
+      type: action.status === 'REGISTRATION_OPEN' ? 'success' : 'warning',
+    })
+  } catch {
+    return
+  }
+
+  changingStatusId.value = row.id
+  try {
+    if (action.status === 'REGISTRATION_OPEN') {
+      // 发布/重新开放前必须至少有一个组别，否则学校端无法选择组别报名。
+      const groups = await eventApi.groups(row.id)
+      if (!groups.items.length) {
+        ElMessage.warning('该赛事尚未配置组别，请先在「组别配置」中新增组别')
+        return
+      }
+    }
+    await eventApi.update(row.id, {
+      ...baseEventPayload(row),
+      status: action.status,
+      version: row.version,
+    })
+    ElMessage.success(
+      action.status === 'REGISTRATION_OPEN' ? '赛事已发布，报名入口已开放' : '赛事报名已关闭',
+    )
+    await load()
+  } catch (error) {
+    if (httpStatusOf(error) === 409) {
+      ElMessage.warning('赛事状态已变化，请刷新后重试')
+      await load()
+    }
+  } finally {
+    changingStatusId.value = ''
+  }
+}
+
+function openRegistration(row: Event) {
+  router.push({ name: 'portal-registration', query: { eventId: row.id } })
 }
 
 async function openGroups(row: Event) {
@@ -266,6 +388,20 @@ onMounted(load)
           @keyup.enter="search"
           @clear="search"
         />
+        <el-select
+          v-model="levelFilter"
+          placeholder="全部级别"
+          clearable
+          style="width: 150px"
+          @change="search"
+        >
+          <el-option
+            v-for="level in EVENT_LEVELS"
+            :key="level.value"
+            :label="level.label"
+            :value="level.value"
+          />
+        </el-select>
         <el-button type="primary" plain @click="search">查询</el-button>
       </FilterBar>
 
@@ -276,7 +412,10 @@ onMounted(load)
               <span class="event-cell__mark">{{ row.name.slice(0, 1) }}</span>
               <div>
                 <strong>{{ row.name }}</strong>
-                <small>{{ row.season }} · {{ row.eventCategory || '省级联赛' }}</small>
+                <small>
+                  {{ row.season }} ·
+                  <el-tag size="small" effect="plain">{{ eventLevelLabel(row.eventCategory) }}</el-tag>
+                </small>
               </div>
             </div>
           </template>
@@ -292,10 +431,20 @@ onMounted(load)
         <el-table-column label="状态" width="120">
           <template #default="{ row }"><StatusTag :status="row.status" kind="event" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right" align="right" class-name="col-actions">
+        <el-table-column label="操作" width="400" fixed="right" align="right" class-name="col-actions">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button link type="primary" :icon="Setting" @click="openGroups(row)">组别配置</el-button>
+              <el-button
+                v-if="statusActionOf(row)"
+                link
+                :type="statusActionOf(row)!.type"
+                :loading="changingStatusId === row.id"
+                @click="changeStatus(row, statusActionOf(row)!)"
+              >
+                {{ statusActionOf(row)!.label }}
+              </el-button>
+              <el-button link type="primary" @click="openRegistration(row)">报名页</el-button>
               <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
               <el-button link type="danger" :icon="Delete" @click="removeEvent(row)">删除</el-button>
             </div>
@@ -375,8 +524,23 @@ onMounted(load)
           <el-form-item label="赛季" required>
             <el-input v-model="eventForm.season" placeholder="如：2026 春季" />
           </el-form-item>
-          <el-form-item label="赛事类别（选填）">
-            <el-input v-model="eventForm.eventCategory" maxlength="64" placeholder="字典编码，如 PROVINCE_LEAGUE" />
+          <el-form-item label="赛事层级">
+            <el-select
+              v-model="eventForm.eventCategory"
+              filterable
+              allow-create
+              default-first-option
+              placeholder="请选择省级 / 市级 / 学校级"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="level in EVENT_LEVELS"
+                :key="level.value"
+                :label="level.label"
+                :value="level.value"
+              />
+            </el-select>
+            <span class="field-hint">层级用于门户报名页与统计筛选；历史自定义编码可保留。</span>
           </el-form-item>
           <el-form-item label="报名开始时间">
             <el-date-picker

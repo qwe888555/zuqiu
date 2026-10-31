@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { personApi, teamApi } from '../../api'
+import { isNotFound } from '../../api/http'
 import type { CoachCategory, Person, TeamCoach } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import { COACH_CATEGORY_LABELS, coachCategoryLabel } from '../../config/labels'
@@ -23,6 +24,8 @@ const selected = ref<Person | null>(null)
 const coachCategory = ref<CoachCategory>('HEAD_COACH')
 const effectiveFrom = ref(new Date().toISOString().slice(0, 10))
 const filters = reactive({ category: '' as '' | CoachCategory, reviewStatus: '' })
+/** 当前部署缺少 /teams/{id}/coaches 时按「接口未开放」降级，而不是提示数据为空。 */
+const unavailable = ref(false)
 
 const categories = (Object.keys(COACH_CATEGORY_LABELS) as CoachCategory[]).map((value) => ({
   value,
@@ -36,16 +39,23 @@ async function load() {
   if (!teamId.value) return
   loading.value = true
   try {
-    const res = await teamApi.coaches(teamId.value, {
-      page: 1,
-      pageSize: 50,
-      category: filters.category || undefined,
-      reviewStatus: filters.reviewStatus || undefined,
-    })
+    const res = await teamApi.coaches(
+      teamId.value,
+      {
+        page: 1,
+        pageSize: 50,
+        category: filters.category || undefined,
+        reviewStatus: filters.reviewStatus || undefined,
+      },
+      { silentError: true },
+    )
+    unavailable.value = false
     rows.value = res.items
     total.value = res.total
-  } catch {
+  } catch (error) {
     rows.value = []
+    total.value = 0
+    unavailable.value = isNotFound(error)
   } finally {
     loading.value = false
   }
@@ -62,6 +72,7 @@ function resetFilters() {
 }
 
 function openAdd() {
+  if (unavailable.value) return
   dialogVisible.value = true
   searchKeyword.value = ''
   candidates.value = []
@@ -139,7 +150,7 @@ onMounted(async () => {
           <el-option v-for="item in teams" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openAdd">
+        <el-button v-if="!unavailable" type="primary" :icon="Plus" @click="openAdd">
           添加教练
         </el-button>
       </template>
@@ -175,6 +186,15 @@ onMounted(async () => {
         </el-select>
         <el-button text @click="resetFilters">重置</el-button>
       </FilterBar>
+      <el-alert
+        v-if="unavailable"
+        class="coach-unavailable"
+        type="info"
+        :closable="false"
+        show-icon
+        title="教练团队接口暂未开放"
+        description="当前部署尚未提供球队教练接口，暂时只能查看占位信息；接口上线后本页会自动恢复。"
+      />
       <div class="section-title">教练与保障人员</div>
       <el-table v-loading="loading" :data="rows" style="width: 100%">
         <el-table-column label="姓名" min-width="180">
@@ -200,7 +220,11 @@ onMounted(async () => {
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!loading && !rows.length" description="暂无教练，请添加" :image-size="80" />
+      <el-empty
+        v-if="!loading && !rows.length"
+        :description="unavailable ? '教练接口暂未开放' : '暂无教练，请添加'"
+        :image-size="80"
+      />
     </section>
 
     <el-dialog v-model="dialogVisible" title="添加教练" width="560px">
@@ -259,6 +283,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.coach-unavailable {
+  margin: 12px 0;
+}
+
 .coach-cell {
   display: flex;
   align-items: center;

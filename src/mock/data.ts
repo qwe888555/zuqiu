@@ -7,7 +7,6 @@ import type {
   EnrollmentAttachment,
   Event,
   EventGroup,
-  GoalRankingRow,
   IdentityCheck,
   LiveLink,
   LivePost,
@@ -67,6 +66,9 @@ export const dictionaries: DictionaryItem[] = [
   { id: 'dict_12', dictType: 'MATERIAL_TYPE', value: 'AWARD', label: '获奖证书', sortOrder: 3, enabled: true, version: 1 },
   { id: 'dict_13', dictType: 'MATERIAL_TYPE', value: 'TEACHER_LICENSE', label: '教师资格证', sortOrder: 4, enabled: true, version: 1 },
   { id: 'dict_14', dictType: 'EVENT_CATEGORY', value: 'YOUTH', label: '青少年校园足球', sortOrder: 1, enabled: true, version: 1 },
+  { id: 'dict_15', dictType: 'EVENT_CATEGORY', value: 'PROVINCE', label: '省级', sortOrder: 2, enabled: true, version: 1 },
+  { id: 'dict_16', dictType: 'EVENT_CATEGORY', value: 'CITY', label: '市级', sortOrder: 3, enabled: true, version: 1 },
+  { id: 'dict_17', dictType: 'EVENT_CATEGORY', value: 'SCHOOL', label: '学校级', sortOrder: 4, enabled: true, version: 1 },
 ]
 
 export const events: Event[] = [
@@ -74,7 +76,7 @@ export const events: Event[] = [
     id: 'event_primary_2026',
     name: '2026年四川省青少年校园足球联赛（小学组）',
     season: '2026',
-    eventCategory: 'YOUTH',
+    eventCategory: 'PROVINCE',
     registrationOpensAt: '2026-09-01T09:00:00+08:00',
     registrationClosesAt: '2026-11-15T18:00:00+08:00',
     status: 'REGISTRATION_OPEN',
@@ -88,7 +90,7 @@ export const events: Event[] = [
     id: 'event_middle_2026',
     name: '2026年四川省青少年校园足球联赛（中学组）',
     season: '2026',
-    eventCategory: 'YOUTH',
+    eventCategory: 'CITY',
     registrationOpensAt: '2026-09-10T09:00:00+08:00',
     registrationClosesAt: '2026-11-20T18:00:00+08:00',
     status: 'REGISTRATION_OPEN',
@@ -97,6 +99,20 @@ export const events: Event[] = [
     groupCount: 2,
     teamCount: 28,
     version: 2,
+  },
+  {
+    id: 'event_school_2026',
+    name: '2026年成都市青羊区校园足球班级联赛（小学组）',
+    season: '2026',
+    eventCategory: 'SCHOOL',
+    registrationOpensAt: '2026-10-01T09:00:00+08:00',
+    registrationClosesAt: '2026-11-30T18:00:00+08:00',
+    status: 'REGISTRATION_OPEN',
+    description:
+      '由青羊区教育局指导、学校承办的校园足球班级联赛，面向学区内小学班级队伍，重在普及与参与，采用小组循环赛制。',
+    groupCount: 1,
+    teamCount: 8,
+    version: 1,
   },
 ]
 
@@ -159,6 +175,21 @@ export const eventGroups: EventGroup[] = [
     maxPlayers: 16,
     requiredMaterialTypes: ['STAMPED_FORM', 'STUDENT_STATUS'],
     teamCount: 0,
+    version: 1,
+  },
+  {
+    id: 'group_school_u12',
+    eventId: 'event_school_2026',
+    name: '小学混合组',
+    category: 'PRIMARY',
+    gender: 'MIXED',
+    quota: 16,
+    schoolQuota: 1,
+    minAge: 8,
+    maxAge: 12,
+    maxPlayers: 16,
+    requiredMaterialTypes: ['STAMPED_FORM', 'STUDENT_STATUS'],
+    teamCount: 8,
     version: 1,
   },
 ]
@@ -574,6 +605,17 @@ export const matches: Match[] = [
     published: true, resultPublished: true, scoreRevision: 6,
     referees: [], version: 1,
   },
+  {
+    id: 'match_006', eventId: 'event_school_2026', eventName: events[2].name,
+    groupId: 'group_school_u12', groupName: '小学混合组',
+    homeTeamId: 'team_cd_syxx', awayTeamId: 'team_yb_rml',
+    homeTeamName: '成都市实验小学', awayTeamName: '宜宾人民路小学',
+    kickoffAt: '2026-10-22T10:00:00+08:00', venue: '成都市实验小学东区球场',
+    stage: '小组赛第 1 轮', status: 'FINISHED', homeScore: 3, awayScore: 1,
+    published: true, resultPublished: true, scoreRevision: 4,
+    referees: [{ name: '杨帆', role: 'REFEREE', level: '二级' }],
+    version: 1,
+  },
 ]
 
 export const matchEvents: MatchEvent[] = [
@@ -600,6 +642,130 @@ export const matchEvents: MatchEvent[] = [
     teamName: '成都市实验小学', scorerAthleteId: 'person_team_cd_syxx_001',
     scorerName: '张子轩', ownGoal: false, note: '单刀推射', version: 1,
     createdAt: '2026-10-19T10:45:00+08:00',
+  },
+  // match_002：泸州实验小学 0:2 取胜的两粒进球与一张黄牌
+  {
+    id: 'me_005', matchId: 'match_002', eventType: 'GOAL', minute: 12, teamId: 'team_lz_sy',
+    teamName: '泸州实验小学', scorerAthleteId: 'person_team_lz_sy_003',
+    scorerName: '李诗涵', ownGoal: false, note: '中路包抄推射', version: 1,
+    createdAt: '2026-10-19T15:43:00+08:00',
+  },
+  {
+    id: 'me_006', matchId: 'match_002', eventType: 'GOAL', minute: 48, teamId: 'team_lz_sy',
+    teamName: '泸州实验小学', scorerAthleteId: 'person_team_lz_sy_004',
+    scorerName: '王雨桐', ownGoal: false, note: '反击单刀', version: 1,
+    createdAt: '2026-10-19T16:20:00+08:00',
+  },
+  {
+    id: 'me_007', matchId: 'match_002', eventType: 'PENALTY', minute: 33, teamId: 'team_lz_sy',
+    teamName: '泸州实验小学', athleteId: 'person_team_lz_sy_005',
+    athleteName: '刘语嫣', penaltyType: 'YELLOW_CARD', reason: '拉拽对手', version: 1,
+    createdAt: '2026-10-19T16:05:00+08:00',
+  },
+  // match_004：成都七中育才 1:3 绵阳南山
+  {
+    id: 'me_008', matchId: 'match_004', eventType: 'GOAL', minute: 9, teamId: 'team_cd_qz',
+    teamName: '成都七中育才学校', scorerAthleteId: 'person_team_cd_qz_010',
+    scorerName: '韩子墨', ownGoal: false, note: '角球头球', version: 1,
+    createdAt: '2026-10-18T14:11:00+08:00',
+  },
+  {
+    id: 'me_009', matchId: 'match_004', eventType: 'GOAL', minute: 25, teamId: 'team_my_ns',
+    teamName: '绵阳南山中学', scorerAthleteId: 'person_team_my_ns_009',
+    scorerName: '许文昊', ownGoal: false, note: '禁区前沿抽射', version: 1,
+    createdAt: '2026-10-18T14:28:00+08:00',
+  },
+  {
+    id: 'me_010', matchId: 'match_004', eventType: 'GOAL', minute: 61, teamId: 'team_my_ns',
+    teamName: '绵阳南山中学', scorerAthleteId: 'person_team_my_ns_010',
+    scorerName: '邓凯', ownGoal: false, note: '补射入网', version: 1,
+    createdAt: '2026-10-18T15:05:00+08:00',
+  },
+  {
+    id: 'me_011', matchId: 'match_004', eventType: 'GOAL', minute: 78, teamId: 'team_my_ns',
+    teamName: '绵阳南山中学', scorerAthleteId: 'person_team_my_ns_011',
+    scorerName: '冯子豪', ownGoal: false, note: '快速反击', version: 1,
+    createdAt: '2026-10-18T15:23:00+08:00',
+  },
+  {
+    id: 'me_012', matchId: 'match_004', eventType: 'PENALTY', minute: 40, teamId: 'team_cd_qz',
+    teamName: '成都七中育才学校', athleteId: 'person_team_cd_qz_005',
+    athleteName: '周俊杰', penaltyType: 'YELLOW_CARD', reason: '延误比赛', version: 1,
+    createdAt: '2026-10-18T14:44:00+08:00',
+  },
+  {
+    id: 'me_013', matchId: 'match_004', eventType: 'PENALTY', minute: 85, teamId: 'team_my_ns',
+    teamName: '绵阳南山中学', athleteId: 'person_team_my_ns_006',
+    athleteName: '蒋宇航', penaltyType: 'RED_CARD', reason: '严重犯规', version: 1,
+    createdAt: '2026-10-18T15:31:00+08:00',
+  },
+  // match_005：德阳五中 2:2 成都七中育才
+  {
+    id: 'me_014', matchId: 'match_005', eventType: 'GOAL', minute: 18, teamId: 'team_dy_wz',
+    teamName: '德阳五中', scorerAthleteId: 'person_team_dy_wz_011',
+    scorerName: '肖景行', ownGoal: false, note: '远射破门', version: 1,
+    createdAt: '2026-10-21T14:21:00+08:00',
+  },
+  {
+    id: 'me_015', matchId: 'match_005', eventType: 'GOAL', minute: 37, teamId: 'team_cd_qz',
+    teamName: '成都七中育才学校', scorerAthleteId: 'person_team_cd_qz_011',
+    scorerName: '曹睿', ownGoal: false, note: '门前抢点', version: 1,
+    createdAt: '2026-10-21T14:41:00+08:00',
+  },
+  {
+    id: 'me_016', matchId: 'match_005', eventType: 'GOAL', minute: 55, teamId: 'team_dy_wz',
+    teamName: '德阳五中', scorerAthleteId: 'person_team_dy_wz_012',
+    scorerName: '唐子杰', ownGoal: false, note: '点球命中', version: 1,
+    createdAt: '2026-10-21T14:59:00+08:00',
+  },
+  {
+    id: 'me_017', matchId: 'match_005', eventType: 'GOAL', minute: 74, teamId: 'team_cd_qz',
+    teamName: '成都七中育才学校', scorerAthleteId: 'person_team_cd_qz_012',
+    scorerName: '许文昊', ownGoal: false, note: '任意球直接破门', version: 1,
+    createdAt: '2026-10-21T15:18:00+08:00',
+  },
+  {
+    id: 'me_018', matchId: 'match_005', eventType: 'PENALTY', minute: 63, teamId: 'team_dy_wz',
+    teamName: '德阳五中', athleteId: 'person_team_dy_wz_007',
+    athleteName: '邓凯', penaltyType: 'YELLOW_CARD', reason: '战术犯规', version: 1,
+    createdAt: '2026-10-21T15:07:00+08:00',
+  },
+  {
+    id: 'me_019', matchId: 'match_005', eventType: 'PENALTY', minute: 80, teamId: 'team_cd_qz',
+    teamName: '成都七中育才学校', athleteId: 'person_team_cd_qz_009',
+    athleteName: '蒋宇航', penaltyType: 'YELLOW_CARD', reason: '抗议判罚', version: 1,
+    createdAt: '2026-10-21T15:24:00+08:00',
+  },
+  // match_006：学校级赛事 成都市实验小学 3:1 宜宾人民路小学
+  {
+    id: 'me_020', matchId: 'match_006', eventType: 'GOAL', minute: 10, teamId: 'team_cd_syxx',
+    teamName: '成都市实验小学', scorerAthleteId: 'person_team_cd_syxx_001',
+    scorerName: '张子轩', ownGoal: false, note: '禁区内推射', version: 1,
+    createdAt: '2026-10-22T10:12:00+08:00',
+  },
+  {
+    id: 'me_021', matchId: 'match_006', eventType: 'GOAL', minute: 30, teamId: 'team_yb_rml',
+    teamName: '宜宾人民路小学', scorerAthleteId: 'person_team_yb_rml_009',
+    scorerName: '唐子杰', ownGoal: false, note: '头球扳平', version: 1,
+    createdAt: '2026-10-22T10:33:00+08:00',
+  },
+  {
+    id: 'me_022', matchId: 'match_006', eventType: 'GOAL', minute: 40, teamId: 'team_cd_syxx',
+    teamName: '成都市实验小学', scorerAthleteId: 'person_team_cd_syxx_008',
+    scorerName: '周俊杰', ownGoal: false, note: '远射破门', version: 1,
+    createdAt: '2026-10-22T10:43:00+08:00',
+  },
+  {
+    id: 'me_023', matchId: 'match_006', eventType: 'GOAL', minute: 55, teamId: 'team_cd_syxx',
+    teamName: '成都市实验小学', scorerAthleteId: 'person_team_cd_syxx_001',
+    scorerName: '张子轩', ownGoal: false, note: '晃过门将推射空门', version: 1,
+    createdAt: '2026-10-22T10:58:00+08:00',
+  },
+  {
+    id: 'me_024', matchId: 'match_006', eventType: 'PENALTY', minute: 58, teamId: 'team_yb_rml',
+    teamName: '宜宾人民路小学', athleteId: 'person_team_yb_rml_005',
+    athleteName: '冯子豪', penaltyType: 'YELLOW_CARD', reason: '危险动作', version: 1,
+    createdAt: '2026-10-22T11:01:00+08:00',
   },
 ]
 
@@ -642,17 +808,6 @@ export const matchDocuments: MatchDocument[] = [
     id: 'doc_002', matchId: 'match_004', documentType: 'REFEREE_REPORT',
     fileName: '裁判员报告书-初中组第2轮.pdf', version: 1, createdAt: '2026-10-18T16:20:00+08:00',
   },
-]
-
-export const goalRanking: GoalRankingRow[] = [
-  { rank: 1, athleteId: 'person_team_my_ns_009', athleteName: '郑博文', teamId: 'team_my_ns', teamName: '绵阳南山中学', goals: 9 },
-  { rank: 2, athleteId: 'person_team_cd_syxx_001', athleteName: '张子轩', teamId: 'team_cd_syxx', teamName: '成都市实验小学', goals: 7 },
-  { rank: 3, athleteId: 'person_team_cd_qz_010', athleteName: '吴梓涵', teamId: 'team_cd_qz', teamName: '成都七中育才学校', goals: 6 },
-  { rank: 4, athleteId: 'person_team_yb_rml_009', athleteName: '郑博文', teamId: 'team_yb_rml', teamName: '宜宾人民路小学', goals: 6 },
-  { rank: 5, athleteId: 'person_team_dy_wz_011', athleteName: '冯奕辰', teamId: 'team_dy_wz', teamName: '德阳五中', goals: 5 },
-  { rank: 6, athleteId: 'person_team_lz_sy_003', athleteName: '陈欣然', teamId: 'team_lz_sy', teamName: '泸州实验小学', goals: 4 },
-  { rank: 7, athleteId: 'person_team_cd_syxx_007', athleteName: '孙泽宇', teamId: 'team_cd_syxx', teamName: '成都市实验小学', goals: 3 },
-  { rank: 8, athleteId: 'person_team_cd_qz_g_003', athleteName: '张若曦', teamId: 'team_cd_qz_g', teamName: '成都七中育才学校', goals: 3 },
 ]
 
 export const contents: Content[] = [

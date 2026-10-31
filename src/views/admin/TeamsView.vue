@@ -14,8 +14,8 @@ import {
   User,
   View,
 } from '@element-plus/icons-vue'
-import { fileApi, materialApi, orgApi, teamApi } from '../../api'
-import { MOCK_ENABLED } from '../../api/http'
+import { fileApi, matchApi, materialApi, orgApi, teamApi } from '../../api'
+import { MOCK_ENABLED, isNotFound } from '../../api/http'
 import type { GroupCategory, Match, Material, Organization, Team, TeamCoach, TeamMember } from '../../api/types'
 import { CATEGORY_GROUP_LABELS, coachCategoryLabel } from '../../config/labels'
 import { usePermission } from '../../composables/usePermission'
@@ -70,6 +70,8 @@ const detail = ref<Team | null>(null)
 const members = ref<TeamMember[]>([])
 const coaches = ref<TeamCoach[]>([])
 const recentMatches = ref<Match[]>([])
+/** 当前部署没有 /teams/{id}/coaches 时静默降级，不把 404 弹成接口错误。 */
+const coachUnavailable = ref(false)
 const materials = ref<Material[]>([])
 const materialsLoading = ref(false)
 const reviewingMaterialId = ref('')
@@ -216,6 +218,7 @@ async function openDetail(team: Team) {
   detail.value = team
   members.value = []
   coaches.value = []
+  coachUnavailable.value = false
   recentMatches.value = []
   materials.value = []
   try {
@@ -228,11 +231,16 @@ async function openDetail(team: Team) {
     if (memberRes.status === 'fulfilled') members.value = memberRes.value.items
 
     // 教练与近期赛程独立加载：任一接口失败不影响球队详情与名单。
+    // 后端暂无 /teams/{id}/matches，用 /matches?teamId= 等价查询；教练接口未部署时静默降级。
     const [coachRes, matchRes] = await Promise.allSettled([
-      teamApi.coaches(team.id, { page: 1, pageSize: 100 }),
-      teamApi.matches(team.id, { page: 1, pageSize: 6 }),
+      teamApi.coaches(team.id, { page: 1, pageSize: 100 }, { silentError: true }),
+      matchApi.list({ teamId: team.id, page: 1, pageSize: 6 }, { silentError: true }),
     ])
-    if (coachRes.status === 'fulfilled') coaches.value = coachRes.value.items
+    if (coachRes.status === 'fulfilled') {
+      coaches.value = coachRes.value.items
+    } else {
+      coachUnavailable.value = isNotFound(coachRes.reason)
+    }
     if (matchRes.status === 'fulfilled') recentMatches.value = matchRes.value.items
   } finally {
     detailLoading.value = false
@@ -494,7 +502,9 @@ onMounted(async () => {
                 </template>
               </el-table-column>
               <template #empty>
-                <div class="drawer-empty">暂无教练</div>
+                <div class="drawer-empty">
+                  {{ coachUnavailable ? '教练团队接口暂未开放' : '暂无教练' }}
+                </div>
               </template>
             </el-table>
           </el-tab-pane>

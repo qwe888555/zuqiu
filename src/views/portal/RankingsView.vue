@@ -4,6 +4,7 @@ import dayjs from 'dayjs'
 import { Medal, Trophy } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { GoalRankingRow, PublicEvent } from '../../api/types'
+import { useVisiblePolling } from '../../composables/useVisiblePolling'
 import { sortPublicEvents } from '../../utils/portal'
 
 const loading = ref(false)
@@ -94,6 +95,22 @@ async function fetchGoals(id: string) {
   return publicApi.goals({ eventId: id, category: category.value })
 }
 
+function markRefreshed() {
+  // 接口不返回统计生成时间，使用前端成功刷新时间并明确标注口径。
+  generatedAt.value = new Date().toISOString()
+}
+
+async function refreshSilently() {
+  if (!eventId.value || loading.value) return
+  try {
+    const res = await fetchGoals(eventId.value)
+    rows.value = res.rows
+    markRefreshed()
+  } catch {
+    // 静默刷新失败保留上一次结果
+  }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -105,7 +122,7 @@ async function load() {
     if (eventId.value) {
       const res = await fetchGoals(eventId.value)
       rows.value = res.rows
-      generatedAt.value = res.generatedAt
+      markRefreshed()
       return
     }
     // 首次进入按状态优先探测，跳过尚无进球数据的赛事。
@@ -114,7 +131,7 @@ async function load() {
       if (res.rows.length) {
         eventId.value = event.id
         rows.value = res.rows
-        generatedAt.value = res.generatedAt
+        markRefreshed()
         return
       }
     }
@@ -140,6 +157,7 @@ function switchCategory(value: string) {
 }
 
 onMounted(load)
+useVisiblePolling(refreshSilently, 30_000)
 </script>
 
 <template>
@@ -208,7 +226,7 @@ onMounted(load)
             {{ currentCategoryLabel }} · 组内排名
           </span>
           <span v-if="generatedTime" class="updated">
-            统计生成于 {{ generatedTime }} · 以记录台确认数据为准
+            本页更新于 {{ generatedTime }} · 以记录台确认数据为准
           </span>
         </div>
       </div>

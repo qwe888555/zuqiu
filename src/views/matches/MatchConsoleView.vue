@@ -23,9 +23,11 @@ import type { LiveLink, LivePost, Match, MatchDocument, MatchEvent, MatchResult 
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
+import { useAuthStore } from '../../stores/auth'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const matchId = String(route.params.id)
 
 const loading = ref(false)
@@ -89,6 +91,15 @@ const sortedEvents = computed(() =>
 const canFinish = computed(() => ['SCHEDULED', 'LIVE'].includes(match.value?.status || ''))
 const canPublishResult = computed(
   () => match.value?.status === 'FINISHED' && !result.value?.published,
+)
+/**
+ * 后端只允许 ADMIN/PROVINCE_REVIEWER 提交弃权与人工更正（记录员提交会 403）。
+ * 选项直接按角色收起，避免用户填完比分和原因后才被拒绝。
+ */
+const canCorrectResult = computed(() => auth.hasRole(['ADMIN', 'PROVINCE_REVIEWER']))
+/** 已存在的非普通赛果由上级录入，记录员只能查看，不能通过「保存赛果」覆盖。 */
+const resultLocked = computed(
+  () => !canCorrectResult.value && !!result.value && result.value.resultType !== 'NORMAL',
 )
 
 /* 赛场大屏：把记录台切换为现场比分牌，便于边线/看台同步查看 */
@@ -208,6 +219,32 @@ function editEvent(event: MatchEvent) {
   eventVisible.value = true
 }
 
+/**
+ * 事件接口按类型只接收本分支字段：其它分支的字段如果传空字符串，
+ * 会因 minLength=1 被后端判为「请求参数不合法」，必须整字段省略。
+ */
+function eventPayload() {
+  const base: Record<string, unknown> = {
+    eventType: eventForm.eventType,
+    teamId: eventForm.teamId,
+    minute: eventForm.minute,
+    note: eventForm.note.trim() || undefined,
+    matchVersion: match.value?.version,
+  }
+  if (eventForm.eventType === 'GOAL') {
+    base.scorerAthleteId = eventForm.scorerAthleteId.trim()
+    base.ownGoal = eventForm.ownGoal
+  } else if (eventForm.eventType === 'PENALTY') {
+    base.penaltyType = eventForm.penaltyType
+    base.athleteId = eventForm.athleteId.trim()
+    base.reason = eventForm.reason.trim()
+  } else {
+    base.outAthleteId = eventForm.outAthleteId.trim()
+    base.inAthleteId = eventForm.inAthleteId.trim()
+  }
+  return base
+}
+
 async function saveEvent() {
   if (!eventForm.teamId) return ElMessage.warning('请选择所属球队')
   if (eventForm.eventType === 'GOAL' && !eventForm.scorerAthleteId.trim()) {
@@ -216,6 +253,9 @@ async function saveEvent() {
   if (eventForm.eventType === 'PENALTY' && !eventForm.athleteId.trim()) {
     return ElMessage.warning('请填写判罚球员 ID')
   }
+  if (eventForm.eventType === 'PENALTY' && !eventForm.reason.trim()) {
+    return ElMessage.warning('请填写判罚原因')
+  }
   if (eventForm.eventType === 'SUBSTITUTION' && (!eventForm.outAthleteId.trim() || !eventForm.inAthleteId.trim())) {
     return ElMessage.warning('请填写换下与换上球员 ID')
   }
@@ -223,13 +263,12 @@ async function saveEvent() {
   try {
     if (editingEventId.value) {
       await matchApi.updateEvent(matchId, editingEventId.value, {
-        ...eventForm,
-        matchVersion: match.value?.version,
+        ...eventPayload(),
         version: editingEventVersion.value,
       })
       ElMessage.success('比赛事件已更新')
     } else {
-      await matchApi.addEvent(matchId, { ...eventForm, matchVersion: match.value?.version })
+      await matchApi.addEvent(matchId, eventPayload())
       ElMessage.success('比赛事件已记录')
     }
     eventVisible.value = false
@@ -274,15 +313,15 @@ async function submitPost() {
   if (!postForm.text.trim()) return ElMessage.warning('请输入直播文字')
   posting.value = true
   try {
-    await matchApi.addLivePost(matchId, {
+    const created = await matchApi.addLivePost(matchId, {
       text: postForm.text,
       minute: postForm.minute,
       imageFileIds: [...postImages.value],
     })
     postForm.text = ''
     postImages.value = []
-    const res = await matchApi.livePosts(matchId, { page: 1, pageSize: 50 })
-    livePosts.value = res.items
+    // 用创建结果直接落表：发布成功后再拉列表，若网关抖动失败会让用户误以为没发出去并重复提交。
+    livePosts.value = [created, ...livePosts.value]
     ElMessage.success('直播动态已发布')
   } catch {
     // 拦截器提示
@@ -309,11 +348,12 @@ async function removePost(post: LivePost) {
 async function addLink() {
   if (!linkForm.title.trim() || !linkForm.url.trim()) return ElMessage.warning('请填写链接标题与地址')
   try {
-    await matchApi.addLiveLink(matchId, { ...linkForm, enabled: true })
+    const created = await matchApi.addLiveLink(matchId, { ...linkForm, enabled: true })
     linkForm.title = ''
     linkForm.url = ''
     linkVisible.value = false
-    links.value = await matchApi.liveLinks(matchId)
+    // 同上：创建成功即写入本地列表，避免二次查询失败造成“看似失败、实际已创建”。
+    links.value = [...links.value, created]
     ElMessage.success('直播链接已添加')
   } catch {
     // 拦截器提示
@@ -354,11 +394,12 @@ async function uploadDoc(options: UploadRequestOptions) {
 async function addDocument() {
   if (!docForm.fileId.trim()) return ElMessage.warning('请先上传比赛文件')
   try {
-    await matchApi.addDocument(matchId, { documentType: docForm.documentType, fileId: docForm.fileId })
+    const created = await matchApi.addDocument(matchId, { documentType: docForm.documentType, fileId: docForm.fileId })
     docForm.fileId = ''
     docForm.fileName = ''
     docVisible.value = false
-    documents.value = (await matchApi.documents(matchId)).items
+    // 比赛文件没有撤销入口，登记成功后必须立刻展示，避免二次查询失败后重复上传。
+    documents.value = [...documents.value, created]
     ElMessage.success('比赛文件已登记')
   } catch {
     // 拦截器提示
@@ -403,6 +444,14 @@ async function finishMatch() {
 }
 
 async function saveResult() {
+  if (resultLocked.value) {
+    ElMessage.warning('弃权或人工更正赛果仅限管理员或省级审核修改')
+    return
+  }
+  if (!canCorrectResult.value && resultForm.resultType !== 'NORMAL') {
+    ElMessage.warning('弃权与人工更正仅限管理员或省级审核提交')
+    return
+  }
   savingResult.value = true
   try {
     const normal = resultForm.resultType === 'NORMAL'
@@ -748,8 +797,10 @@ onMounted(loadAll)
                 <el-form-item label="赛果类型">
                   <el-radio-group v-model="resultForm.resultType">
                     <el-radio-button value="NORMAL">常规赛果</el-radio-button>
-                    <el-radio-button value="FORFEIT">弃权</el-radio-button>
-                    <el-radio-button value="ADMIN_CORRECTION">人工更正</el-radio-button>
+                    <template v-if="canCorrectResult">
+                      <el-radio-button value="FORFEIT">弃权</el-radio-button>
+                      <el-radio-button value="ADMIN_CORRECTION">人工更正</el-radio-button>
+                    </template>
                   </el-radio-group>
                 </el-form-item>
                 <div class="result-score">
@@ -772,7 +823,13 @@ onMounted(loadAll)
                   </el-form-item>
                 </div>
                 <p v-if="resultForm.resultType === 'NORMAL'" class="result-hint">
-                  常规赛果由进球事件自动计算；如需人工改判，请选择弃权或人工更正。
+                  常规赛果由进球事件自动计算<template v-if="canCorrectResult">；如需人工改判，请选择弃权或人工更正</template>。
+                </p>
+                <p v-if="!canCorrectResult" class="result-hint">
+                  弃权与人工更正仅限管理员或省级审核提交。
+                </p>
+                <p v-if="resultLocked" class="result-hint">
+                  当前赛果由管理员或省级审核录入，记录员仅可查看。
                 </p>
                 <el-form-item label="更正原因 / 说明">
                   <el-input
@@ -783,7 +840,9 @@ onMounted(loadAll)
                   />
                 </el-form-item>
                 <div class="result-actions">
-                  <el-button :loading="savingResult" @click="saveResult">保存赛果</el-button>
+                  <el-button :loading="savingResult" :disabled="resultLocked" @click="saveResult">
+                    保存赛果
+                  </el-button>
                   <el-button v-if="canFinish" type="primary" plain @click="finishMatch">结束比赛</el-button>
                   <el-button v-if="canPublishResult" type="primary" @click="publishResult">
                     发布赛果
@@ -802,9 +861,9 @@ onMounted(loadAll)
               <h3>发布前请确认</h3>
               <ul>
                 <li>比赛事件与比分一致，无遗漏的进球或乌龙球。</li>
-                <li>弃权、罢赛等特殊情况需附裁判报告。</li>
+                <li v-if="canCorrectResult">弃权、罢赛等特殊情况需附裁判报告。</li>
                 <li>发布后赛果进入门户与射手榜统计。</li>
-                <li>如需更正，请使用人工更正并保留原因。</li>
+                <li v-if="canCorrectResult">如需更正，请使用人工更正并保留原因。</li>
               </ul>
             </aside>
           </div>

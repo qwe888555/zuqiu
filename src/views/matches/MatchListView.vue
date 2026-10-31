@@ -28,6 +28,8 @@ const teams = ref<Team[]>([])
 const teamsUnavailable = ref(false)
 /** 编辑已有对阵时用行上的队名回显，球队下拉不可用时也不会只剩 ID。 */
 const editingTeams = ref<{ id: string; name: string }[]>([])
+/** 组别候选加载前先用行上的组别名回显，避免下拉框短暂露出 group_u15 这类内部 ID。 */
+const editingGroupName = ref('')
 const groups = ref<EventGroup[]>([])
 const createVisible = ref(false)
 const creating = ref(false)
@@ -39,6 +41,10 @@ const filters = reactive({ eventId: '', status: '', keyword: '' })
 const canManage = computed(() => can('match.manage'))
 const canRecord = computed(() => can('match.record'))
 const canPublish = computed(() => can('match.publish'))
+/** 球队端只能看本队比赛：/matches 不带 teamId 会返回全部赛事（10 场，本队实际 6 场）。 */
+const scopedTeamId = computed(() =>
+  auth.roles.includes('TEAM') ? auth.user?.teamIds?.[0] : undefined,
+)
 
 const statusOptions = [
   { value: 'SCHEDULED', label: '未开赛' },
@@ -79,6 +85,8 @@ async function load() {
       pageSize: pageSize.value,
       eventId: filters.eventId || undefined,
       status: filters.status || undefined,
+      // 球队端按登录账号所属球队过滤；其他角色维持全量可见。
+      teamId: scopedTeamId.value,
       // 成员5 对阵列表支持 teamName 模糊筛选，没有 keyword 参数。
       teamName: filters.keyword || undefined,
     })
@@ -118,9 +126,10 @@ async function loadBase() {
 
 const teamOptions = computed(() => (teamsUnavailable.value ? editingTeams.value : teams.value))
 
-async function loadGroups() {
+async function loadGroups(keepGroup = false) {
   groups.value = []
-  form.groupId = ''
+  // 编辑时先保留原组别：隧道较慢时弹窗已打开，清空会让「保存修改」被误拦截。
+  if (!keepGroup) form.groupId = ''
   if (!form.eventId) return
   try {
     const res = await eventApi.groups(form.eventId)
@@ -148,6 +157,7 @@ function resetForm() {
   editingId.value = ''
   editingVersion.value = 0
   editingTeams.value = []
+  editingGroupName.value = ''
 }
 
 function openCreate() {
@@ -163,6 +173,7 @@ async function openEdit(row: Match) {
     { id: row.homeTeamId, name: row.homeTeamName || '主队' },
     { id: row.awayTeamId, name: row.awayTeamName || '客队' },
   ]
+  editingGroupName.value = row.groupName || row.groupId
   form.eventId = row.eventId
   form.homeTeamId = row.homeTeamId
   form.awayTeamId = row.awayTeamId
@@ -171,9 +182,9 @@ async function openEdit(row: Match) {
   form.stage = row.stage || ''
   form.status = row.status
   form.referees = (row.referees || []).map((referee) => ({ ...referee }))
-  createVisible.value = true
-  await loadGroups()
   form.groupId = row.groupId
+  createVisible.value = true
+  await loadGroups(true)
 }
 
 function addReferee() {
@@ -381,13 +392,18 @@ onMounted(() => {
       <el-form :model="form" label-position="top">
         <div class="form-grid">
           <el-form-item label="赛事">
-            <el-select v-model="form.eventId" placeholder="选择赛事" style="width: 100%" @change="loadGroups">
+            <el-select v-model="form.eventId" placeholder="选择赛事" style="width: 100%" @change="() => loadGroups()">
               <el-option v-for="event in events" :key="event.id" :label="event.name" :value="event.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="组别">
             <el-select v-model="form.groupId" placeholder="选择组别" style="width: 100%">
               <el-option v-for="group in groups" :key="group.id" :label="group.name" :value="group.id" />
+              <el-option
+                v-if="editingId && form.groupId && !groups.some((group) => group.id === form.groupId)"
+                :label="editingGroupName || form.groupId"
+                :value="form.groupId"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="主队">
