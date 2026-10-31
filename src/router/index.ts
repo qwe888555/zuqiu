@@ -26,6 +26,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'matches', name: 'portal-matches', component: () => import('../views/portal/PortalMatchesView.vue'), meta: { title: '赛程与比分' } },
       { path: 'matches/:id', name: 'portal-match-detail', component: () => import('../views/portal/PublicMatchDetailView.vue'), meta: { title: '比赛详情' } },
       { path: 'rankings', name: 'rankings', component: () => import('../views/portal/RankingsView.vue'), meta: { title: '射手榜' } },
+      { path: 'registration', name: 'portal-registration', component: () => import('../views/portal/RegistrationView.vue'), meta: { title: '赛事报名' } },
       { path: 'publications', name: 'portal-publications', component: () => import('../views/portal/PublicationsView.vue'), meta: { title: '公示查询' } },
       {
         path: 'publications/:id',
@@ -90,6 +91,12 @@ const routes: RouteRecordRaw[] = [
         name: 'enrollment-stats',
         component: () => import('../views/stats/EnrollmentStatsView.vue'),
         meta: { title: '报名统计', roles: ['CITY', 'PROVINCE_REVIEWER', 'ADMIN'] },
+      },
+      {
+        path: 'tournament-stats',
+        name: 'tournament-stats',
+        component: () => import('../views/stats/TournamentStatsView.vue'),
+        meta: { title: '赛事统计', roles: ['PROVINCE_REVIEWER', 'ADMIN'] },
       },
       {
         path: 'review',
@@ -168,6 +175,12 @@ const routes: RouteRecordRaw[] = [
         name: 'my-publications',
         component: () => import('../views/people/MyPublicationsView.vue'),
         meta: { title: '我的公示', roles: ['ATHLETE', 'COACH'] },
+      },
+      {
+        path: 'my-competition',
+        name: 'my-competition',
+        component: () => import('../views/people/MyCompetitionView.vue'),
+        meta: { title: '我的赛事数据', roles: ['ATHLETE', 'COACH'] },
       },
       {
         path: 'selection/dossiers',
@@ -325,6 +338,11 @@ router.beforeEach(async (to) => {
     }
   }
   if (to.meta.schoolOnly && !auth.roles.includes('UNIVERSITY')) {
+    if (auth.roles.some((role) => ['TEAM', 'CITY', 'ADMIN'].includes(role))) {
+      ElMessage.info('报名由学校端统一提交，已为你打开报名单列表')
+      const eventId = to.query.eventId ? String(to.query.eventId) : ''
+      return { name: 'enrollments', query: eventId ? { eventId } : undefined }
+    }
     ElMessage.warning('报名由学校端统一提交，请使用学校账号')
     return { name: 'forbidden', query: { from: to.fullPath } }
   }

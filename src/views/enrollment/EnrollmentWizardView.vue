@@ -19,6 +19,9 @@ const submitting = ref(false)
 const events = ref<Event[]>([])
 const groups = ref<EventGroup[]>([])
 const teams = ref<Team[]>([])
+/** 从门户报名页带入的待预选组别；组别列表加载完成后再校验。 */
+const pendingGroupId = ref('')
+const presetNotified = ref(false)
 
 const form = reactive({
   eventId: '',
@@ -94,9 +97,24 @@ async function loadBase() {
     if (presetTeamId && teams.value.some((team) => team.id === presetTeamId)) {
       form.teamId = presetTeamId
     }
-    if (events.value.length === 1) {
+    // 优先使用门户报名页带入的赛事与组别；组别由 eventId 的 watch 统一加载，
+    // 避免这里和 watch 重复请求导致预选结果被后一次加载清空。
+    const presetEventId = String(route.query.eventId || '')
+    const presetGroupId = String(route.query.groupId || '')
+    const presetEvent = presetEventId
+      ? events.value.find((event) => event.id === presetEventId)
+      : undefined
+    if (presetEventId && !presetEvent) {
+      ElMessage.warning('该赛事当前不可报名或已截止，请选择其他赛事')
+    }
+    if (presetEvent) {
+      pendingGroupId.value = presetGroupId
+      form.eventId = presetEvent.id
+    } else if (events.value.length === 1) {
+      pendingGroupId.value = presetGroupId
       form.eventId = events.value[0].id
-      await loadGroups()
+    } else if (presetGroupId) {
+      ElMessage.warning('未找到对应赛事，组别预选已忽略')
     }
     if (!form.teamId && availableTeams.value.length === 1) {
       form.teamId = availableTeams.value[0].id
@@ -112,10 +130,23 @@ async function loadGroups() {
   groups.value = []
   form.groupId = ''
   if (!form.eventId) return
+  const desiredId = pendingGroupId.value
+  pendingGroupId.value = ''
   try {
     groups.value = await eventApi.availableGroups(form.eventId)
+    const desired = desiredId ? groups.value.find((group) => group.id === desiredId) : undefined
+    if (desired) {
+      if (groupFullReason(desired)) {
+        ElMessage.warning(`「${desired.name}」${groupFullReason(desired)}，请选择其他组别`)
+      } else {
+        form.groupId = desired.id
+      }
+    } else if (desiredId && !presetNotified.value) {
+      presetNotified.value = true
+      ElMessage.warning('该赛事当前不可报名或组别已失效，请重新选择')
+    }
     const selectable = groups.value.find((group) => !groupFullReason(group))
-    if (groups.value.length === 1 && selectable) form.groupId = selectable.id
+    if (!form.groupId && groups.value.length === 1 && selectable) form.groupId = selectable.id
   } catch {
     groups.value = []
   }

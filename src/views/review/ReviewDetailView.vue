@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Close, Download } from '@element-plus/icons-vue'
+import { Check, Close, Download, RefreshLeft } from '@element-plus/icons-vue'
 import { enrollmentApi, fileApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
 import type { EnrollmentAttachment, ReviewRecord } from '../../api/types'
@@ -93,6 +93,33 @@ async function approve() {
     goBack()
   } catch {
     // 取消或异常
+  } finally {
+    reviewing.value = false
+  }
+}
+
+async function returnForCorrection() {
+  if (!detail.value) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请填写需要补正的内容。退回后报送学校可修改联系人、名单与材料，并重新提交审核。',
+      '退回补正',
+      {
+        confirmButtonText: '确认退回',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：请补充盖章报名表并核对球员球衣号码',
+        inputValidator: (val) => (val && val.trim().length >= 6 ? true : '请至少填写 6 个字符'),
+      },
+    )
+    reviewing.value = true
+    await enrollmentApi.review(detail.value.id, detail.value.version, {
+      decision: 'RETURN_FOR_CORRECTION',
+      reason: value,
+    })
+    ElMessage.success('已退回补正，参赛单位可修改后重新提交')
+    goBack()
+  } catch {
+    // 取消
   } finally {
     reviewing.value = false
   }
@@ -229,6 +256,9 @@ watch(enrollmentId, load)
             <span>请核对球员资格、材料完整性与盖章文件后再提交审核结果。</span>
           </div>
           <div class="review-bar__actions">
+            <el-button :icon="RefreshLeft" plain :loading="reviewing" @click="returnForCorrection">
+              退回补正
+            </el-button>
             <el-button :icon="Close" type="danger" plain :loading="reviewing" @click="reject">驳回</el-button>
             <el-button :icon="Check" type="success" :loading="reviewing" @click="approve">
               {{ detail.status === 'PENDING_CITY_REVIEW' ? '通过并提交终审' : '终审通过' }}

@@ -7,6 +7,7 @@ import type { PublicEvent, PublicMatch } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import MatchScheduleRow from '../../components/portal/MatchScheduleRow.vue'
+import { useVisiblePolling } from '../../composables/useVisiblePolling'
 import {
   MATCH_SECTIONS,
   matchDisplayStatus,
@@ -283,7 +284,21 @@ function statusTone(value: string) {
   return `is-${value.toLowerCase()}`
 }
 
+/** 静默刷新只替换当前赛事的对阵，不重置日期、状态与分页筛选。 */
+async function refreshSilently() {
+  if (!eventId.value || loading.value) return
+  const id = eventId.value
+  try {
+    const items = await fetchMatches(id)
+    if (id !== eventId.value) return
+    allItems.value = items
+  } catch {
+    // 保留上一次赛程
+  }
+}
+
 onMounted(load)
+useVisiblePolling(refreshSilently, 30_000)
 </script>
 
 <template>

@@ -30,6 +30,30 @@ export const CATEGORY_LABELS: Record<GroupCategory, string> = {
   MIDDLE: '中学',
 }
 
+/**
+ * 赛事层级复用 eventCategory 编码，不新增后端字段。
+ * 只识别本系统约定的精确编码；历史分类（SCHOOL_LEAGUE、CHAMPIONSHIP 等）
+ * 是赛事类别而非层级，必须原样展示，不能按前缀猜测，否则会把省级联赛误判为学校级。
+ */
+export const EVENT_LEVELS = [
+  { value: 'PROVINCE', label: '省级' },
+  { value: 'CITY', label: '市级' },
+  { value: 'SCHOOL', label: '学校级' },
+] as const
+
+export type EventLevel = (typeof EVENT_LEVELS)[number]['value']
+
+export function eventLevelOf(category?: string): EventLevel | '' {
+  const value = (category || '').trim().toUpperCase()
+  return EVENT_LEVELS.some((level) => level.value === value) ? (value as EventLevel) : ''
+}
+
+export function eventLevelLabel(category?: string): string {
+  const level = eventLevelOf(category)
+  if (level) return EVENT_LEVELS.find((item) => item.value === level)?.label || level
+  return category?.trim() || '未分级'
+}
+
 export const CATEGORY_GROUP_LABELS: Record<GroupCategory, string> = {
   PRIMARY: '小学组',
   MIDDLE: '中学组',
@@ -99,6 +123,7 @@ export function coachCategoryLabel(category?: CoachCategory | string): string {
 
 export const SUBJECT_TYPE_LABELS: Record<SubjectType, string> = {
   SCHOOL_TEAM: '学校报送',
+  UNIVERSITY: '高校报送',
   CITY: '历史市州代报',
 }
 

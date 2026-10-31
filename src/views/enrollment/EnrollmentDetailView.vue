@@ -17,6 +17,7 @@ import {
   Edit,
   Plus,
   Refresh,
+  RefreshLeft,
   UploadFilled,
   Warning,
 } from '@element-plus/icons-vue'
@@ -63,6 +64,14 @@ const exporting = ref<'registration' | 'players' | ''>('')
 const personKeyword = ref('')
 const personResults = ref<Person[]>([])
 const searchLoading = ref(false)
+const editInfoVisible = ref(false)
+const savingInfo = ref(false)
+
+const infoForm = reactive({
+  contactName: '',
+  contactPhone: '',
+  remarks: '',
+})
 
 const playerForm = reactive({
   athleteId: '',
@@ -267,6 +276,64 @@ async function reject() {
     await load()
   } catch {
     // 取消
+  }
+}
+
+async function returnForCorrection() {
+  if (!detail.value) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请填写需要补正的内容。退回后报送学校可修改联系人、名单与材料，并重新提交审核。',
+      '退回补正',
+      {
+        confirmButtonText: '确认退回',
+        cancelButtonText: '取消',
+        inputValidator: (val) => (val && val.trim().length >= 6 ? true : '请至少填写 6 个字符'),
+      },
+    )
+    await enrollmentApi.review(enrollmentId.value, detail.value.version, {
+      decision: 'RETURN_FOR_CORRECTION',
+      reason: value,
+    })
+    ElMessage.success('已退回补正，参赛单位可修改后重新提交')
+    await load()
+  } catch {
+    // 取消
+  }
+}
+
+function openEditInfo() {
+  if (!detail.value) return
+  infoForm.contactName = detail.value.contactName || ''
+  // 详情只返回掩码手机号，必须让学校重新输入完整号码。
+  infoForm.contactPhone = ''
+  infoForm.remarks = detail.value.remarks || ''
+  editInfoVisible.value = true
+}
+
+async function saveInfo() {
+  if (!detail.value) return
+  if (!infoForm.contactName.trim()) return ElMessage.warning('请填写领队/联系人')
+  if (!/^1\d{10}$/.test(infoForm.contactPhone)) return ElMessage.warning('请重新输入完整的 11 位手机号')
+  savingInfo.value = true
+  try {
+    await enrollmentApi.update(detail.value.id, {
+      eventId: detail.value.eventId,
+      groupId: detail.value.groupId,
+      teamId: detail.value.teamId,
+      subjectType: detail.value.subjectType,
+      contactName: infoForm.contactName.trim(),
+      contactPhone: infoForm.contactPhone,
+      remarks: infoForm.remarks,
+      version: detail.value.version,
+    })
+    ElMessage.success('报名信息已更新')
+    editInfoVisible.value = false
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    savingInfo.value = false
   }
 }
 
@@ -539,6 +606,7 @@ onMounted(load)
         >
           球员信息表
         </el-button>
+        <el-button v-if="canEdit" :icon="Edit" @click="openEditInfo">修改报名信息</el-button>
         <el-button v-if="canEdit" :icon="Warning" :loading="actionLoading" @click="runPrecheck">预检</el-button>
         <el-button v-if="canSubmit && canEdit" type="primary" :loading="actionLoading" @click="submitEnrollment">提交审核</el-button>
         <el-button
@@ -559,6 +627,7 @@ onMounted(load)
           删除报名
         </el-button>
         <template v-if="canReview">
+          <el-button plain :icon="RefreshLeft" @click="returnForCorrection">退回补正</el-button>
           <el-button type="danger" plain @click="reject">驳回</el-button>
           <el-button type="success" @click="approve">审核通过</el-button>
         </template>
@@ -813,6 +882,32 @@ onMounted(load)
       </div>
       <template #footer>
         <el-button type="primary" @click="precheckVisible = false">返回修改</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="editInfoVisible" title="修改报名信息" width="520px">
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="赛事、球队与组别不可在此修改"
+        description="如需更换参赛主体或组别，请另建报名。手机号仅以掩码回显，保存前请重新输入完整号码。"
+        class="info-edit-alert"
+      />
+      <el-form :model="infoForm" label-position="top">
+        <el-form-item label="领队 / 联系人" required>
+          <el-input v-model="infoForm.contactName" maxlength="32" placeholder="请输入联系人姓名" />
+        </el-form-item>
+        <el-form-item label="联系电话" required>
+          <el-input v-model="infoForm.contactPhone" maxlength="11" placeholder="请重新输入完整 11 位手机号" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="infoForm.remarks" type="textarea" :rows="3" maxlength="200" show-word-limit />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editInfoVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingInfo" @click="saveInfo">保存修改</el-button>
       </template>
     </el-dialog>
 

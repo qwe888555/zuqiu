@@ -38,6 +38,7 @@ import type {
   PublicLiveFeed,
   PublicLivePost,
   PublicMatch,
+  PublicMatchDetail,
   PublicResource,
   Region,
   ReviewRecord,
@@ -302,8 +303,8 @@ export const teamApi = {
   create: (data: Query) => http.post<Team>('/teams', data),
   update: (id: string, data: Query) => http.put<Team>(`/teams/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/teams/${id}`, { version }),
-  members: (id: string, params: Query) =>
-    http.get<PageResult<TeamMember>>(`/teams/${id}/members`, params),
+  members: (id: string, params: Query, options?: RequestOptions) =>
+    http.get<PageResult<TeamMember>>(`/teams/${id}/members`, params, options),
   addMember: (id: string, data: Query) => http.post<TeamMember>(`/teams/${id}/members`, data),
   searchMembers: (id: string, keyword: string) =>
     http.post<Person[]>(`/teams/${id}/members/search`, { keyword }),
@@ -616,7 +617,7 @@ export const publicApi = {
   content: (id: string) => http.get<PublicContent>(`/public/contents/${id}`),
   resources: (params?: Query) => http.get<{ items: PublicResource[] }>('/public/resources', params),
   matches: (params: Query) => http.get<PageResult<PublicMatch>>('/public/matches', params),
-  match: (id: string) => http.get<PublicMatch & { events: MatchEvent[]; referees?: Match['referees'] }>(`/public/matches/${id}`),
+  match: (id: string) => http.get<PublicMatchDetail>(`/public/matches/${id}`),
   liveFeed: (id: string, afterRevision = 0) =>
     http.get<PublicLiveFeed>(`/public/matches/${id}/live-feed`, { afterRevision }),
   liveLinks: async (id: string) =>

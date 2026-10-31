@@ -1,4 +1,4 @@
-﻿import type { AxiosAdapter, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
+﻿﻿import type { AxiosAdapter, AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import {
   DEMO_ACCOUNTS,
   accounts,
@@ -10,7 +10,6 @@ import {
   enrollments,
   eventGroups,
   events,
-  goalRanking,
   identityChecks,
   liveLinks,
   livePosts,
@@ -34,6 +33,7 @@ import type {
   Account,
   Enrollment,
   Envelope,
+  GoalRankingRow,
   Message,
   PageResult,
   Person,
@@ -1459,7 +1459,12 @@ on('GET', '/selection-dossiers/:athleteId', ({ params }) => {
 on('GET', '/events', ({ query }) => {
   let items = events
   if (query.status) items = items.filter((e) => e.status === query.status)
-  if (query.keyword) items = items.filter((e) => contains(e.name, str(query.keyword)))
+  // 列表筛选统一使用 name；兼容旧调用方仍传 keyword 的情况。
+  const name = str(query.name) || str(query.keyword)
+  if (name) items = items.filter((e) => contains(e.name, name))
+  if (query.eventCategory) {
+    items = items.filter((e) => e.eventCategory === query.eventCategory)
+  }
   return pageOf(items, query)
 })
 
@@ -2645,14 +2650,71 @@ on('DELETE', '/matches/:id/result', ({ params, body }) => {
   return { success: true }
 })
 
-on('GET', '/statistics/goals', ({ query }) => {
-  let items = goalRanking
-  if (query.groupCategory) {
-    const teamIds = teams.filter((t) => t.category === query.groupCategory).map((t) => t.id)
-    items = items.filter((r) => teamIds.includes(r.teamId))
+function aggregateGoalRanking(query: Record<string, unknown>): GoalRankingRow[] {
+  const eventId = str(query.eventId)
+  const eventCategory = str(query.eventCategory)
+  const groupCategory = str(query.category) || str(query.groupCategory)
+
+  let scopedEventIds: Set<string> | null = null
+  if (eventId) {
+    scopedEventIds = new Set([eventId])
+  } else if (eventCategory) {
+    scopedEventIds = new Set(events.filter((e) => e.eventCategory === eventCategory).map((e) => e.id))
   }
-  return pageOf(items, query)
-})
+
+  const allowedTeamIds = groupCategory
+    ? new Set(teams.filter((t) => t.category === groupCategory).map((t) => t.id))
+    : null
+
+  const scopedMatches = new Map(
+    matches
+      .filter(
+        (m) =>
+          m.published &&
+          m.resultPublished &&
+          (!scopedEventIds || scopedEventIds.has(m.eventId)),
+      )
+      .map((m) => [m.id, m]),
+  )
+
+  const rows = new Map<string, GoalRankingRow>()
+  for (const event of matchEvents) {
+    if (event.eventType !== 'GOAL' || event.ownGoal) continue
+    const match = scopedMatches.get(event.matchId)
+    if (!match) continue
+    const teamId =
+      event.teamId || (event.scorerName && event.teamName === match.awayTeamName ? match.awayTeamId : match.homeTeamId)
+    if (allowedTeamIds && !allowedTeamIds.has(teamId)) continue
+    const athleteId = event.scorerAthleteId || ''
+    const athleteName = event.scorerName || '未知球员'
+    const key = athleteId || `${teamId}:${athleteName}`
+    const teamName =
+      event.teamName ||
+      (teamId === match.homeTeamId ? match.homeTeamName : match.awayTeamName) ||
+      ''
+    const current = rows.get(key)
+    if (current) {
+      current.goals += 1
+    } else {
+      rows.set(key, {
+        rank: 0,
+        athleteId,
+        athleteName,
+        teamId,
+        teamName: teamName || '',
+        goals: 1,
+      })
+    }
+  }
+
+  return [...rows.values()]
+    .sort((a, b) => b.goals - a.goals || a.athleteName.localeCompare(b.athleteName, 'zh-Hans-CN'))
+    .map((row, index) => ({ ...row, rank: index + 1 }))
+}
+
+on('GET', '/statistics/goals', ({ query }) =>
+  pageOf(aggregateGoalRanking(query), query),
+)
 
 // ---------------------------------------------------------------------------
 // 内容 / 门户资源 / 公示
@@ -2986,14 +3048,9 @@ on('GET', '/public/matches/:id/live-links', ({ params }) =>
   liveLinks.filter((l) => l.matchId === params.id && l.enabled),
 )
 
-on('GET', '/public/statistics/goals', ({ query }) => {
-  let items = goalRanking
-  if (query.groupCategory) {
-    const teamIds = teams.filter((t) => t.category === query.groupCategory).map((t) => t.id)
-    items = items.filter((r) => teamIds.includes(r.teamId))
-  }
-  return pageOf(items, query)
-})
+on('GET', '/public/statistics/goals', ({ query }) =>
+  pageOf(aggregateGoalRanking(query), query),
+)
 
 on('POST', '/public/policy-questions', ({ body }) => {
   const question = str(body.question)

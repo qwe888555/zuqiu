@@ -21,17 +21,14 @@ const icpNumber = import.meta.env.VITE_ICP_NUMBER || ''
 /** 页脚合作伙伴取自门户资源里类型为 PARTNER 的条目，由管理端维护。 */
 const partners = ref<PublicResource[]>([])
 
-const {
-  consoleLabel,
-  goConsole: enterConsole,
-  startEnrollment: enterEnrollment,
-} = useConsoleEntry()
+const { consoleLabel, goConsole: enterConsole } = useConsoleEntry()
 
 const navItems = [
   { label: '首页', path: '/' },
   { label: '赛事资讯', path: '/news' },
   { label: '政策公告', path: '/policies' },
   { label: '赛程与比分', path: '/matches' },
+  { label: '赛事报名', path: '/registration' },
   { label: '射手榜', path: '/rankings' },
   { label: '公示查询', path: '/publications' },
 ]
@@ -78,12 +75,6 @@ function goConsole() {
   mobileOpen.value = false
   if (inPreview.value) return previewBlocked()
   enterConsole()
-}
-
-function startEnrollment() {
-  mobileOpen.value = false
-  if (inPreview.value) return previewBlocked()
-  enterEnrollment()
 }
 
 function navigate(path: string) {
@@ -177,7 +168,7 @@ function navigate(path: string) {
         <div class="footer-col">
           <h4>政策与报名</h4>
           <router-link to="/policies">政策公告</router-link>
-          <button type="button" class="footer-link" @click="startEnrollment">报名入口</button>
+          <router-link to="/registration">报名入口</router-link>
         </div>
 
         <div class="footer-col footer-contact">

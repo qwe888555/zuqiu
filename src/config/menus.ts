@@ -113,6 +113,13 @@ export const MENU_SECTIONS: MenuSection[] = [
         icon: Trophy,
         roles: ['ADMIN', 'PROVINCE_REVIEWER'],
       },
+      {
+        key: 'tournament-stats',
+        title: '赛事统计',
+        path: '/console/tournament-stats',
+        icon: TrendCharts,
+        roles: ['PROVINCE_REVIEWER', 'ADMIN'],
+      },
     ],
   },
   {
@@ -206,6 +213,13 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: '我的公示',
         path: '/console/my-publications',
         icon: Medal,
+        roles: PLAYERS,
+      },
+      {
+        key: 'my-competition',
+        title: '我的赛事数据',
+        path: '/console/my-competition',
+        icon: TrendCharts,
         roles: PLAYERS,
       },
     ],
