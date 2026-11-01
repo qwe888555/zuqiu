@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { ArrowRight, Calendar, Location, Ticket, VideoPlay } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
@@ -120,7 +120,7 @@ const stripHasUpcoming = computed(() => {
 const heroImage = computed(() => banners.value[0]?.imageUrl || '')
 
 /** 首屏直播：有直播链接时用视频/播放器顶替轮播图，没有则原样展示轮播图。 */
-type HeroLiveMode = 'video' | 'iframe' | 'link'
+type HeroLiveMode = 'video' | 'hls' | 'iframe' | 'link'
 interface HeroLive {
   title: string
   url: string
@@ -128,12 +128,14 @@ interface HeroLive {
 }
 
 const heroLive = ref<HeroLive | null>(null)
-// 只有直链媒体文件才用 <video>，其余页面用 <iframe>，再不行只留跳转入口。
+// 直链媒体文件用 <video>；HLS（.m3u8）同样走 <video>，由 hls.js 喂流；其余页面用 <iframe>，再不行只留跳转入口。
 const DIRECT_VIDEO_RE = /\.(mp4|webm|ogv|ogg|mov|m4v)(?:[?#]|$)/i
+const HLS_URL_RE = /\.m3u8(?:[?#]|$)/i
 const EMBED_URL_RE =
   /(youtube\.com\/embed|player\.bilibili\.com|v\.qq\.com\/txp\/iframe|player\.youku\.com|open\.douyin\.com\/embed)/i
 
 function liveMode(url: string): HeroLiveMode {
+  if (HLS_URL_RE.test(url)) return 'hls'
   if (DIRECT_VIDEO_RE.test(url)) return 'video'
   if (EMBED_URL_RE.test(url)) return 'iframe'
   return 'link'
@@ -145,9 +147,10 @@ const bannerVideoUrl = computed(() =>
   bannerVideoBroken.value ? '' : banners.value[0]?.videoUrl || '',
 )
 const heroVideoUrl = computed(() => {
-  if (heroLive.value?.mode === 'video') return heroLive.value.url
+  if (heroLive.value?.mode === 'video' || heroLive.value?.mode === 'hls') return heroLive.value.url
   return bannerVideoUrl.value
 })
+const heroIsHls = computed(() => HLS_URL_RE.test(heroVideoUrl.value))
 const showHeroVideo = computed(() => Boolean(heroVideoUrl.value))
 const showHeroFrame = computed(() => !showHeroVideo.value && heroLive.value?.mode === 'iframe')
 
@@ -177,7 +180,7 @@ function handleHeroVideoEnded() {
 
 function handleHeroMediaError() {
   // 直播视频失败时退回“视频入口 + 轮播图”，保留正在直播的提示。
-  if (heroLive.value?.mode === 'video') {
+  if (heroLive.value?.mode === 'video' || heroLive.value?.mode === 'hls') {
     heroLive.value = { ...heroLive.value, mode: 'link' }
     return
   }
@@ -185,17 +188,54 @@ function handleHeroMediaError() {
   heroResting.value = false
 }
 
+// HLS（.m3u8）浏览器不能原生播放，用 hls.js 把分片喂给 <video>；Safari 等原生支持的浏览器直接吃 src。
+const heroVideoEl = ref<HTMLVideoElement | null>(null)
+let heroHls: { destroy: () => void } | null = null
+
+function destroyHeroHls() {
+  heroHls?.destroy()
+  heroHls = null
+}
+
+async function attachHeroHls() {
+  destroyHeroHls()
+  const video = heroVideoEl.value
+  const url = heroVideoUrl.value
+  if (!video || !url || !HLS_URL_RE.test(url)) return
+  if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = url
+    return
+  }
+  const { default: Hls } = await import('hls.js')
+  if (!Hls.isSupported()) {
+    handleHeroMediaError()
+    return
+  }
+  const hls = new Hls({ lowLatencyMode: true, enableWorker: true })
+  heroHls = hls
+  hls.loadSource(url)
+  hls.attachMedia(video)
+  hls.on(Hls.Events.ERROR, (_event, data) => {
+    if (data?.fatal) handleHeroMediaError()
+  })
+}
+
+watch([heroVideoUrl, heroResting], () => {
+  nextTick(attachHeroHls)
+})
+
 async function loadHeroLive(match: PublicMatch | undefined) {
   heroLive.value = null
   if (!match) return
   try {
     const links = await publicApi.liveLinks(match.id)
-    // 视频直链优先，其次播放器页面，最后任意可用链接。
     const usable = links.filter(
       (link: LiveLink) => link.enabled !== false && /^https?:\/\//i.test(link.url),
     )
+    // 优先能直接“在页面里播”的地址：普通视频 → HLS 流 → 播放器页面 → 任意可用链接。
     const picked =
       usable.find((link) => liveMode(link.url) === 'video') ||
+      usable.find((link) => liveMode(link.url) === 'hls') ||
       usable.find((link) => liveMode(link.url) === 'iframe') ||
       usable[0]
     if (!picked) return
@@ -283,7 +323,10 @@ async function loadStars(publicEventId: string) {
 }
 
 onMounted(loadHome)
-onBeforeUnmount(stopHeroRestTimer)
+onBeforeUnmount(() => {
+  stopHeroRestTimer()
+  destroyHeroHls()
+})
 
 function formatDate(value?: string) {
   return value ? dayjs(value).format('MM.DD') : '--'
@@ -335,13 +378,14 @@ function publicationLink(star: PublicityRecord) {
         <SafeImage v-if="heroImage" :src="heroImage" alt="青少年足球联赛" />
         <video
           v-if="showHeroVideo && !heroResting"
+          ref="heroVideoEl"
           class="hero__video"
-          :src="heroVideoUrl"
+          :src="heroIsHls ? undefined : heroVideoUrl"
           :poster="heroImage || undefined"
           autoplay
           muted
           playsinline
-          preload="metadata"
+          :preload="heroIsHls ? 'auto' : 'metadata'"
           aria-hidden="true"
           @ended="handleHeroVideoEnded"
           @error="handleHeroMediaError"
