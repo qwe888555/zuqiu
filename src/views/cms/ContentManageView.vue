@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus
 import { Delete, Edit, Plus, Refresh, Search, UploadFilled, View } from '@element-plus/icons-vue'
 import { contentApi, dictApi, eventApi, fileApi } from '../../api'
 import type { Content, ContentType, Event, EventGroup, OptionItem } from '../../api/types'
+import { EVENT_CATEGORIES } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
@@ -106,11 +107,17 @@ async function loadEvents() {
 }
 
 async function loadEventCategories() {
+  let dictOptions: OptionItem[] = []
   try {
-    eventCategories.value = await dictApi.options('EVENT_CATEGORY')
+    dictOptions = await dictApi.options('EVENT_CATEGORY')
   } catch {
-    eventCategories.value = []
+    // 字典不可用时仍展示前端标准类别，避免筛选器为空。
   }
+  // 后端字典可能仍是旧编码，合并标准类别并按 value 去重。
+  const map = new Map<string, OptionItem>()
+  for (const item of EVENT_CATEGORIES) map.set(item.value, { value: item.value, label: item.label })
+  for (const item of dictOptions) if (!map.has(item.value)) map.set(item.value, item)
+  eventCategories.value = [...map.values()]
 }
 
 async function loadFilterGroups(eventId: string) {

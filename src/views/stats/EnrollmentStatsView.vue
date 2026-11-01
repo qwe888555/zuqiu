@@ -4,10 +4,11 @@ import { useRouter } from 'vue-router'
 import { DataAnalysis, Download, Refresh, Setting, Trophy, User, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { enrollmentApi, eventApi } from '../../api'
-import type { Event, StatRow } from '../../api/types'
+import type { Enrollment, Event, StatRow } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
 import { useAuthStore } from '../../stores/auth'
 import { pickDefaultEventId } from '../../utils/events'
+import { buildSchoolStatRows } from '../../utils/statsAggregation'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 import CityHeatMap from '../../components/stats/CityHeatMap.vue'
@@ -21,9 +22,10 @@ const exporting = ref<'xlsx' | 'zip' | ''>('')
 const events = ref<Event[]>([])
 const rows = ref<StatRow[]>([])
 const eventId = ref('')
-// 成员3 统计接口的 dimension 枚举为 CITY / UNIVERSITY / GROUP，且 eventId 必填。
-const dimension = ref<'CITY' | 'UNIVERSITY' | 'GROUP'>('CITY')
+// 新后端统计维度为 CITY / SCHOOL / GROUP；旧后端没有 SCHOOL，前端用报名列表兜底。
+const dimension = ref<'CITY' | 'SCHOOL' | 'GROUP'>('CITY')
 const selectedCity = ref('')
+const athleteCountComplete = ref(true)
 
 function cityKey(label: string) {
   return label
@@ -87,7 +89,24 @@ const totalApproved = computed(() => rows.value.reduce((sum, row) => sum + (row.
 const maxTeamCount = computed(() => Math.max(1, ...rows.value.map((row) => row.teamCount)))
 
 const dimensionLabel = computed(
-  () => ({ CITY: '市州', UNIVERSITY: '学校', GROUP: '组别' })[dimension.value],
+  () => ({ CITY: '市州', SCHOOL: '学校', GROUP: '组别' })[dimension.value],
+)
+
+/** 旧后端报名列表没有 playerCount 时，只展示可核验人数，不把未知当 0。 */
+const athleteKpiValue = computed(() =>
+  dimension.value === 'SCHOOL' && !athleteCountComplete.value && totalAthletes.value === 0
+    ? '—'
+    : totalAthletes.value,
+)
+const athleteKpiHint = computed(() =>
+  dimension.value === 'SCHOOL' && !athleteCountComplete.value
+    ? '部分报名单未返回人数，仅统计可核验部分'
+    : '各报名单球员合计',
+)
+const scopeText = computed(() =>
+  dimension.value === 'SCHOOL'
+    ? '按报名学校聚合；人数缺失时显示 —'
+    : '统计口径：当前账号数据范围内',
 )
 
 const emptyEventDescription = computed(() =>
@@ -99,35 +118,78 @@ const emptyEventDescription = computed(() =>
 // 刷新与维度切换可能并发；只允许最后一次请求落表。
 let loadSeq = 0
 
+function setRows(next: StatRow[]) {
+  rows.value = next
+  athleteCountComplete.value = !next.some((row) => row.athleteCountUnavailable)
+}
+
+/** 统计接口分页返回，按 total 取全量。 */
+async function fetchStatPages(targetDimension: 'CITY' | 'SCHOOL' | 'GROUP'): Promise<StatRow[]> {
+  const collected: StatRow[] = []
+  let page = 1
+  let total = 0
+  do {
+    const res = await enrollmentApi.statistics(
+      {
+        eventId: eventId.value,
+        dimension: targetDimension,
+        page,
+        pageSize: 100,
+      },
+      // 旧后端不认识 SCHOOL 时会返回 400，由调用方静默降级，不弹错误提示。
+      { silentError: true },
+    )
+    collected.push(...res.items)
+    total = res.total
+    if (res.items.length < (res.pageSize || 100)) break
+    page += 1
+  } while (collected.length < total && page <= 50)
+  return collected
+}
+
+/** 旧后端没有 SCHOOL 维度时，用报名列表按学校聚合兜底。 */
+async function fetchSchoolRowsFromEnrollments(): Promise<StatRow[]> {
+  const collected: Enrollment[] = []
+  let page = 1
+  let total = 0
+  do {
+    const res = await enrollmentApi.list({
+      eventId: eventId.value,
+      page,
+      pageSize: 100,
+    })
+    collected.push(...res.items)
+    total = res.total
+    if (res.items.length < (res.pageSize || 100)) break
+    page += 1
+  } while (collected.length < total && page <= 50)
+  return buildSchoolStatRows(collected)
+}
+
 async function load() {
   const seq = ++loadSeq
   if (!eventId.value) {
-    rows.value = []
+    setRows([])
     loading.value = false
     return
   }
   loading.value = true
   try {
-    // 统计接口分页返回，默认 pageSize=20；市州/学校维度可能超过一页，这里按 total 取全量。
-    const collected: StatRow[] = []
-    let page = 1
-    let total = 0
-    do {
-      const res = await enrollmentApi.statistics({
-        eventId: eventId.value,
-        dimension: dimension.value,
-        page,
-        pageSize: 100,
-      })
-      if (seq !== loadSeq) return
-      collected.push(...res.items)
-      total = res.total
-      if (res.items.length < (res.pageSize || 100)) break
-      page += 1
-    } while (collected.length < total && page <= 50)
-    rows.value = collected
+    let next: StatRow[]
+    if (dimension.value === 'SCHOOL') {
+      try {
+        next = await fetchStatPages('SCHOOL')
+      } catch {
+        // 8082 当前旧版本仍只支持 CITY/UNIVERSITY/GROUP；新版本部署后自动走官方 SCHOOL。
+        next = await fetchSchoolRowsFromEnrollments()
+      }
+    } else {
+      next = await fetchStatPages(dimension.value)
+    }
+    if (seq !== loadSeq) return
+    setRows(next)
   } catch {
-    if (seq === loadSeq) rows.value = []
+    if (seq === loadSeq) setRows([])
   } finally {
     if (seq === loadSeq) loading.value = false
   }
@@ -239,12 +301,22 @@ onMounted(refresh)
       </el-select>
       <el-radio-group v-model="dimension" @change="changeDimension">
         <el-radio-button value="CITY">按市州</el-radio-button>
-        <el-radio-button value="UNIVERSITY">按学校</el-radio-button>
+        <el-radio-button value="SCHOOL">按学校</el-radio-button>
         <el-radio-button value="GROUP">按组别</el-radio-button>
       </el-radio-group>
       <span class="filter-card__spacer" />
-      <span class="muted">统计口径：当前账号数据范围内</span>
+      <span class="muted">{{ scopeText }}</span>
     </section>
+
+    <el-alert
+      v-if="dimension === 'SCHOOL' && !athleteCountComplete"
+      class="inline-alert"
+      type="info"
+      :closable="false"
+      show-icon
+      title="部分报名单未返回球员人数"
+      description="学校与队伍数按报名单聚合；列表接口未提供人数时，球员数显示“—”，不按 0 计入。"
+    />
 
     <div v-if="!eventsLoading && !events.length" class="event-empty">
       <el-alert
@@ -267,7 +339,7 @@ onMounted(refresh)
 
     <div class="stat-grid">
       <StatCard label="报名球队" :value="totalTeams" hint="学校报送的参赛球队" :icon="Trophy" tone="green" />
-      <StatCard label="报名球员" :value="totalAthletes" hint="各报名单球员合计" :icon="User" tone="lime" />
+      <StatCard label="报名球员" :value="athleteKpiValue" :hint="athleteKpiHint" :icon="User" tone="lime" />
       <StatCard label="待审核" :value="totalPending" hint="需尽快处理" :icon="Warning" tone="amber" />
       <StatCard label="已通过" :value="totalApproved" hint="完成终审" :icon="DataAnalysis" tone="blue" />
     </div>
@@ -340,7 +412,10 @@ onMounted(refresh)
             </template>
           </el-table-column>
           <el-table-column prop="athleteCount" label="球员数" width="100" align="center">
-            <template #default="{ row }"><span class="num">{{ row.athleteCount }}</span></template>
+            <template #default="{ row }">
+              <span v-if="row.athleteCountUnavailable" class="muted">—</span>
+              <span v-else class="num">{{ row.athleteCount }}</span>
+            </template>
           </el-table-column>
           <el-table-column label="待审" width="90" align="center">
             <template #default="{ row }">
@@ -418,6 +493,10 @@ onMounted(refresh)
 </template>
 
 <style scoped>
+.inline-alert {
+  margin-bottom: 14px;
+}
+
 .filter-card {
   display: flex;
   align-items: center;

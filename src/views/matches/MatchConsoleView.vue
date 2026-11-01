@@ -478,13 +478,13 @@ async function publishResult() {
     return
   }
   try {
-    await ElMessageBox.confirm('发布赛果后将同步至门户与射手榜。', '发布赛果', {
+    await ElMessageBox.confirm('发布赛果后将同步至门户与射手榜，并自动生成赛果快讯。', '发布赛果', {
       confirmButtonText: '确认发布',
       cancelButtonText: '取消',
       type: 'warning',
     })
     await matchApi.publishResult(matchId, match.value?.version || 0)
-    ElMessage.success('赛果已发布')
+    ElMessage.success('赛果已发布，门户比分、射手榜与赛果快讯已同步')
     await loadAll()
   } catch {
     // 取消

@@ -31,27 +31,68 @@ export const CATEGORY_LABELS: Record<GroupCategory, string> = {
 }
 
 /**
- * 赛事层级复用 eventCategory 编码，不新增后端字段。
- * 只识别本系统约定的精确编码；历史分类（SCHOOL_LEAGUE、CHAMPIONSHIP 等）
- * 是赛事类别而非层级，必须原样展示，不能按前缀猜测，否则会把省级联赛误判为学校级。
+ * 赛事类别与后端 EVENT_CATEGORIES 保持一致（2026-11 标准枚举）。
+ * 省/市/校三级是赛事层级，CHAMPIONSHIP/FRIENDLY/OTHER 是其他类别；
+ * 后端写入前会把旧编码归一化，前端筛选必须发送标准编码，否则精确筛选会落空。
  */
+export const EVENT_CATEGORIES = [
+  { value: 'PROVINCIAL_LEAGUE', label: '省级联赛' },
+  { value: 'CITY_LEAGUE', label: '市级联赛' },
+  { value: 'SCHOOL_LEAGUE', label: '校级联赛' },
+  { value: 'CHAMPIONSHIP', label: '锦标赛' },
+  { value: 'FRIENDLY', label: '友谊赛' },
+  { value: 'OTHER', label: '其他' },
+] as const
+
 export const EVENT_LEVELS = [
-  { value: 'PROVINCE', label: '省级' },
-  { value: 'CITY', label: '市级' },
-  { value: 'SCHOOL', label: '学校级' },
+  { value: 'PROVINCIAL_LEAGUE', label: '省级' },
+  { value: 'CITY_LEAGUE', label: '市级' },
+  { value: 'SCHOOL_LEAGUE', label: '学校级' },
 ] as const
 
 export type EventLevel = (typeof EVENT_LEVELS)[number]['value']
+export type EventCategory = (typeof EVENT_CATEGORIES)[number]['value']
+
+/** 兼容旧前端与历史自由文本，后端 EVENT_CATEGORY_ALIASES 同口径。 */
+const EVENT_CATEGORY_ALIASES: Record<string, EventCategory> = {
+  PROVINCE: 'PROVINCIAL_LEAGUE',
+  PROVINCIAL: 'PROVINCIAL_LEAGUE',
+  PROVINCIAL_LEAGUE: 'PROVINCIAL_LEAGUE',
+  CITY: 'CITY_LEAGUE',
+  CITY_LEAGUE: 'CITY_LEAGUE',
+  CITY_TOURNAMENT: 'CITY_LEAGUE',
+  SCHOOL: 'SCHOOL_LEAGUE',
+  SCHOOL_LEAGUE: 'SCHOOL_LEAGUE',
+  SCHOOL_GAMES: 'SCHOOL_LEAGUE',
+  CHAMPIONSHIP: 'CHAMPIONSHIP',
+  CHAMPIONSHIPS: 'CHAMPIONSHIP',
+  TOURNAMENT: 'CHAMPIONSHIP',
+  FRIENDLY: 'FRIENDLY',
+}
+
+export function normalizeEventCategory(category?: string): EventCategory | '' {
+  const value = (category || '').trim().toUpperCase()
+  if (!value) return ''
+  return EVENT_CATEGORY_ALIASES[value] || 'OTHER'
+}
 
 export function eventLevelOf(category?: string): EventLevel | '' {
-  const value = (category || '').trim().toUpperCase()
+  const value = normalizeEventCategory(category)
   return EVENT_LEVELS.some((level) => level.value === value) ? (value as EventLevel) : ''
 }
 
-export function eventLevelLabel(category?: string): string {
+/** 后端已返回 eventCategoryLabel 时优先使用，避免前端字典落后于后端。 */
+export function eventCategoryLabel(category?: string, serverLabel?: string): string {
+  if (serverLabel?.trim()) return serverLabel.trim()
+  const value = normalizeEventCategory(category)
+  if (!value) return '未分级'
+  return EVENT_CATEGORIES.find((item) => item.value === value)?.label || category?.trim() || '未分级'
+}
+
+export function eventLevelLabel(category?: string, serverLabel?: string): string {
   const level = eventLevelOf(category)
   if (level) return EVENT_LEVELS.find((item) => item.value === level)?.label || level
-  return category?.trim() || '未分级'
+  return eventCategoryLabel(category, serverLabel)
 }
 
 export const CATEGORY_GROUP_LABELS: Record<GroupCategory, string> = {

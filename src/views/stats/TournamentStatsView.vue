@@ -6,7 +6,7 @@ import { DataAnalysis, Download, Refresh, Trophy, User, Warning } from '@element
 import { ElMessage } from 'element-plus'
 import { eventApi, matchApi } from '../../api'
 import type { Event, Match, MatchEvent } from '../../api/types'
-import { EVENT_LEVELS, eventLevelLabel, eventLevelOf } from '../../config/labels'
+import { EVENT_LEVELS, eventCategoryLabel, eventLevelOf } from '../../config/labels'
 import { usePermission } from '../../composables/usePermission'
 import { mapLimit, fetchAllPages } from '../../utils/asyncPool'
 import {
@@ -47,7 +47,12 @@ const playerTeamFilter = ref('')
 
 const standingsVisible = ref(false)
 const standingsEvent = ref<Event | null>(null)
+const standingsGroups = ref<{ id: string; name: string }[]>([])
 const activeGroupId = ref('')
+const standingsRows = ref<StandingRow[]>([])
+const standingsLoading = ref(false)
+const standingsSource = ref<'official' | 'local'>('official')
+let standingsSeq = 0
 
 const traceVisible = ref(false)
 const tracePlayer = ref<PlayerStatRow | null>(null)
@@ -175,28 +180,68 @@ const groupOptions = computed(() => {
   if (!standingsEvent.value) return []
   const event = standingsEvent.value
   const map = new Map<string, string>()
+  // 官方组别优先（含尚无比赛的组别），再补充比赛里出现过的组别名。
+  for (const group of standingsGroups.value) map.set(group.id, group.name)
   for (const match of matchesByEvent.value[event.id] || []) {
-    if (!inRange(match.kickoffAt) || !match.groupId) continue
-    map.set(match.groupId, match.groupName || match.groupId)
+    if (!match.groupId) continue
+    if (!map.has(match.groupId)) map.set(match.groupId, match.groupName || match.groupId)
   }
   return [...map.entries()].map(([id, name]) => ({ id, name }))
 })
 
-const standings = computed<StandingRow[]>(() => {
-  if (!standingsEvent.value || !activeGroupId.value) return []
-  return buildStandings(standingsMatches(standingsEvent.value.id, activeGroupId.value))
-})
+/** 官方积分榜优先；旧后端没有该接口时回退到已加载赛果推算。 */
+async function loadStandings() {
+  const event = standingsEvent.value
+  const groupId = activeGroupId.value
+  const seq = ++standingsSeq
+  if (!event || !groupId) {
+    standingsRows.value = []
+    standingsLoading.value = false
+    return
+  }
+  standingsLoading.value = true
+  try {
+    const res = await matchApi.standings(
+      { eventId: event.id, groupId },
+      { silentError: true },
+    )
+    if (seq !== standingsSeq) return
+    standingsRows.value = res.items
+    standingsSource.value = 'official'
+  } catch {
+    if (seq !== standingsSeq) return
+    standingsRows.value = buildStandings(standingsMatches(event.id, groupId))
+    standingsSource.value = 'local'
+  } finally {
+    if (seq === standingsSeq) standingsLoading.value = false
+  }
+}
 
-function openStandings(row: EventRow) {
+async function openStandings(row: EventRow) {
   standingsEvent.value = row.event
+  standingsGroups.value = row.groups
   activeGroupId.value = row.groups[0]?.id || ''
+  standingsRows.value = []
   standingsVisible.value = true
+  await loadStandings()
+  // 补齐没有比赛但有报名组别的组别下拉；失败时保留由比赛推导的组别。
+  try {
+    const groups = await eventApi.groups(row.event.id)
+    if (standingsEvent.value?.id !== row.event.id) return
+    standingsGroups.value = groups.items.map((group) => ({ id: group.id, name: group.name }))
+    if (!activeGroupId.value && standingsGroups.value.length) {
+      activeGroupId.value = standingsGroups.value[0].id
+      await loadStandings()
+    }
+  } catch {
+    // 组别接口不可用时仍可按比赛推导的组别查看。
+  }
 }
 
 function exportStandings() {
-  if (!standings.value.length) return ElMessage.info('当前组别暂无可导出的积分榜')
+  if (!standingsRows.value.length) return ElMessage.info('当前组别暂无可导出的积分榜')
   const header = ['名次', '球队', '赛', '胜', '平', '负', '进球', '失球', '净胜球', '积分']
-  const lines = standings.value.map((row) => [
+  const lines = standingsRows.value.map((row) => [
     row.rank,
     row.teamName,
     row.played,
@@ -313,7 +358,7 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="赛事统计"
-      description="按时间范围与赛事级别汇总比赛、球队名次和球员数据。名次由已发布赛果推算，可在赛事级别下钻查看组别积分榜。"
+      description="按时间范围与赛事级别汇总比赛、球队名次和球员数据。名次优先读取官方积分榜，旧后端不可用时按已发布赛果推算。"
     >
       <template #actions>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新数据</el-button>
@@ -358,7 +403,9 @@ onMounted(load)
             <el-table-column label="赛事" min-width="220">
               <template #default="{ row }">
                 <div class="event-cell">
-                  <el-tag size="small" effect="plain">{{ eventLevelLabel(row.event.eventCategory) }}</el-tag>
+                  <el-tag size="small" effect="plain">
+                    {{ eventCategoryLabel(row.event.eventCategory, row.event.eventCategoryLabel) }}
+                  </el-tag>
                   <strong>{{ row.event.name }}</strong>
                   <small>{{ row.event.season }}</small>
                 </div>
@@ -493,21 +540,29 @@ onMounted(load)
     <el-drawer v-model="standingsVisible" size="720px" :title="standingsEvent?.name || '赛事名次'">
       <el-alert
         class="drawer-alert"
-        type="info"
+        :type="standingsSource === 'official' ? 'success' : 'info'"
         :closable="false"
         show-icon
-        title="名次按已发布且比分完整的赛果推算"
-        description="胜 3 分、平 1 分、负 0 分，依次比较积分、净胜球、进球数；该结果不是官方奖项，淘汰赛名次以组委会公示为准。"
+        :title="
+          standingsSource === 'official'
+            ? '官方积分榜：按赛事组别统计已发布赛果'
+            : '当前后端未提供官方积分榜，名次按已加载赛果推算'
+        "
+        :description="
+          standingsSource === 'official'
+            ? '积分榜覆盖该组别全部已发布赛果，不受上方比赛日期筛选影响；淘汰赛名次以组委会公示为准。'
+            : '胜 3 分、平 1 分、负 0 分，依次比较积分、净胜球、进球数；该结果不是官方奖项，淘汰赛名次以组委会公示为准。'
+        "
       />
       <div class="drawer-toolbar">
-        <el-radio-group v-model="activeGroupId">
+        <el-radio-group v-model="activeGroupId" @change="loadStandings">
           <el-radio-button v-for="group in groupOptions" :key="group.id" :value="group.id">
             {{ group.name }}
           </el-radio-button>
         </el-radio-group>
-        <el-button :icon="Download" :disabled="!standings.length" @click="exportStandings">导出 CSV</el-button>
+        <el-button :icon="Download" :disabled="!standingsRows.length" @click="exportStandings">导出 CSV</el-button>
       </div>
-      <el-table :data="standings" style="width: 100%">
+      <el-table v-loading="standingsLoading" :data="standingsRows" style="width: 100%">
         <el-table-column label="名次" width="80" align="center">
           <template #default="{ row }">
             <span v-if="row.rank === 1">🥇 1</span>
@@ -528,7 +583,11 @@ onMounted(load)
           <template #default="{ row }"><strong class="num">{{ row.points }}</strong></template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!standings.length" description="该组别暂无已结束且比分完整的比赛" :image-size="70" />
+      <el-empty
+        v-if="!standingsLoading && !standingsRows.length"
+        description="该组别暂无已发布赛果"
+        :image-size="70"
+      />
     </el-drawer>
 
     <el-drawer v-model="traceVisible" size="680px" :title="`${tracePlayer?.athleteName || ''} · 逐场明细`">

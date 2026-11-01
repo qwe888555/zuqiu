@@ -2274,26 +2274,47 @@ on('POST', '/enrollments/:id/imports/photos', ({ params, config }) => {
 
 on('GET', '/enrollment-statistics', ({ query, config }) => {
   const eventId = str(query.eventId)
-  // 与成员3契约一致：CITY / UNIVERSITY / GROUP。
+  // 后端维度为 CITY / SCHOOL / GROUP；UNIVERSITY 保留为旧别名。
   const dimension = (str(query.dimension) || 'CITY').toUpperCase()
+  const bySchool = dimension === 'SCHOOL' || dimension === 'UNIVERSITY'
   const source = scopeEnrollments(config, enrollments)
   const scoped = eventId ? source.filter((e) => e.eventId === eventId) : source
-  const groups = new Map<string, { label: string; teamCount: number; athleteCount: number; pendingCount: number; approvedCount: number; rejectedCount: number }>()
+  const groups = new Map<
+    string,
+    {
+      label: string
+      teamCount: number
+      enrollmentCount: number
+      athleteCount: number
+      pendingCount: number
+      approvedCount: number
+      rejectedCount: number
+    }
+  >()
   scoped.forEach((e) => {
     const key =
       dimension === 'GROUP'
         ? e.groupId
-        : dimension === 'UNIVERSITY'
+        : bySchool
           ? schoolOrgIdOfEnrollment(e) || '未分组'
           : e.cityName || '未分组'
     const label =
       dimension === 'GROUP'
         ? e.groupName
-        : dimension === 'UNIVERSITY'
+        : bySchool
           ? e.schoolName || '未分组'
           : e.cityName || '未分组'
-    const row = groups.get(key) || { label, teamCount: 0, athleteCount: 0, pendingCount: 0, approvedCount: 0, rejectedCount: 0 }
+    const row = groups.get(key) || {
+      label,
+      teamCount: 0,
+      enrollmentCount: 0,
+      athleteCount: 0,
+      pendingCount: 0,
+      approvedCount: 0,
+      rejectedCount: 0,
+    }
     row.teamCount += 1
+    row.enrollmentCount += 1
     row.athleteCount += e.playerCount ?? 0
     if (e.status === 'PENDING_CITY_REVIEW' || e.status === 'PENDING_PROVINCE_REVIEW') row.pendingCount += 1
     if (e.status === 'APPROVED') row.approvedCount += 1
