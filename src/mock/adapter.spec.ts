@@ -14,7 +14,7 @@ async function get<T>(path: string, params: Record<string, unknown> = {}): Promi
 
 describe('mock 赛事与射手榜查询', () => {
   it('/events 支持 name 与 eventCategory，并兼容 keyword', async () => {
-    const byLevel = await get<PageResult<Event>>('/events', { eventCategory: 'SCHOOL' })
+    const byLevel = await get<PageResult<Event>>('/events', { eventCategory: 'SCHOOL_LEAGUE' })
     expect(byLevel.items).toHaveLength(1)
     expect(byLevel.items[0].id).toBe('event_school_2026')
 

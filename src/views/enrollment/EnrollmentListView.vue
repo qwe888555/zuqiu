@@ -44,6 +44,29 @@ const filters = reactive({
 /** 从「报名统计」下钻时带过来的市州名称，仅用于展示筛选标签。 */
 const cityName = ref('')
 
+const hasActiveFilters = computed(
+  () =>
+    !!(
+      filters.eventId ||
+      filters.groupId ||
+      filters.status ||
+      filters.keyword ||
+      filters.cityOrgId
+    ),
+)
+const emptyTitle = computed(() => (hasActiveFilters.value ? '当前筛选条件下暂无报名记录' : '暂无报名记录'))
+/**
+ * 球队端的报名单由学校提交后同步可见；后端数据范围异常时列表可能为空，
+ * 这里给出可执行的核对路径，避免球队误以为学校没有提交。
+ */
+const emptyHint = computed(() => {
+  if (auth.roles.includes('TEAM')) {
+    const prefix = hasActiveFilters.value ? '可重置筛选后重试。' : ''
+    return `${prefix}报名由学校端统一提交；若学校已提交仍无记录，请联系学校端或赛事管理员确认该报名是否在您账号的可见范围内。`
+  }
+  return '报名由学校端统一提交，本账号仅查看权限范围内的记录。'
+})
+
 const statusOptions = [
   { value: 'DRAFT', label: '草稿' },
   { value: 'PENDING_CITY_REVIEW', label: '待市州审核' },
@@ -309,9 +332,9 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="暂无报名记录">
+          <el-empty :description="emptyTitle" :image-size="80">
             <el-button v-if="canReport" type="primary" @click="goCreate">新建报名</el-button>
-            <span v-else class="muted">报名由学校端统一提交，本账号仅查看权限范围内的记录。</span>
+            <span v-else class="muted empty-hint">{{ emptyHint }}</span>
           </el-empty>
         </template>
       </el-table>
@@ -389,6 +412,15 @@ onMounted(async () => {
 .stack strong {
   font-weight: 500;
   color: var(--ink-700);
+}
+
+.empty-hint {
+  display: block;
+  max-width: 460px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
 }
 
 .issue-list {

@@ -27,6 +27,7 @@ import type {
   Material,
   Message,
   MyAffiliation,
+  OfficialStandingRow,
   Organization,
   PageResult,
   Person,
@@ -49,6 +50,7 @@ import type {
   TeamCoach,
   TeamMember,
 } from './types'
+import type { StandingRow } from '../utils/statsAggregation'
 
 type Query = Record<string, unknown>
 /** 单个请求的提示控制：可选接口失败时由页面决定是否展示提示。 */
@@ -433,9 +435,13 @@ export const enrollmentApi = {
     http.download('/imports/templates/roster.xlsx', '球员名单导入模板.xlsx'),
   downloadImportErrors: (batchId: string) =>
     http.download(`/imports/${batchId}/errors.csv`, `导入错误清单-${batchId}.csv`),
-  statistics: async (params: Query) => {
+  statistics: async (params: Query, options?: RequestOptions) => {
     // 契约要求分页信封；旧版后端/内置 Mock 可能直接返回数组，这里统一拍平。
-    const res = await http.get<PageResult<StatRow> | StatRow[]>('/enrollment-statistics', params)
+    const res = await http.get<PageResult<StatRow> | StatRow[]>(
+      '/enrollment-statistics',
+      params,
+      options,
+    )
     return Array.isArray(res)
       ? { items: res, page: 1, pageSize: res.length, total: res.length }
       : res
@@ -489,6 +495,24 @@ function normalizeMatch(raw: Match): Match {
 
 function normalizeMatchPage(page: PageResult<Match>): PageResult<Match> {
   return { ...page, items: page.items.map(normalizeMatch) }
+}
+
+/** 后端积分榜字段 wins/draws/losses/goalsFor... → 页面内部统一字段。 */
+function normalizeStandings(payload: { items?: OfficialStandingRow[]; total?: number }) {
+  const items = (payload.items || []).map<StandingRow>((row) => ({
+    rank: row.rank,
+    teamId: row.teamId,
+    teamName: row.teamName,
+    played: row.played,
+    won: row.wins,
+    drawn: row.draws,
+    lost: row.losses,
+    gf: row.goalsFor,
+    ga: row.goalsAgainst,
+    gd: row.goalDiff,
+    points: row.points,
+  }))
+  return { items, total: payload.total ?? items.length }
 }
 
 /** 成员5 的列表类接口均返回分页对象，部分页面按数组消费。 */
@@ -564,6 +588,15 @@ export const matchApi = {
     const res = await http.get<PageResult<GoalRankingRow>>('/statistics/goals', params)
     return { rows: res.items, generatedAt: '' }
   },
+  /** 官方积分榜：仅统计已发布赛果；旧后端无此接口时页面回退本地推算。 */
+  standings: async (params: Query, options?: RequestOptions) => {
+    const res = await http.get<{ items?: OfficialStandingRow[]; total?: number }>(
+      '/statistics/standings',
+      params,
+      options,
+    )
+    return normalizeStandings(res)
+  },
 }
 
 export const contentApi = {
@@ -625,6 +658,14 @@ export const publicApi = {
   goals: async (params: Query) => {
     const res = await http.get<PageResult<GoalRankingRow>>('/public/statistics/goals', params)
     return { rows: res.items, generatedAt: '' }
+  },
+  standings: async (params: Query, options?: RequestOptions) => {
+    const res = await http.get<{ items?: OfficialStandingRow[]; total?: number }>(
+      '/public/statistics/standings',
+      params,
+      options,
+    )
+    return normalizeStandings(res)
   },
   askPolicy: (question: string) => http.post<PolicyAnswer>('/public/policy-questions', { question }),
 }

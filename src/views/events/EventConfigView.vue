@@ -6,7 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Edit, Plus, Refresh, Setting, Delete } from '@element-plus/icons-vue'
 import { eventApi } from '../../api'
 import type { Event, EventGroup, GroupCategory } from '../../api/types'
-import { CATEGORY_LABELS, EVENT_LEVELS, eventLevelLabel } from '../../config/labels'
+import { CATEGORY_LABELS, EVENT_CATEGORIES, eventCategoryLabel } from '../../config/labels'
 import { httpStatusOf } from '../../utils/httpError'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -390,16 +390,16 @@ onMounted(load)
         />
         <el-select
           v-model="levelFilter"
-          placeholder="全部级别"
+          placeholder="全部类别"
           clearable
-          style="width: 150px"
+          style="width: 160px"
           @change="search"
         >
           <el-option
-            v-for="level in EVENT_LEVELS"
-            :key="level.value"
-            :label="level.label"
-            :value="level.value"
+            v-for="category in EVENT_CATEGORIES"
+            :key="category.value"
+            :label="category.label"
+            :value="category.value"
           />
         </el-select>
         <el-button type="primary" plain @click="search">查询</el-button>
@@ -414,7 +414,9 @@ onMounted(load)
                 <strong>{{ row.name }}</strong>
                 <small>
                   {{ row.season }} ·
-                  <el-tag size="small" effect="plain">{{ eventLevelLabel(row.eventCategory) }}</el-tag>
+                  <el-tag size="small" effect="plain">
+                    {{ eventCategoryLabel(row.eventCategory, row.eventCategoryLabel) }}
+                  </el-tag>
                 </small>
               </div>
             </div>
@@ -524,23 +526,24 @@ onMounted(load)
           <el-form-item label="赛季" required>
             <el-input v-model="eventForm.season" placeholder="如：2026 春季" />
           </el-form-item>
-          <el-form-item label="赛事层级">
+          <el-form-item label="赛事类别">
             <el-select
               v-model="eventForm.eventCategory"
               filterable
-              allow-create
               default-first-option
-              placeholder="请选择省级 / 市级 / 学校级"
+              placeholder="请选择省级 / 市级 / 学校级或其他类别"
               style="width: 100%"
             >
               <el-option
-                v-for="level in EVENT_LEVELS"
-                :key="level.value"
-                :label="level.label"
-                :value="level.value"
+                v-for="category in EVENT_CATEGORIES"
+                :key="category.value"
+                :label="category.label"
+                :value="category.value"
               />
             </el-select>
-            <span class="field-hint">层级用于门户报名页与统计筛选；历史自定义编码可保留。</span>
+            <span class="field-hint">
+              类别使用后端标准编码；省/市/学校三级用于门户报名页与统计筛选。
+            </span>
           </el-form-item>
           <el-form-item label="报名开始时间">
             <el-date-picker

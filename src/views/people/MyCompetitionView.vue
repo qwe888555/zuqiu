@@ -16,7 +16,7 @@ import {
   type PlayerStatRow,
   type PlayerTrace,
 } from '../../utils/statsAggregation'
-import { eventLevelLabel } from '../../config/labels'
+import { eventCategoryLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
 
@@ -52,6 +52,14 @@ const coverageText = ref('')
 
 const nameMatchedGoals = ref(false)
 
+/** 本人的球队 ID；新后端公开比赛已返回主客队 ID，优先按 ID 精确匹配。 */
+const myTeamIds = computed(() => {
+  const ids = new Set<string>()
+  for (const team of teams.value) if (team.id) ids.add(team.id)
+  for (const id of auth.user?.teamIds || []) if (id) ids.add(id)
+  return ids
+})
+
 const teamNames = computed(() => {
   const names = new Set<string>()
   for (const team of teams.value) {
@@ -64,12 +72,32 @@ const teamNames = computed(() => {
 })
 
 const displayName = computed(() => profile.value?.realName || auth.user?.displayName || '本人')
-const personaLabel = computed(() => (profile.value?.kinds?.includes('COACH') ? '教练员' : '运动员'))
+const isAthletePerson = computed(
+  () => !!profile.value?.kinds?.includes('ATHLETE') || auth.roles.includes('ATHLETE'),
+)
+const isCoachPerson = computed(
+  () => !!profile.value?.kinds?.includes('COACH') || auth.roles.includes('COACH'),
+)
+/** 纯教练账号不参与球员统计；同时具备运动员身份的账号仍按运动员口径展示。 */
+const coachOnly = computed(() => isCoachPerson.value && !isAthletePerson.value)
+const personaLabel = computed(() =>
+  isAthletePerson.value ? '运动员' : isCoachPerson.value ? '教练员' : '用户',
+)
+const pageDescription = computed(() =>
+  coachOnly.value
+    ? '汇总所执教球队参与的赛事与比赛。教练账号不参与球员进球与红黄牌统计，相关球员数据请前往赛事统计或比赛记录台查看。'
+    : '汇总本人参与的赛事、比赛、进球与红黄牌。仅展示公开接口可核验的数据，缺失明细时不做补造。',
+)
 /** 档案接口失败时用登录态里的 personId 兜底，避免整页无法匹配本人数据。 */
 const profileId = computed(() => profile.value?.id || auth.user?.personId || '')
 const profileName = computed(() => profile.value?.realName?.trim() || '')
 
-function isMyTeam(name?: string): boolean {
+/**
+ * 球队 ID 精确匹配优先；ID 缺失或本地球队列表未覆盖历史球队时，
+ * 仍回退到名称匹配，避免漏掉本人过往参赛记录。
+ */
+function isMyTeam(id?: string, name?: string): boolean {
+  if (id && myTeamIds.value.has(id)) return true
   const normalized = normalizeTeamName(name)
   return !!normalized && teamNames.value.has(normalized)
 }
@@ -78,8 +106,8 @@ const myMatches = computed<MyMatchRow[]>(() => {
   const rows: MyMatchRow[] = []
   for (const event of events.value) {
     for (const match of matchesByEvent.value[event.id] || []) {
-      const home = isMyTeam(match.homeTeamName)
-      const away = isMyTeam(match.awayTeamName)
+      const home = isMyTeam(match.homeTeamId, match.homeTeamName)
+      const away = isMyTeam(match.awayTeamId, match.awayTeamName)
       if (home || away) {
         rows.push({ event, match, side: home && away ? '' : home ? 'HOME' : 'AWAY' })
       }
@@ -97,8 +125,12 @@ const myEvents = computed<MyEventRow[]>(() => {
       map.set(row.event.id, item)
     }
     item.matches.push(row)
-    for (const name of [row.match.homeTeamName, row.match.awayTeamName]) {
-      if (isMyTeam(name) && name && !item.teams.includes(name)) item.teams.push(name)
+    const sides: [string | undefined, string | undefined][] = [
+      [row.match.homeTeamId, row.match.homeTeamName],
+      [row.match.awayTeamId, row.match.awayTeamName],
+    ]
+    for (const [id, name] of sides) {
+      if (isMyTeam(id, name) && name && !item.teams.includes(name)) item.teams.push(name)
     }
   }
   for (const item of map.values()) {
@@ -122,7 +154,7 @@ const myPlayerRows = computed<PlayerStatRow[]>(() => {
       !profileId.value &&
       !!profileName.value &&
       row.athleteName === profileName.value &&
-      (!row.teamName || isMyTeam(row.teamName))
+      (!row.teamName || isMyTeam(undefined, row.teamName))
     )
   })
 })
@@ -176,7 +208,8 @@ async function loadBase() {
     })
     matchesByEvent.value = Object.fromEntries(results)
 
-    await loadGoals()
+    // 纯教练账号没有球员进球/红黄牌数据，跳过射手榜请求，避免无意义查询。
+    if (!coachOnly.value) await loadGoals()
   } catch {
     events.value = []
     matchesByEvent.value = {}
@@ -191,7 +224,7 @@ function matchesPlayer(row: GoalRankingRow): boolean {
   return (
     !!profileName.value &&
     row.athleteName === profileName.value &&
-    isMyTeam(row.teamName)
+    isMyTeam(row.teamId, row.teamName)
   )
 }
 
@@ -298,22 +331,29 @@ onMounted(loadBase)
 
 <template>
   <div class="page">
-    <PageHeader
-      title="我的赛事数据"
-      description="汇总本人参与的赛事、比赛、进球与红黄牌。仅展示公开接口可核验的数据，缺失明细时不做补造。"
-    >
+    <PageHeader title="我的赛事数据" :description="pageDescription">
       <template #actions>
         <el-button :icon="Refresh" :loading="loading" @click="refresh">刷新</el-button>
       </template>
     </PageHeader>
 
     <el-alert
+      v-if="coachOnly"
+      class="scope-alert"
+      type="info"
+      :closable="false"
+      show-icon
+      title="教练账号数据口径"
+      description="本页按所执教球队匹配公开赛程，展示球队参赛赛事与场次；教练不参与球员进球/红黄牌统计，因此不展示球员个人 KPI 与明细。"
+    />
+    <el-alert
+      v-else
       class="scope-alert"
       type="info"
       :closable="false"
       show-icon
       title="数据口径说明"
-      description="公开赛程不提供主客队 ID，本页按球队名称匹配本人参赛场次；公开详情未提供逐场事件时，只展示公开射手榜汇总，红黄牌显示为“—”。"
+      description="公开赛程优先按主客队 ID 匹配本人参赛场次，旧接口无 ID 时回退为球队名称匹配；公开详情未提供逐场事件时，只展示公开射手榜汇总，红黄牌显示为“—”。"
     />
 
     <div class="profile-strip">
@@ -328,8 +368,26 @@ onMounted(loadBase)
       </div>
     </div>
 
-    <div class="stat-grid">
-      <StatCard label="参赛赛事" :value="myEvents.length" hint="按球队名称匹配" :icon="Calendar" tone="green" />
+    <div v-if="coachOnly" class="stat-grid">
+      <StatCard
+        label="执教赛事"
+        :value="myEvents.length"
+        :hint="myTeamIds.size ? '球队 ID 优先匹配' : '按球队名称匹配'"
+        :icon="Calendar"
+        tone="green"
+      />
+      <StatCard label="执教场次" :value="myMatches.length" hint="公开赛程中的场次" :icon="Football" tone="blue" />
+      <StatCard label="执教球队" :value="teams.length" hint="本人所属球队" :icon="DataAnalysis" tone="lime" />
+      <StatCard label="球员数据" value="—" hint="教练账号不参与球员统计" :icon="Warning" tone="amber" />
+    </div>
+    <div v-else class="stat-grid">
+      <StatCard
+        label="参赛赛事"
+        :value="myEvents.length"
+        :hint="myTeamIds.size ? '球队 ID 优先匹配' : '按球队名称匹配'"
+        :icon="Calendar"
+        tone="green"
+      />
       <StatCard label="参赛场次" :value="myMatches.length" hint="公开赛程中的场次" :icon="Football" tone="blue" />
       <StatCard label="累计进球" :value="totalGoals" hint="公开射手榜汇总" :icon="DataAnalysis" tone="lime" />
       <StatCard
@@ -352,7 +410,9 @@ onMounted(loadBase)
             <el-table-column label="赛事" min-width="220">
               <template #default="{ row }">
                 <div class="event-cell">
-                  <el-tag size="small" effect="plain">{{ eventLevelLabel(row.event.eventCategory) }}</el-tag>
+                  <el-tag size="small" effect="plain">
+                    {{ eventCategoryLabel(row.event.eventCategory, row.event.eventCategoryLabel) }}
+                  </el-tag>
                   <strong>{{ row.event.name }}</strong>
                   <small>{{ row.event.season }}</small>
                 </div>
@@ -375,7 +435,7 @@ onMounted(loadBase)
           </el-table>
           <el-empty
             v-if="!loading && !myEvents.length"
-            description="未匹配到本人参赛记录。若球队名称近期变更，可能暂时无法匹配公开赛程。"
+            description="未匹配到本人参赛记录。公开赛程仅覆盖已公布比赛；若球队近期变更且旧接口未返回球队 ID，可能暂时无法匹配。"
             :image-size="80"
           />
         </section>
@@ -409,7 +469,7 @@ onMounted(loadBase)
         </section>
       </el-tab-pane>
 
-      <el-tab-pane label="进球明细" name="goals">
+      <el-tab-pane v-if="!coachOnly" label="进球明细" name="goals">
         <section class="page-card">
           <div class="section-title">
             进球汇总
@@ -479,7 +539,7 @@ onMounted(loadBase)
         </section>
       </el-tab-pane>
 
-      <el-tab-pane label="红黄牌明细" name="cards">
+      <el-tab-pane v-if="!coachOnly" label="红黄牌明细" name="cards">
         <section class="page-card">
           <div class="section-title">
             红黄牌记录

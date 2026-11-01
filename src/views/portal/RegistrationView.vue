@@ -8,7 +8,12 @@ import { publicApi } from '../../api'
 import type { PublicEvent } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import { openLoginDialog } from '../../composables/useLoginDialog'
-import { EVENT_LEVELS, eventLevelLabel, eventLevelOf, type EventLevel } from '../../config/labels'
+import {
+  EVENT_LEVELS,
+  eventCategoryLabel,
+  eventLevelOf,
+  type EventLevel,
+} from '../../config/labels'
 import { fetchAllPages } from '../../utils/asyncPool'
 
 type RegisterState = 'OPEN' | 'UPCOMING' | 'CLOSED' | 'NOT_OPEN'
@@ -200,7 +205,9 @@ onMounted(load)
             <div class="event-card__mark">{{ event.name.slice(0, 1) }}</div>
             <div class="event-card__title">
               <div class="event-card__tags">
-                <el-tag size="small" effect="plain">{{ eventLevelLabel(event.eventCategory) }}</el-tag>
+                <el-tag size="small" effect="plain">
+                  {{ eventCategoryLabel(event.eventCategory, event.eventCategoryLabel) }}
+                </el-tag>
                 <span class="state-pill" :class="`is-${stateMeta[registrationState(event)].tone}`">
                   {{ stateMeta[registrationState(event)].label }}
                 </span>

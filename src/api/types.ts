@@ -337,6 +337,8 @@ export interface Event {
   name: string
   season: string
   eventCategory?: string
+  /** 后端标准类别中文名；前端字典落后时优先展示该字段。 */
+  eventCategoryLabel?: string
   registrationOpensAt: string
   registrationClosesAt: string
   status: 'DRAFT' | 'REGISTRATION_OPEN' | 'REGISTRATION_CLOSED' | 'RUNNING' | 'FINISHED'
@@ -740,6 +742,7 @@ export interface PublicEvent {
   name: string
   season: string
   eventCategory?: string
+  eventCategoryLabel?: string
   status: Event['status']
   registrationOpensAt: string
   registrationClosesAt: string
@@ -752,6 +755,9 @@ export interface PublicMatch {
   eventName?: string
   groupId: string
   groupName?: string
+  /** 新后端公开接口返回主客队 ID；旧后端可能缺失，页面需按名称兜底。 */
+  homeTeamId?: string
+  awayTeamId?: string
   homeTeamName?: string
   awayTeamName?: string
   kickoffAt?: string
@@ -852,11 +858,28 @@ export interface StatRow {
   label: string
   teamCount: number
   athleteCount: number
+  /** 去重后的报名单数量；同队报多个组别时 teamCount 与 enrollmentCount 不同。 */
+  enrollmentCount?: number
   pendingCount?: number
   approvedCount?: number
   rejectedCount?: number
   /** 报名列表未返回球员人数时置 true，页面以“—”展示，避免把未知当 0。 */
   athleteCountUnavailable?: boolean
+}
+
+/** 后端 /statistics/standings 原始行，字段名与内部 StandingRow 不同。 */
+export interface OfficialStandingRow {
+  rank: number
+  teamId: string
+  teamName: string
+  played: number
+  wins: number
+  draws: number
+  losses: number
+  goalsFor: number
+  goalsAgainst: number
+  goalDiff: number
+  points: number
 }
 
 export interface OptionItem {
