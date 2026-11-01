@@ -358,6 +358,21 @@ function publicationLink(star: PublicityRecord) {
         <div class="hero__shade" :class="{ 'hero__shade--media': heroMediaVisible }" />
       </div>
 
+      <!-- 直播画面铺满首屏时保留一个悬浮角标，说明画面来源并提供跳转入口。 -->
+      <a
+        v-if="heroLive && heroMediaVisible"
+        class="hero__live hero__live--float"
+        :href="heroLive.url"
+        target="_blank"
+        rel="noopener noreferrer"
+        :title="`在新窗口打开直播：${heroLive.title}`"
+      >
+        <span class="hero__live-dot" aria-hidden="true" />
+        <span class="hero__live-label">正在直播</span>
+        <span class="hero__live-title">{{ heroLive.title }}</span>
+        <el-icon><VideoPlay /></el-icon>
+      </a>
+
       <!-- 直播画面播放时首屏只留视频；轮播间隙再回到文案 + 轮播图。 -->
       <div v-show="!heroMediaVisible" class="container hero__inner">
         <div class="hero__copy">
@@ -795,6 +810,15 @@ function publicationLink(star: PublicityRecord) {
 .hero__live:hover {
   border-color: var(--lime);
   background: rgba(6, 32, 24, 0.75);
+}
+
+/* 直播画面铺满首屏时改用悬浮角标，位置与 .container 左边缘对齐。 */
+.hero__live--float {
+  position: absolute;
+  z-index: 2;
+  bottom: 26px;
+  left: max(32px, calc((100% - 1360px) / 2));
+  margin-bottom: 0;
 }
 
 .hero__live-dot {
@@ -2046,6 +2070,11 @@ function publicationLink(star: PublicityRecord) {
 
   .hero__bg img {
     object-position: 52% 42%;
+  }
+
+  .hero__live--float {
+    bottom: 18px;
+    left: 16px;
   }
 
   .hero__inner {
