@@ -48,21 +48,17 @@ async function load() {
       teamsUnavailable.value = httpStatusOf(teamResult.reason) === 404
     }
 
-    // 归属记录接口当前后端尚未提供，线上模式不再发起必然 404 的请求；
-    // 演示 mock 模式仍保留完整的归属维护能力。
-    if (MOCK_ENABLED) {
-      try {
-        const affiliationRes = await meApi.affiliations(
-          { page: 1, pageSize: 100 },
-          { silentError: true },
-        )
-        affiliations.value = affiliationRes.items
-        affiliationTotal.value = affiliationRes.total
-      } catch {
-        affiliations.value = []
-        affiliationTotal.value = 0
-      }
-    } else {
+    // 归属记录：后端 GET /me/team-affiliations 已提供（回放正式关系，含历史），
+    // 真实模式同样拉取；接口不可用时静默降级为空列表，不影响球队卡片。
+    // 新增/结束/删除归属仍只在演示模式开放（自报归属需申请表，后端未提供）。
+    try {
+      const affiliationRes = await meApi.affiliations(
+        { page: 1, pageSize: 100 },
+        { silentError: true },
+      )
+      affiliations.value = affiliationRes.items
+      affiliationTotal.value = affiliationRes.total
+    } catch {
       affiliations.value = []
       affiliationTotal.value = 0
     }
@@ -204,11 +200,11 @@ onMounted(() => {
       type="info"
       :closable="false"
       show-icon
-      title="归属记录暂未开放"
-      description="当前版本仅展示已核验的现役球队；历史归属记录的查询与维护将在后续版本开放。"
+      title="归属记录由球队端与管理员维护"
+      description="以下记录来自球队成员关系与教练任职关系（含已结束的历史归属），由球队端或管理员核验生效；如需调整请联系所属球队。"
     />
 
-    <section v-if="MOCK_ENABLED" class="page-card">
+    <section class="page-card">
       <div class="section-title">归属记录 <small>共 {{ affiliationTotal }} 条</small></div>
       <el-table v-loading="loading" :data="affiliations" style="width: 100%">
         <el-table-column label="球队" min-width="220">
@@ -236,7 +232,7 @@ onMounted(() => {
         <el-table-column label="核验状态" width="110">
           <template #default="{ row }"><StatusTag :status="row.verifyStatus" kind="review" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="170" align="right">
+        <el-table-column v-if="MOCK_ENABLED" label="操作" width="170" align="right">
           <template #default="{ row }">
             <el-button v-if="row.current" link type="primary" @click="endAffiliation(row)">结束归属</el-button>
             <el-button link type="danger" :icon="Delete" @click="removeAffiliation(row)">删除</el-button>
