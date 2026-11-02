@@ -40,6 +40,18 @@ const currentRoleLabel = computed(() => {
   return labels.join(' / ') || '访客'
 })
 
+const isPlayer = computed(() => auth.roles.includes('ATHLETE') || auth.roles.includes('COACH'))
+const accountInfoVisible = ref(false)
+
+function openAccountInfo() {
+  accountInfoVisible.value = true
+}
+
+function goMyProfile() {
+  accountInfoVisible.value = false
+  router.push('/console/profile')
+}
+
 const pageTitle = computed(() =>
   route.name === 'dashboard' ? workspaceLabelForRoles(auth.roles) : String(route.meta.title || ''),
 )
@@ -173,8 +185,13 @@ async function handleCommand(command: string) {
     openPasswordDialog()
     return
   }
+  if (command === 'my-profile') {
+    router.push('/console/profile')
+    return
+  }
   if (command === 'profile') {
-    router.push(auth.roles.includes('ATHLETE') || auth.roles.includes('COACH') ? '/console/profile' : homeForRoles(auth.roles))
+    // 账号信息在弹窗中展示，不再按角色跳转首页；个人档案入口单独提供给运动员/教练。
+    openAccountInfo()
   }
 }
 </script>
@@ -294,6 +311,7 @@ async function handleCommand(command: string) {
             </div>
             <template #dropdown>
               <el-dropdown-menu>
+                <el-dropdown-item v-if="isPlayer" command="my-profile">个人资料</el-dropdown-item>
                 <el-dropdown-item command="profile">账号信息</el-dropdown-item>
                 <el-dropdown-item command="password">修改密码</el-dropdown-item>
                 <el-dropdown-item command="portal">返回门户</el-dropdown-item>
@@ -335,6 +353,46 @@ async function handleCommand(command: string) {
       </main>
     </div>
   </div>
+
+  <el-dialog v-model="accountInfoVisible" title="账号信息" width="460px" append-to-body>
+    <div class="account-info">
+      <div>
+        <span>登录账号</span>
+        <strong>{{ auth.user?.username || '—' }}</strong>
+      </div>
+      <div>
+        <span>账号名称</span>
+        <strong>{{ auth.displayName }}</strong>
+      </div>
+      <div>
+        <span>角色</span>
+        <strong>{{ currentRoleLabel }}</strong>
+      </div>
+      <div>
+        <span>所属机构</span>
+        <strong>{{ auth.user?.orgName || auth.user?.orgId || '—' }}</strong>
+      </div>
+      <div>
+        <span>人员档案</span>
+        <strong>{{ auth.user?.personId ? '已绑定' : '未绑定' }}</strong>
+      </div>
+    </div>
+    <el-alert
+      v-if="isPlayer && !auth.user?.personId"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="当前账号未绑定人员档案"
+      description="个人资料与履历材料都按人员档案读取，请联系管理员在「参赛账号」中完成绑定。"
+    />
+    <p class="account-info__tip">
+      账号本身只保存登录名、角色与机构；姓名、性别、出生日期、学历等身份信息来自人员档案。
+    </p>
+    <template #footer>
+      <el-button @click="accountInfoVisible = false">关闭</el-button>
+      <el-button v-if="isPlayer" type="primary" @click="goMyProfile">查看个人资料</el-button>
+    </template>
+  </el-dialog>
 
   <el-dialog v-model="passwordVisible" title="修改登录密码" width="420px" append-to-body>
     <p class="password-hint">
@@ -746,6 +804,40 @@ async function handleCommand(command: string) {
   font-size: 10.5px;
   line-height: 1.7;
   color: var(--ink-500);
+}
+
+.account-info {
+  display: grid;
+  gap: 10px;
+}
+
+.account-info > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-info span {
+  font-size: 12px;
+  color: var(--ink-300);
+}
+
+.account-info strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-700);
+  text-align: right;
+  word-break: break-all;
+}
+
+.account-info__tip {
+  margin-top: 14px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--ink-300);
 }
 
 .password-hint strong {

@@ -128,16 +128,15 @@ watch(
 /** 登录后的落点：优先回到被拦截的业务页；报名页只允许报名角色进入。 */
 function destination() {
   const target = redirect.value
-  if (target.startsWith('/console/')) {
-    if (target.startsWith('/console/enrollments/create') && !canEnroll(auth.roles)) {
-      return homeForRoles(auth.roles)
-    }
-    if (target.startsWith('/console/enrollments') && !canOpenEnrollment(auth.roles)) {
-      return homeForRoles(auth.roles)
-    }
-    return target
+  // 只接受站内绝对路径，避免 redirect 参数被用来跳到站外。
+  if (!target.startsWith('/') || target.startsWith('//')) return homeForRoles(auth.roles)
+  if (target.startsWith('/console/enrollments/create') && !canEnroll(auth.roles)) {
+    return homeForRoles(auth.roles)
   }
-  return homeForRoles(auth.roles)
+  if (target.startsWith('/console/enrollments') && !canOpenEnrollment(auth.roles)) {
+    return homeForRoles(auth.roles)
+  }
+  return target
 }
 
 function rememberAccount() {

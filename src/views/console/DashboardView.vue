@@ -18,7 +18,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import { useAppStore } from '../../stores/app'
-import { enrollmentApi, eventApi, matchApi, meApi, materialApi } from '../../api'
+import { enrollmentApi, eventApi, matchApi, meApi, materialApi, teamApi } from '../../api'
 import type { Enrollment, Event, Match, Material, Team } from '../../api/types'
 import { categoryLabel } from '../../config/labels'
 import { pickDefaultEventId } from '../../utils/events'
@@ -50,7 +50,7 @@ const teamsUnavailable = ref(false)
 
 const isSchool = computed(() => auth.roles.includes('UNIVERSITY'))
 const isTeam = computed(() => auth.roles.includes('TEAM'))
-// 学校是唯一报送主体；球队端仅查看报名进度。
+// 学校端为本校球队报送，球队端为本队报送。
 const isSubmitter = computed(() => canEnroll(auth.roles))
 const isReviewer = computed(() => auth.hasRole(['CITY', 'PROVINCE_REVIEWER', 'ADMIN']))
 // 管理员虽然可访问全部页面，但工作台应按管理员身份展示，不能误入运动员视图。
@@ -117,9 +117,9 @@ const roleText = computed(() => {
   if (auth.roles.includes('PROVINCE_REVIEWER')) return '处理省级终审、赛事配置、成绩发布与内容运营。'
   if (auth.roles.includes('CITY')) return '审核本市学校报名，完成初审、统计与导出，不代学校填报。'
   if (auth.roles.includes('MATCH_RECORDER')) return '负责比赛现场记录、比分与图文直播。'
-  if (isPlayer.value) return '维护个人履历材料，关注公示与所属球队动态。'
+  if (isPlayer.value) return '维护个人档案，关注公示与所属球队动态；履历材料当前由管理员统一维护。'
   if (isSchool.value) return '以学校为报送主体，统筹本校及分校区球队、名额与材料报送。'
-  if (isTeam.value) return '维护所属球队资料、名单与材料；报名由学校端统一提交，可查看本队进度。'
+  if (isTeam.value) return '维护所属球队资料、名单与材料；可直接为本队创建、提交报名并跟踪审核进度。'
   return '查看报名进度，维护球队资料与名单。'
 })
 
@@ -182,8 +182,8 @@ const registrationRange = computed(() => {
 const quickActions = computed(() => {
   if (isPlayer.value) {
     return [
-      { label: '完善个人资料', desc: '身份与学籍信息', path: '/console/profile', icon: User },
-      { label: '上传履历材料', desc: '证书、获奖与经历', path: '/console/materials', icon: Collection },
+      { label: '完善个人资料', desc: '姓名、性别与学历', path: '/console/profile', icon: User },
+      { label: '查看履历材料', desc: '当前由管理员维护', path: '/console/materials', icon: Collection },
       { label: '我的球队', desc: '查看归属与球队资料', path: '/console/my-teams', icon: Tickets },
       { label: '我的公示', desc: '公示记录与状态', path: '/console/my-publications', icon: Trophy },
     ]
@@ -205,10 +205,10 @@ const quickActions = computed(() => {
   }
   if (isTeam.value) {
     return [
-      { label: '报名进度', desc: '查看本队报名与审核结果', path: '/console/enrollments', icon: Tickets },
+      { label: '新建报名', desc: '以本队名义报送赛事', path: '/console/enrollments/create', icon: Plus },
+      { label: '我的报名', desc: '查看本队报名与审核结果', path: '/console/enrollments', icon: Tickets },
       { label: '球队资料', desc: '维护球队与校区信息', path: '/console/team/profile', icon: Trophy },
       { label: '球员名单', desc: '维护参赛球员', path: '/console/team/members', icon: User },
-      { label: '球队材料', desc: '上传盖章文件', path: '/console/team/profile?tab=materials', icon: Collection },
     ]
   }
   if (isReviewer.value) {
@@ -339,10 +339,16 @@ async function load() {
         teamsUnavailable.value = httpStatusOf(teamsRes.reason) === 404
       }
     } else {
-      if (isSchool.value || isTeam.value) {
+      if (isSchool.value) {
         try {
-          // /me/teams 仅对已绑定档案的运动员/教练开放；学校端失败时按空态展示，
-          // 不把后端的角色限制弹成错误提示。
+          // 学校端 /me/teams 返回 403（该接口仅面向球队/运动员/教练），
+          // 使用 /teams 由后端按本校数据范围收敛。
+          schoolTeams.value = (await teamApi.list({ page: 1, pageSize: 200 })).items
+        } catch {
+          schoolTeams.value = []
+        }
+      } else if (isTeam.value) {
+        try {
           schoolTeams.value = await meApi.teams({ silentError: true })
         } catch {
           schoolTeams.value = []

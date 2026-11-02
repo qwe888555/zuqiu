@@ -24,7 +24,7 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
     orgId: 'org_school_cd_syxx',
     orgName: '成都市实验小学',
     teamIds: ['team_cd_syxx'],
-    description: '球队端：维护所属球队、名单与材料，查看学校提交的报名进度',
+    description: '球队端：维护所属球队、名单与材料，可直接为本队创建并提交报名',
   },
   {
     username: 'school',

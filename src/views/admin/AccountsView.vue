@@ -23,7 +23,7 @@ import type {
   RoleCode,
   Team,
 } from '../../api/types'
-import { ROLE_LABELS } from '../../config/labels'
+import { educationLabel, ROLE_LABELS } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import { toCsv } from '../../utils/csv'
 import { accountOrgTypes, accountPolicyRoles, roleFitsOrg } from '../../utils/roles'
@@ -173,6 +173,44 @@ const canOpenPeople = computed(
 const selectedInvitePerson = computed(() =>
   personOptions.value.find((person) => person.id === inviteForm.personId),
 )
+/** 受邀身份必须是人员档案已具备的身份，避免运动员邀请绑定教练档案。 */
+const invitePersonKindMismatch = computed(() => {
+  const person = selectedInvitePerson.value
+  return Boolean(person && !person.kinds.includes(inviteForm.kind))
+})
+const isPlayerAccount = (row: Account) =>
+  row.roles.some((role) => role === 'ATHLETE' || role === 'COACH')
+/** 仅统计当前页；用于提示管理员优先处理无档案的运动员/教练账号。 */
+const unboundPlayerRows = computed(() =>
+  rows.value.filter((row) => isPlayerAccount(row) && !row.personId),
+)
+/** 运动员/教练账号的个人中心直接读取人员档案，因此建号前必须完成绑定。 */
+const playerRoleSelection = computed(() =>
+  form.roles.filter((role) => role === 'ATHLETE' || role === 'COACH'),
+)
+const selectedFormPerson = computed(() =>
+  personOptions.value.find((person) => person.id === form.personId),
+)
+const personKindMismatch = computed(() => {
+  const person = selectedFormPerson.value
+  const required = playerRoleSelection.value
+  if (!person || !required.length) return false
+  return !required.some((role) => person.kinds.includes(role as 'ATHLETE' | 'COACH'))
+})
+const selectedFormPersonMeta = computed(() => {
+  const person = selectedFormPerson.value
+  if (!person) return ''
+  const gender =
+    person.gender === 'MALE' ? '男' : person.gender === 'FEMALE' ? '女' : person.gender === 'UNSPECIFIED' ? '未说明' : ''
+  return [
+    gender,
+    person.birthDate ? `出生 ${person.birthDate}` : '',
+    `学历 ${educationLabel(person.education)}`,
+    person.schoolName || '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+})
 const inviteOrgLabel = computed(() => {
   if (selectedInvitePerson.value?.schoolName) return selectedInvitePerson.value.schoolName
   const org = orgs.value.find((item) => item.id === inviteForm.orgId)
@@ -325,6 +363,12 @@ async function save() {
   if (form.roles.some((role) => roleBlocked(role))) {
     return ElMessage.warning('所选角色需要绑定下级组织，当前账号只能在本机构建号')
   }
+  if (playerRoleSelection.value.length && !form.personId) {
+    return ElMessage.warning('运动员 / 教练账号必须关联人员档案，否则个人资料与履历材料无法读取')
+  }
+  if (personKindMismatch.value) {
+    return ElMessage.warning('所选人员档案的身份类型与账号角色不一致，请改选运动员或教练员档案')
+  }
   if (!auth.isAdmin && !form.orgId) form.orgId = ownOrgId.value
   if (!form.orgId) {
     return ElMessage.warning(auth.isAdmin ? '请选择所属机构' : '当前账号未绑定机构，无法建号')
@@ -473,7 +517,14 @@ function validateInviteOrg(person?: Person) {
 
 async function generateInvite() {
   const person = selectedInvitePerson.value
-  if (person && !person.schoolOrgId) {
+  // 前端先收紧规则：注册后账号必须绑定人员档案，避免产生无档案账号。
+  if (!person) {
+    return ElMessage.warning('请选择人员档案；未建档人员请先在「人员管理」建档')
+  }
+  if (!person.kinds.includes(inviteForm.kind)) {
+    return ElMessage.warning('所选人员档案的身份与受邀身份不一致，请改选档案或切换受邀身份')
+  }
+  if (!person.schoolOrgId) {
     return ElMessage.warning('该人员未登记所属学校，无法发放邀请')
   }
   if (person?.schoolOrgId) {
@@ -679,6 +730,15 @@ onMounted(() => {
       title="当前仅显示本机构及下级账号"
       description="只能授予角色策略允许的角色；本账号、同级或更高权限账号不可操作。人员检索与邀请发放同样受组织数据范围限制。"
     />
+    <el-alert
+      v-if="unboundPlayerRows.length"
+      class="scope-alert"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="`当前页有 ${unboundPlayerRows.length} 个运动员 / 教练账号未绑定人员档案`"
+      description="这类账号无法读取个人资料与履历材料，也无法从人员档案追溯身份。请点击行内「补绑」关联档案；人员记录不存在时先到人员管理建档。"
+    />
 
     <div class="stat-grid">
       <StatCard label="账号总数" :value="total" hint="当前筛选范围" :icon="Key" tone="green" />
@@ -726,11 +786,24 @@ onMounted(() => {
         <el-table-column prop="orgName" label="所属机构" min-width="170">
           <template #default="{ row }">{{ orgLabel(row) }}</template>
         </el-table-column>
-        <el-table-column label="人员档案" width="110" align="center">
+        <el-table-column label="人员档案" width="136" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.personId ? 'success' : 'info'" size="small" effect="plain">
+            <el-tag
+              :type="row.personId ? 'success' : isPlayerAccount(row) ? 'warning' : 'info'"
+              size="small"
+              effect="plain"
+            >
               {{ row.personId ? '已绑定' : '未绑定' }}
             </el-tag>
+            <el-button
+              v-if="isPlayerAccount(row) && !row.personId && canManageRow(row)"
+              link
+              type="primary"
+              size="small"
+              @click="openEdit(row)"
+            >
+              补绑
+            </el-button>
           </template>
         </el-table-column>
         <el-table-column label="绑定球队" width="100" align="center">
@@ -825,7 +898,7 @@ onMounted(() => {
             <el-option v-for="team in teams" :key="team.id" :label="team.name" :value="team.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="关联人员档案">
+        <el-form-item label="关联人员档案" :required="playerRoleSelection.length > 0">
           <el-select
             v-model="form.personId"
             filterable
@@ -834,7 +907,11 @@ onMounted(() => {
             :remote-method="searchPersons"
             :loading="personLoading"
             style="width: 100%"
-            placeholder="运动员 / 教练账号建议绑定，否则个人中心无法读取档案"
+            :placeholder="
+              playerRoleSelection.length
+                ? '运动员 / 教练账号必填：选择已有人员档案'
+                : '可选；绑定后个人中心可读取档案'
+            "
           >
             <el-option
               v-for="person in personOptions"
@@ -844,6 +921,26 @@ onMounted(() => {
             />
           </el-select>
         </el-form-item>
+        <div v-if="selectedFormPerson" class="person-summary">
+          <div class="person-summary__head">
+            <strong>{{ selectedFormPerson.realName }}</strong>
+            <span>{{ selectedFormPerson.kinds.includes('ATHLETE') ? '运动员' : '教练员' }}</span>
+          </div>
+          <p>{{ selectedFormPersonMeta }}</p>
+        </div>
+        <p v-else-if="playerRoleSelection.length" class="field-hint person-required">
+          账号本身不保存姓名、性别、学历等身份信息，个人资料页只读取这里绑定的人员档案。
+          <router-link v-if="canOpenPeople" to="/console/admin/people">先到人员管理建档</router-link>
+        </p>
+        <el-alert
+          v-if="personKindMismatch"
+          class="person-mismatch"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="人员档案身份与账号角色不匹配"
+          description="运动员角色需绑定运动员档案，教练员角色需绑定教练员档案，否则个人资料与履历材料无法对应。"
+        />
         <el-form-item label="账号状态">
           <el-switch v-model="form.enabled" active-text="启用" inactive-text="停用" />
         </el-form-item>
@@ -888,7 +985,7 @@ onMounted(() => {
             </el-select>
             <el-input v-else :model-value="inviteOrgLabel" disabled />
           </el-form-item>
-          <el-form-item label="关联人员档案">
+          <el-form-item label="关联人员档案" required>
             <el-select
               v-model="inviteForm.personId"
               filterable
@@ -897,7 +994,7 @@ onMounted(() => {
               :remote-method="searchPersons"
               :loading="personLoading"
               style="width: 100%"
-              placeholder="可选，绑定后注册账号即可读取本人档案与球队"
+              placeholder="必填：选择已建档人员"
               @change="onInvitePersonChange"
             >
               <el-option
@@ -908,6 +1005,24 @@ onMounted(() => {
               />
             </el-select>
           </el-form-item>
+          <el-alert
+            v-if="!inviteForm.personId"
+            class="invite-block"
+            type="info"
+            :closable="false"
+            show-icon
+            title="邀请必须绑定人员档案"
+            description="注册成功后账号会关联该档案并读取本人资料；未建档人员请先由管理员在「人员管理」建档。"
+          />
+          <el-alert
+            v-else-if="invitePersonKindMismatch"
+            class="invite-block"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="人员身份与受邀身份不一致"
+            description="运动员邀请只能绑定运动员档案，教练员邀请只能绑定教练员档案。"
+          />
           <p class="field-hint invite-rule">
             邀请只能挂学校或球队组织，不能挂省/市州节点。选择人员档案后，邀请组织必须与人员所属学校一致。
           </p>
@@ -926,7 +1041,13 @@ onMounted(() => {
       </div>
       <template #footer>
         <el-button @click="inviteVisible = false">关闭</el-button>
-        <el-button v-if="!inviteInfo" type="primary" :loading="inviteLoading" @click="generateInvite">
+        <el-button
+          v-if="!inviteInfo"
+          type="primary"
+          :loading="inviteLoading"
+          :disabled="!inviteForm.personId || invitePersonKindMismatch"
+          @click="generateInvite"
+        >
           生成令牌
         </el-button>
         <template v-else>
@@ -955,7 +1076,7 @@ onMounted(() => {
               。
             </template>
             <template v-else>
-              名单必须先有人员主档，请先去人员管理建档（可联系省级或学校账号录入）。
+              名单必须先有人员主档；当前学校端尚不能直接建档，请联系管理员在「人员管理」录入。
             </template>
           </p>
         </div>
@@ -1156,6 +1277,55 @@ onMounted(() => {
   font-size: 11px;
   line-height: 1.6;
   color: var(--ink-300);
+}
+
+.person-summary {
+  margin: -4px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--brand-50);
+}
+
+.person-summary__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.person-summary__head strong {
+  font-size: 13px;
+  color: var(--ink-700);
+}
+
+.person-summary__head span {
+  font-size: 10px;
+  color: var(--brand-700);
+}
+
+.person-summary p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-500);
+}
+
+.person-required {
+  margin: -4px 0 14px;
+}
+
+.person-required a {
+  margin-left: 4px;
+  color: var(--brand-700);
+  font-weight: 600;
+}
+
+.person-mismatch {
+  margin-bottom: 14px;
+}
+
+.invite-block {
+  margin: -4px 0 12px;
 }
 
 .invite-rule {

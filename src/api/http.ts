@@ -112,7 +112,9 @@ instance.interceptors.response.use(
     if (status === 401 && !silent && !skipAuth) {
       localStorage.removeItem(TOKEN_KEY)
       if (!window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login'
+        // 带上当前地址，登录后回到原页面，避免深链接被统一丢回门户首页。
+        const target = `${window.location.pathname}${window.location.search}${window.location.hash}`
+        window.location.href = `/login?redirect=${encodeURIComponent(target)}`
       }
     }
     if (!silent) ElMessage.error(message)
@@ -137,6 +139,21 @@ function saveBlob(payload: Blob, filename: string) {
   link.click()
   link.remove()
   URL.revokeObjectURL(objectUrl)
+}
+
+/**
+ * 响应拦截器已经把 AxiosResponse 解包成 data，因此这里不能再读一次 `.data`。
+ * 同时兼容未解包的响应、ArrayBuffer 与 TypedArray，避免二进制下载被误判为演示数据。
+ */
+export function toDownloadBlob(payload: unknown): Blob | null {
+  if (payload instanceof Blob) return payload
+  if (payload instanceof ArrayBuffer) return new Blob([payload])
+  if (ArrayBuffer.isView(payload)) {
+    return new Blob([new Uint8Array(payload.buffer as ArrayBuffer, payload.byteOffset, payload.byteLength)])
+  }
+  const nested = (payload as { data?: unknown } | null | undefined)?.data
+  if (nested && nested !== payload) return toDownloadBlob(nested)
+  return null
 }
 
 async function download(

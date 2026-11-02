@@ -62,7 +62,9 @@ export const useAuthStore = defineStore('auth', () => {
     const currentToken = token.value
     if (!currentToken) return null
     if (meInFlight?.token === currentToken) return meInFlight.promise
-    const request = meApi.get().then((me) => {
+    // 静默失败：门户是公开页面，读取 /me 失败不应触发全局跳转登录页；
+    // 由路由守卫、门户布局或登录弹窗各自判断是否需要清理令牌。
+    const request = meApi.get({ silentError: true }).then((me) => {
       // 请求期间已退出或切换账号时，丢弃旧令牌的响应。
       if (token.value === currentToken) user.value = me
       return me

@@ -39,6 +39,7 @@ import type {
   Person,
   Team,
 } from '../api/types'
+import { teamMatchesGroupCategory } from '../utils/teamEligibility'
 
 const API_PREFIX = '/api/v1'
 
@@ -1529,7 +1530,7 @@ function assertGroupBelongsToEvent(groupId: string, eventId: string) {
 function assertTeamEligibleForGroup(team: Team | undefined, group: typeof eventGroups[number]) {
   if (!team) throw new MockHttpError(400, 'TEAM_NOT_FOUND', '参赛球队不存在')
   if (team.status === 'PENDING') throw new MockHttpError(409, 'TEAM_PENDING', '球队尚未完成认证，暂不能报名')
-  if (team.category && team.category !== group.category) {
+  if (!teamMatchesGroupCategory(team.category, group)) {
     throw new MockHttpError(409, 'CATEGORY_MISMATCH', `球队学段与「${group.name}」不一致`)
   }
   if (group.gender !== 'MIXED' && team.gender && team.gender !== group.gender) {
@@ -1566,9 +1567,18 @@ function assertNoDuplicateEnrollment(teamId: string, groupId: string, excludeId?
   }
 }
 
+/** 名额按学校计算：学校端取自身组织，球队端取所属球队的学校组织。 */
+function schoolOrgIdForAccount(account?: Account): string | undefined {
+  if (!account) return undefined
+  if (account.roles.includes('UNIVERSITY')) return account.orgId
+  if (!account.roles.includes('TEAM')) return undefined
+  const team = teams.find((item) => account.teamIds?.includes(item.id))
+  return schoolOrgIdOfTeam(team) || account.orgId
+}
+
 function groupView(group: typeof eventGroups[number], config: AxiosRequestConfig) {
   const account = accountFrom(config)
-  const schoolOrgId = account?.roles.includes('UNIVERSITY') ? account.orgId : undefined
+  const schoolOrgId = schoolOrgIdForAccount(account)
   const usage = quotaUsage(group.id, schoolOrgId)
   return {
     ...group,
@@ -1601,7 +1611,7 @@ function collectEnrollmentIssues(enrollment: Enrollment) {
     if (team.status === 'PENDING') {
       issues.push({ code: 'TEAM_PENDING', field: 'teamId', message: '球队尚未完成认证', severity: 'ERROR' })
     }
-    if (group && team.category && team.category !== group.category) {
+    if (group && !teamMatchesGroupCategory(team.category, group)) {
       issues.push({ code: 'CATEGORY_MISMATCH', field: 'teamId', message: `球队学段与「${group.name}」不一致`, severity: 'ERROR' })
     }
     if (group && group.gender !== 'MIXED' && team.gender && team.gender !== group.gender) {
@@ -1673,21 +1683,35 @@ function assertEnrollmentVisible(config: AxiosRequestConfig, enrollment: Enrollm
   return account
 }
 
-function assertEnrollmentEditable(config: AxiosRequestConfig, enrollment: Enrollment) {
-  const account = requireUniversity(config)
-  if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
-    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可维护该报名单')
-  }
-  if (!enrollment.editable) {
-    throw new MockHttpError(409, 'ENROLLMENT_LOCKED', '当前报名单已提交审核，不能修改')
+function canOperateEnrollment(account: Account, enrollment: Enrollment): boolean {
+  const universityOwner =
+    account.roles.includes('UNIVERSITY') &&
+    schoolOrgIdOfEnrollment(enrollment) === account.orgId
+  const teamOwner =
+    account.roles.includes('TEAM') && Boolean(account.teamIds?.includes(enrollment.teamId))
+  return universityOwner || teamOwner
+}
+
+function requireEnrollmentOperator(config: AxiosRequestConfig, enrollment: Enrollment): Account {
+  const account = requireAccount(config)
+  if (!canOperateEnrollment(account, enrollment)) {
+    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校端或所属球队端可维护该报名单')
   }
   return account
 }
 
-function requireUniversity(config: AxiosRequestConfig): Account {
+function requireEnrollmentSubmitter(config: AxiosRequestConfig): Account {
   const account = requireAccount(config)
-  if (!account.roles.includes('UNIVERSITY')) {
-    throw new MockHttpError(403, 'FORBIDDEN', '报名由学校端统一报送，当前账号无报送权限')
+  if (!account.roles.includes('UNIVERSITY') && !account.roles.includes('TEAM')) {
+    throw new MockHttpError(403, 'FORBIDDEN', '报名由学校端或球队端报送，当前账号无报送权限')
+  }
+  return account
+}
+
+function assertEnrollmentEditable(config: AxiosRequestConfig, enrollment: Enrollment) {
+  const account = requireEnrollmentOperator(config, enrollment)
+  if (!enrollment.editable) {
+    throw new MockHttpError(409, 'ENROLLMENT_LOCKED', '当前报名单已提交审核，不能修改')
   }
   return account
 }
@@ -1852,19 +1876,23 @@ on('GET', '/enrollments', ({ config, query }) => {
 })
 
 on('POST', '/enrollments', ({ body, config }) => {
-  const account = requireUniversity(config)
+  const account = requireEnrollmentSubmitter(config)
   const event = events.find((e) => e.id === str(body.eventId))
   if (!event) throw new MockHttpError(404, 'NOT_FOUND', '赛事不存在')
   assertRegistrationOpen(event)
   const group = assertGroupBelongsToEvent(str(body.groupId), event.id)
   const team = teams.find((t) => t.id === str(body.teamId))
   if (!team) throw new MockHttpError(400, 'TEAM_NOT_FOUND', '参赛球队不存在')
-  if (schoolOrgIdOfTeam(team) !== account.orgId) {
-    throw new MockHttpError(403, 'FORBIDDEN', '只能为本校球队报名')
+  const schoolOrgId = schoolOrgIdOfTeam(team) || account.orgId
+  const allowed =
+    (account.roles.includes('UNIVERSITY') && schoolOrgId === account.orgId) ||
+    (account.roles.includes('TEAM') && Boolean(account.teamIds?.includes(team.id)))
+  if (!allowed) {
+    throw new MockHttpError(403, 'FORBIDDEN', '只能为本校或本队球队报名')
   }
   assertTeamEligibleForGroup(team, group)
   assertNoDuplicateEnrollment(team.id, group.id)
-  assertQuotaAvailable(group, account.orgId)
+  assertQuotaAvailable(group, schoolOrgId)
 
   const enrollment: Enrollment = {
     id: nextId('enr'),
@@ -1875,7 +1903,7 @@ on('POST', '/enrollments', ({ body, config }) => {
     teamId: team.id,
     teamName: team.name,
     subjectType: 'SCHOOL_TEAM',
-    schoolOrgId: account.orgId,
+    schoolOrgId,
     schoolName: team.schoolName,
     campusName: team.campusName,
     cityOrgId: team.cityOrgId,
@@ -1931,10 +1959,7 @@ on('PUT', '/enrollments/:id', ({ params, body, config }) => {
 on('DELETE', '/enrollments/:id', ({ params, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
-  const account = requireUniversity(config)
-  if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
-    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可删除该报名单')
-  }
+  requireEnrollmentOperator(config, enrollment)
   if (!['DRAFT', 'REJECTED', 'WITHDRAWN'].includes(enrollment.status)) {
     throw new MockHttpError(409, 'ENROLLMENT_LOCKED', '仅草稿、被驳回或已撤回的报名单可删除')
   }
@@ -2046,10 +2071,7 @@ on('POST', '/enrollments/:id/submit', ({ params, body, config }) => {
   }
   submitIdempotency.set(key, fingerprint)
   assertVersion(enrollment.version, body.version)
-  const account = requireUniversity(config)
-  if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
-    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可提交该报名单')
-  }
+  const account = requireEnrollmentOperator(config, enrollment)
   if (!['DRAFT', 'REJECTED', 'WITHDRAWN'].includes(enrollment.status)) {
     throw new MockHttpError(409, 'INVALID_STATUS', '当前状态不可提交审核')
   }
@@ -2086,10 +2108,7 @@ on('POST', '/enrollments/:id/submit', ({ params, body, config }) => {
 on('POST', '/enrollments/:id/withdraw', ({ params, body, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
-  const account = requireUniversity(config)
-  if (schoolOrgIdOfEnrollment(enrollment) !== account.orgId) {
-    throw new MockHttpError(403, 'FORBIDDEN', '仅报送学校可撤回该报名单')
-  }
+  const account = requireEnrollmentOperator(config, enrollment)
   assertVersion(enrollment.version, body.version)
   if (!['PENDING_CITY_REVIEW', 'PENDING_PROVINCE_REVIEW'].includes(enrollment.status)) {
     throw new MockHttpError(409, 'INVALID_STATUS', '仅审核中的报名单可撤回')

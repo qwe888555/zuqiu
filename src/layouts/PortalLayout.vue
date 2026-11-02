@@ -162,20 +162,19 @@ function navigate(path: string) {
           <router-link to="/news">赛事资讯</router-link>
           <router-link to="/matches">赛程与比分</router-link>
           <router-link to="/rankings">射手榜</router-link>
-          <router-link to="/publications">公示查询</router-link>
         </div>
 
         <div class="footer-col">
-          <h4>政策与报名</h4>
-          <router-link to="/policies">政策公告</router-link>
+          <h4>报名与公示</h4>
           <router-link to="/registration">报名入口</router-link>
+          <router-link to="/policies">政策公告</router-link>
+          <router-link to="/publications">公示查询</router-link>
         </div>
 
         <div class="footer-col footer-contact">
           <h4>联系组委会</h4>
           <p>竞赛办公室：省教育厅体卫艺处</p>
           <p>服务时间：工作日 9:00 - 17:30</p>
-          <p class="footer-note">赛况与公示以组委会确认结果为准</p>
         </div>
 
         <div v-if="partners.length" class="footer-col footer-partners">
@@ -199,7 +198,6 @@ function navigate(path: string) {
             <span v-else class="partner-item__dot" aria-hidden="true" />
             <span class="partner-item__name">{{ partner.title }}</span>
           </component>
-          <p class="footer-note partner-note">诚邀更多单位共建校园足球</p>
         </div>
       </div>
 
@@ -497,11 +495,6 @@ function navigate(path: string) {
   line-height: 1.7;
 }
 
-.footer-note {
-  margin-top: 6px;
-  color: var(--on-dark-3);
-}
-
 /* 合作伙伴：页脚右侧的简略展示，条目来自门户资源（PARTNER 类型）。 */
 .footer-grid--partners {
   grid-template-columns: 1.4fr 0.7fr 0.7fr 1.25fr 1.05fr;
@@ -550,10 +543,6 @@ a.partner-item:hover {
   font-size: 13.5px;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.partner-note {
-  margin-top: 2px;
 }
 
 .footer-bottom {

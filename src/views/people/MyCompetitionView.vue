@@ -1,11 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { Calendar, DataAnalysis, Football, Refresh, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { meApi, publicApi } from '../../api'
-import type { GoalRankingRow, Person, PublicEvent, PublicMatch, Team } from '../../api/types'
+import type {
+  GoalRankingRow,
+  MatchEvent,
+  Person,
+  PublicEvent,
+  PublicLivePost,
+  PublicMatch,
+  PublicMatchDetail,
+  Team,
+} from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import { fetchAllPages, mapLimit } from '../../utils/asyncPool'
 import {
@@ -19,6 +27,8 @@ import {
 import { eventCategoryLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatCard from '../../components/common/StatCard.vue'
+import StatusTag from '../../components/common/StatusTag.vue'
+import SafeImage from '../../components/common/SafeImage.vue'
 
 interface MyMatchRow {
   event: PublicEvent
@@ -34,7 +44,6 @@ interface MyEventRow {
   dateEnd?: string
 }
 
-const router = useRouter()
 const auth = useAuthStore()
 
 const activeTab = ref<'events' | 'goals' | 'cards'>('events')
@@ -51,6 +60,22 @@ const detailsTruncated = ref(false)
 const coverageText = ref('')
 
 const nameMatchedGoals = ref(false)
+
+/** 赛程与比赛详情都在本页抽屉内查看，避免从控制台跳转到门户公开页面。 */
+const scheduleDrawer = ref(false)
+const scheduleEvent = ref<PublicEvent | null>(null)
+const matchDrawer = ref(false)
+const matchLoading = ref(false)
+const matchLoadError = ref('')
+const activeMatch = ref<PublicMatch | null>(null)
+const activeEvent = ref<PublicEvent | null>(null)
+const activeDetail = ref<PublicMatchDetail | null>(null)
+const drawerTab = ref<'events' | 'live' | 'info'>('events')
+const livePosts = ref<PublicLivePost[]>([])
+const liveLoading = ref(false)
+const liveLoaded = ref(false)
+const liveError = ref('')
+const liveSeq = ref(0)
 
 /** 本人的球队 ID；新后端公开比赛已返回主客队 ID，优先按 ID 精确匹配。 */
 const myTeamIds = computed(() => {
@@ -71,7 +96,6 @@ const teamNames = computed(() => {
   return names
 })
 
-const displayName = computed(() => profile.value?.realName || auth.user?.displayName || '本人')
 const isAthletePerson = computed(
   () => !!profile.value?.kinds?.includes('ATHLETE') || auth.roles.includes('ATHLETE'),
 )
@@ -80,9 +104,6 @@ const isCoachPerson = computed(
 )
 /** 纯教练账号不参与球员统计；同时具备运动员身份的账号仍按运动员口径展示。 */
 const coachOnly = computed(() => isCoachPerson.value && !isAthletePerson.value)
-const personaLabel = computed(() =>
-  isAthletePerson.value ? '运动员' : isCoachPerson.value ? '教练员' : '用户',
-)
 const pageDescription = computed(() =>
   coachOnly.value
     ? '汇总所执教球队参与的赛事与比赛。教练账号不参与球员进球与红黄牌统计，相关球员数据请前往赛事统计或比赛记录台查看。'
@@ -309,12 +330,132 @@ function matchDate(value?: string): string {
   return value ? dayjs(value).format('MM-DD HH:mm') : '—'
 }
 
-function openMatch(matchId: string) {
-  router.push({ name: 'portal-match-detail', params: { id: matchId } })
+/** 当前所选赛事的全部公开场次，按开球时间升序。 */
+const scheduleMatches = computed<PublicMatch[]>(() => {
+  const eventId = scheduleEvent.value?.id
+  if (!eventId) return []
+  return [...(matchesByEvent.value[eventId] || [])].sort(
+    (a, b) => dayjs(a.kickoffAt || 0).valueOf() - dayjs(b.kickoffAt || 0).valueOf(),
+  )
+})
+
+/** 详情接口返回前先用列表数据渲染，避免弹窗出现空白。 */
+const shownMatch = computed<PublicMatch | null>(() => activeDetail.value || activeMatch.value)
+
+const sortedMatchEvents = computed<MatchEvent[]>(() =>
+  [...(activeDetail.value?.events || [])].sort((a, b) => {
+    const am = (a.minute || 0) * 100 + (a.stoppageMinute || 0)
+    const bm = (b.minute || 0) * 100 + (b.stoppageMinute || 0)
+    return bm - am
+  }),
+)
+
+function locateMatch(matchId: string): { match?: PublicMatch; event?: PublicEvent } {
+  for (const event of events.value) {
+    const match = (matchesByEvent.value[event.id] || []).find((item) => item.id === matchId)
+    if (match) return { match, event }
+  }
+  return {}
 }
 
-function openEvent(eventId: string) {
-  router.push({ name: 'portal-matches', query: { eventId } })
+/** 赛程在本页抽屉内查看，不离开教练员/运动员控制台。 */
+function openEvent(event: PublicEvent) {
+  scheduleEvent.value = event
+  scheduleDrawer.value = true
+}
+
+/** 裁判名单来自公开详情，缺失时显示“—”，不做推测。 */
+const referees = computed(() => activeDetail.value?.referees || [])
+
+const REFEREE_ROLE_LABELS: Record<string, string> = {
+  REFEREE: '主裁判',
+  ASSISTANT: '助理裁判',
+  FOURTH_OFFICIAL: '第四官员',
+}
+
+function refereeRoleLabel(role?: string): string {
+  if (!role) return '裁判'
+  return REFEREE_ROLE_LABELS[role] || role
+}
+
+async function loadLiveFeed(matchId: string) {
+  const token = ++liveSeq.value
+  liveLoading.value = true
+  liveError.value = ''
+  try {
+    const feed = await publicApi.liveFeed(matchId)
+    if (token !== liveSeq.value) return
+    livePosts.value = feed.items || []
+  } catch {
+    if (token !== liveSeq.value) return
+    livePosts.value = []
+    liveError.value = '图文直播加载失败，请稍后重试'
+  } finally {
+    if (token === liveSeq.value) {
+      liveLoading.value = false
+      liveLoaded.value = true
+    }
+  }
+}
+
+/** 比赛详情在本页抽屉内查看；全程只读，不跳转门户或其他页面。 */
+async function openMatch(matchId?: string, fromSchedule = false) {
+  if (!matchId) {
+    ElMessage.warning('这场比赛缺少公开详情链接，请刷新页面后重试')
+    return
+  }
+  const located = locateMatch(matchId)
+  activeMatch.value = located.match || null
+  activeEvent.value = located.event || scheduleEvent.value
+  activeDetail.value = null
+  matchLoadError.value = ''
+  drawerTab.value = 'events'
+  livePosts.value = []
+  liveLoaded.value = false
+  liveError.value = ''
+  liveSeq.value += 1
+  if (fromSchedule) scheduleDrawer.value = false
+  matchDrawer.value = true
+  matchLoading.value = true
+  void loadLiveFeed(matchId)
+  try {
+    activeDetail.value = await publicApi.match(matchId)
+  } catch {
+    matchLoadError.value = '比赛详情加载失败，请稍后重试。'
+  } finally {
+    matchLoading.value = false
+  }
+}
+
+function eventKindLabel(event: MatchEvent): string {
+  if (event.eventType === 'GOAL') return event.ownGoal ? '乌龙球' : '进球'
+  if (event.eventType === 'PENALTY') {
+    if (event.penaltyType === 'YELLOW_CARD') return '黄牌'
+    if (event.penaltyType === 'RED_CARD') return '红牌'
+    if (event.penaltyType === 'PENALTY_KICK') return '点球'
+    return '判罚'
+  }
+  return '换人'
+}
+
+function eventKindTone(event: MatchEvent): 'success' | 'warning' | 'danger' | 'info' {
+  if (event.eventType === 'GOAL') return 'success'
+  if (event.eventType === 'PENALTY') {
+    if (event.penaltyType === 'RED_CARD') return 'danger'
+    if (event.penaltyType === 'YELLOW_CARD' || event.penaltyType === 'PENALTY_KICK') return 'warning'
+  }
+  return 'info'
+}
+
+function eventPerson(event: MatchEvent): string {
+  if (event.eventType === 'GOAL') return event.scorerName || '球员'
+  if (event.eventType === 'PENALTY') return event.athleteName || '球员'
+  return `${event.outAthleteName || '—'} → ${event.inAthleteName || '—'}`
+}
+
+function eventMinute(event: MatchEvent): string {
+  if (event.minute == null) return '—'
+  return `${event.minute}${event.stoppageMinute ? `+${event.stoppageMinute}` : ''}'`
 }
 
 function minuteText(trace: PlayerTrace): string {
@@ -353,20 +494,8 @@ onMounted(loadBase)
       :closable="false"
       show-icon
       title="数据口径说明"
-      description="公开赛程优先按主客队 ID 匹配本人参赛场次，旧接口无 ID 时回退为球队名称匹配；公开详情未提供逐场事件时，只展示公开射手榜汇总，红黄牌显示为“—”。"
+      description="公开赛程优先按主客队 ID 匹配本人参赛场次，旧接口无 ID 时回退为球队名称匹配；场次按所属球队的公开赛程统计，公开接口没有出场名单，不代表个人实际出场。公开详情未提供逐场事件时，只展示公开射手榜汇总，红黄牌显示为“—”。"
     />
-
-    <div class="profile-strip">
-      <div class="profile-strip__name">
-        <span class="eyebrow">{{ personaLabel }}</span>
-        <strong>{{ displayName }}</strong>
-        <small v-if="profile?.teamName">{{ profile.teamName }}</small>
-      </div>
-      <div class="profile-strip__teams">
-        <span v-if="!teams.length" class="muted">未读取到本人球队信息</span>
-        <el-tag v-for="team in teams" :key="team.id" size="small" effect="plain">{{ team.name }}</el-tag>
-      </div>
-    </div>
 
     <div v-if="coachOnly" class="stat-grid">
       <StatCard
@@ -376,7 +505,7 @@ onMounted(loadBase)
         :icon="Calendar"
         tone="green"
       />
-      <StatCard label="执教场次" :value="myMatches.length" hint="公开赛程中的场次" :icon="Football" tone="blue" />
+      <StatCard label="执教场次" :value="myMatches.length" hint="所执教球队的公开赛程" :icon="Football" tone="blue" />
       <StatCard label="执教球队" :value="teams.length" hint="本人所属球队" :icon="DataAnalysis" tone="lime" />
       <StatCard label="球员数据" value="—" hint="教练账号不参与球员统计" :icon="Warning" tone="amber" />
     </div>
@@ -388,7 +517,7 @@ onMounted(loadBase)
         :icon="Calendar"
         tone="green"
       />
-      <StatCard label="参赛场次" :value="myMatches.length" hint="公开赛程中的场次" :icon="Football" tone="blue" />
+      <StatCard label="参赛场次" :value="myMatches.length" hint="本人球队的公开赛程，非个人出场数" :icon="Football" tone="blue" />
       <StatCard label="累计进球" :value="totalGoals" hint="公开射手榜汇总" :icon="DataAnalysis" tone="lime" />
       <StatCard
         label="红黄牌"
@@ -404,7 +533,7 @@ onMounted(loadBase)
         <section class="page-card">
           <div class="section-title">
             参赛记录
-            <small>点击赛事查看公开赛程，点击比赛查看详情</small>
+            <small>赛程与比赛详情在当前页弹窗查看，不会离开控制台</small>
           </div>
           <el-table v-loading="loading" :data="myEvents" style="width: 100%">
             <el-table-column label="赛事" min-width="220">
@@ -429,7 +558,9 @@ onMounted(loadBase)
             </el-table-column>
             <el-table-column label="操作" width="110" align="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openEvent(row.event.id)">查看赛程</el-button>
+                <el-button link type="primary" :disabled="!row.event" @click="openEvent(row.event)">
+                  查看赛程
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -441,7 +572,10 @@ onMounted(loadBase)
         </section>
 
         <section v-if="myMatches.length" class="page-card">
-          <div class="section-title">参赛场次</div>
+          <div class="section-title">
+            {{ coachOnly ? '所执教球队场次' : '本人球队参赛场次' }}
+            <small>按球队公开赛程统计，不代表个人实际出场</small>
+          </div>
           <el-table :data="myMatches" max-height="460" style="width: 100%">
             <el-table-column label="比赛" min-width="220">
               <template #default="{ row }">
@@ -462,7 +596,9 @@ onMounted(loadBase)
             <el-table-column prop="match.status" label="状态" width="110" />
             <el-table-column label="操作" width="90" align="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openMatch(row.match.id)">详情</el-button>
+                <el-button link type="primary" :disabled="!row.match.id" @click="openMatch(row.match.id)">
+                  详情
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -527,7 +663,9 @@ onMounted(loadBase)
             </el-table-column>
             <el-table-column label="操作" width="90" align="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openMatch(row.matchId)">比赛</el-button>
+                <el-button link type="primary" :disabled="!row.matchId" @click="openMatch(row.matchId)">
+                  比赛
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -588,7 +726,9 @@ onMounted(loadBase)
               </el-table-column>
               <el-table-column label="操作" width="90" align="right">
                 <template #default="{ row }">
-                  <el-button link type="primary" @click="openMatch(row.matchId)">比赛</el-button>
+                  <el-button link type="primary" :disabled="!row.matchId" @click="openMatch(row.matchId)">
+                  比赛
+                </el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -601,64 +741,160 @@ onMounted(loadBase)
         </section>
       </el-tab-pane>
     </el-tabs>
+
+    <el-drawer
+      v-model="scheduleDrawer"
+      :title="scheduleEvent ? `${scheduleEvent.name} · 公开赛程` : '公开赛程'"
+      size="min(660px, 94vw)"
+    >
+      <div class="drawer-event-head">
+        <el-tag size="small" effect="plain">{{ scheduleEvent?.season || '—' }}</el-tag>
+        <span>{{ scheduleEvent?.name }}</span>
+        <small>共 {{ scheduleMatches.length }} 场公开比赛</small>
+      </div>
+      <el-table v-loading="loading" :data="scheduleMatches" style="width: 100%">
+        <el-table-column label="比赛" min-width="230">
+          <template #default="{ row }">
+            <div class="schedule-team" :class="{ 'is-mine': isMyTeam(row.homeTeamId, row.homeTeamName) }">
+              {{ row.homeTeamName || '主队' }}
+            </div>
+            <div class="schedule-team" :class="{ 'is-mine': isMyTeam(row.awayTeamId, row.awayTeamName) }">
+              {{ row.awayTeamName || '客队' }}
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="时间" width="130">
+          <template #default="{ row }">{{ matchDate(row.kickoffAt) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }"><StatusTag :status="row.status" kind="match" /></template>
+        </el-table-column>
+        <el-table-column label="比分" width="80" align="center">
+          <template #default="{ row }">
+            <span v-if="row.status === 'SCHEDULED'" class="muted">—</span>
+            <span v-else class="num">{{ row.homeScore }} : {{ row.awayScore }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" align="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openMatch(row.id, true)">详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!loading && !scheduleMatches.length" description="该赛事暂无公开比赛" :image-size="70" />
+    </el-drawer>
+
+    <el-drawer
+      v-model="matchDrawer"
+      :title="shownMatch ? `${shownMatch.homeTeamName || '主队'} vs ${shownMatch.awayTeamName || '客队'}` : '比赛详情'"
+      size="min(560px, 94vw)"
+    >
+      <div v-loading="matchLoading" class="match-drawer">
+        <div v-if="shownMatch" class="match-score">
+          <strong>{{ shownMatch.homeTeamName || '主队' }}</strong>
+          <span v-if="shownMatch.status === 'SCHEDULED'" class="match-score__text">未开赛</span>
+          <span v-else class="match-score__text num">{{ shownMatch.homeScore }} : {{ shownMatch.awayScore }}</span>
+          <strong>{{ shownMatch.awayTeamName || '客队' }}</strong>
+        </div>
+        <div v-if="shownMatch" class="match-meta">
+          <StatusTag :status="shownMatch.status" kind="match" />
+          <span v-if="activeEvent?.name">{{ activeEvent.name }}</span>
+          <span>{{ shownMatch.groupName || '未分组' }}</span>
+          <span v-if="shownMatch.stage">{{ shownMatch.stage }}</span>
+          <span>{{ matchDate(shownMatch.kickoffAt) }}</span>
+          <span>{{ shownMatch.venue || '场地待定' }}</span>
+        </div>
+        <el-alert
+          v-if="matchLoadError"
+          class="inline-alert"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="matchLoadError"
+          description="比分与赛程信息以上方为准，逐场事件明细暂时无法加载。"
+        />
+        <el-tabs v-model="drawerTab" class="drawer-tabs">
+          <el-tab-pane label="赛况事件" name="events">
+            <div v-if="sortedMatchEvents.length" class="event-list">
+              <div v-for="event in sortedMatchEvents" :key="event.id" class="event-item">
+                <span class="event-item__minute num">{{ eventMinute(event) }}</span>
+                <el-tag :type="eventKindTone(event)" size="small" effect="plain">
+                  {{ eventKindLabel(event) }}
+                </el-tag>
+                <strong class="event-item__person">{{ eventPerson(event) }}</strong>
+                <small class="event-item__team">{{ event.teamName || '—' }}</small>
+                <p v-if="event.reason" class="event-item__note">{{ event.reason }}</p>
+              </div>
+            </div>
+            <el-alert
+              v-else-if="!matchLoading && !matchLoadError"
+              class="inline-alert"
+              type="info"
+              :closable="false"
+              show-icon
+              title="暂无逐场事件"
+              description="公开接口未返回本场事件明细时不展示推测内容，比分以已发布赛果为准。"
+            />
+          </el-tab-pane>
+
+          <el-tab-pane label="图文直播" name="live">
+            <div v-loading="liveLoading" class="live-feed">
+              <article v-for="post in livePosts" :key="post.id" class="live-post">
+                <span class="live-post__minute num">{{ post.minute != null ? `${post.minute}'` : '—' }}</span>
+                <div class="live-post__body">
+                  <p>{{ post.text }}</p>
+                  <div v-if="post.imageUrls?.length" class="live-post__images">
+                    <SafeImage
+                      v-for="(url, index) in post.imageUrls"
+                      :key="`${post.id}-${index}`"
+                      :src="url"
+                      alt="赛况图片"
+                    />
+                  </div>
+                  <small v-if="post.updatedAt" class="muted">{{ matchDate(post.updatedAt) }}</small>
+                </div>
+              </article>
+              <el-empty
+                v-if="liveLoaded && !liveLoading && !livePosts.length"
+                :description="liveError || '暂无图文直播'"
+                :image-size="70"
+              />
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="比赛信息" name="info">
+            <el-descriptions v-if="shownMatch" :column="1" border size="small">
+              <el-descriptions-item label="赛事">
+                {{ activeEvent?.name || shownMatch.eventName || '—' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="组别">{{ shownMatch.groupName || '未分组' }}</el-descriptions-item>
+              <el-descriptions-item label="阶段">{{ shownMatch.stage || '—' }}</el-descriptions-item>
+              <el-descriptions-item label="开球时间">{{ matchDate(shownMatch.kickoffAt) }}</el-descriptions-item>
+              <el-descriptions-item label="场地">{{ shownMatch.venue || '待定' }}</el-descriptions-item>
+              <el-descriptions-item label="裁判">
+                <template v-if="referees.length">
+                  <div v-for="official in referees" :key="`${official.name}-${official.role}`">
+                    {{ refereeRoleLabel(official.role) }}：{{ official.name }}
+                    <span v-if="official.level" class="muted">（{{ official.level }}）</span>
+                  </div>
+                </template>
+                <span v-else>—</span>
+              </el-descriptions-item>
+            </el-descriptions>
+            <p class="readonly-note">本页为只读视图，数据来自公开赛程与赛果，不会跳转到其他页面。</p>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="matchDrawer = false">关闭</el-button>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
 .scope-alert {
   margin-bottom: 16px;
-}
-
-.profile-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 16px 20px;
-  margin-bottom: 18px;
-  border-radius: 10px;
-  background: var(--brand-900);
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.profile-strip__name {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.profile-strip__name .eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.profile-strip__name strong {
-  font-size: 20px;
-  color: #fff;
-}
-
-.profile-strip__name small {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.profile-strip__teams {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.profile-strip__teams .el-tag {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.18);
-  color: #fff;
-}
-
-.profile-strip__teams .muted {
-  color: rgba(255, 255, 255, 0.45);
 }
 
 .my-tabs {
@@ -725,5 +961,160 @@ onMounted(loadBase)
 
 .card-kpi--red strong {
   color: #c0392b;
+}
+
+.drawer-event-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.drawer-event-head span {
+  font-weight: 600;
+}
+
+.drawer-event-head small {
+  color: var(--ink-300);
+  font-size: 11.5px;
+}
+
+.schedule-team {
+  line-height: 1.75;
+}
+
+.schedule-team.is-mine {
+  font-weight: 700;
+  color: var(--brand-700);
+}
+
+.match-drawer {
+  min-height: 220px;
+}
+
+.match-score {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--brand-50);
+  text-align: center;
+}
+
+.match-score strong {
+  font-size: 13px;
+}
+
+.match-score__text {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--brand-800);
+  white-space: nowrap;
+}
+
+.match-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 12px;
+  color: var(--ink-500);
+  font-size: 12px;
+}
+
+.drawer-tabs {
+  margin-top: 18px;
+}
+
+.live-feed {
+  min-height: 90px;
+}
+
+.live-post {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.live-post__minute {
+  flex: none;
+  width: 44px;
+  font-weight: 700;
+  color: var(--brand-800);
+}
+
+.live-post__body {
+  min-width: 0;
+}
+
+.live-post__body p {
+  margin: 0 0 6px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.live-post__images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.live-post__images img {
+  width: 96px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.readonly-note {
+  margin: 14px 0 0;
+  color: var(--ink-300);
+  font-size: 11.5px;
+}
+
+.event-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.event-item {
+  display: grid;
+  grid-template-columns: 52px 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 8px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+.event-item__minute {
+  font-weight: 700;
+  color: var(--brand-800);
+}
+
+.event-item__person {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.event-item__team,
+.event-item__note {
+  grid-column: 2 / 4;
+  font-size: 11.5px;
+}
+
+.event-item__team {
+  color: var(--ink-300);
+}
+
+.event-item__note {
+  margin: 0;
+  color: var(--ink-500);
 }
 </style>

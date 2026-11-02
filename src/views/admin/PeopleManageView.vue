@@ -2,12 +2,31 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
-import { Delete, Document, Edit, Plus, Refresh, Search, UploadFilled } from '@element-plus/icons-vue'
+import {
+  Delete,
+  Document,
+  Download,
+  Edit,
+  Loading,
+  Plus,
+  Refresh,
+  Search,
+  UploadFilled,
+} from '@element-plus/icons-vue'
 import { fileApi, materialApi, orgApi, personApi } from '../../api'
 import { MOCK_ENABLED } from '../../api/http'
 import { useAuthStore } from '../../stores/auth'
 import type { Material, Organization, Person, PersonKind } from '../../api/types'
 import { COACH_CATEGORY_LABELS } from '../../config/labels'
+import { fetchAllPages, mapLimit } from '../../utils/asyncPool'
+import { httpMessageOf } from '../../utils/httpError'
+import {
+  buildPersonImportPayload,
+  parsePersonImportRows,
+  PERSON_IMPORT_TEMPLATE_HEADERS,
+  type PersonImportRow,
+  type PersonImportStatus,
+} from '../../utils/personImport'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
@@ -58,6 +77,27 @@ const materialsLoading = ref(false)
 const materials = ref<Material[]>([])
 const materialOwner = ref<Person | null>(null)
 const reviewingMaterialId = ref('')
+
+const batchVisible = ref(false)
+const batchFileInput = ref<HTMLInputElement>()
+const batchFile = ref<File | null>(null)
+const batchParsing = ref(false)
+const batchImporting = ref(false)
+const batchRows = ref<PersonImportRow[]>([])
+const batchFileErrors = ref<string[]>([])
+const batchSummary = ref<{ success: number; failure: number } | null>(null)
+/** 本次页面会话内已成功导入的身份证号；重新选择文件时跳过，避免重复建档。 */
+const batchImportedIds = ref<Set<string>>(new Set())
+const batchReadyCount = computed(() => batchRows.value.filter((row) => row.status === 'READY').length)
+const batchErrorCount = computed(() => batchRows.value.filter((row) => row.status === 'ERROR').length)
+const batchSuccessCount = computed(() => batchRows.value.filter((row) => row.status === 'SUCCESS').length)
+const batchFailedCount = computed(() => batchRows.value.filter((row) => row.status === 'FAILED').length)
+const batchStatusLabels: Record<PersonImportStatus, string> = {
+  READY: '校验通过',
+  ERROR: '文件有误',
+  SUCCESS: '已导入',
+  FAILED: '导入失败',
+}
 const form = reactive({
   realName: '',
   kinds: ['ATHLETE'] as PersonKind[],
@@ -107,10 +147,15 @@ async function loadOrgs() {
     return
   }
   try {
-    const res = await orgApi.list({ page: 1, pageSize: 500 })
+    // 批量导入要按学校编码/全称匹配，必须拿到完整组织树；500 条上限会漏学校。
+    const { items } = await fetchAllPages(
+      (page, pageSize) => orgApi.list({ page, pageSize }),
+      200,
+      50,
+    )
     // 人员归属只接受 SCHOOL/UNIVERSITY 节点（后端 _resolve_school 契约）；
     // 把市州/省级/TEAM 节点也列出来会让用户选中后必然 400。
-    orgs.value = res.items.filter(
+    orgs.value = items.filter(
       (org) => org.enabled && (org.orgType === 'SCHOOL' || org.orgType === 'UNIVERSITY'),
     )
   } catch {
@@ -173,12 +218,14 @@ async function save() {
   // 这里提前拦截，避免勾选两项后提交才报“请求参数不合法”。
   if (form.kinds.length !== 1) return ElMessage.warning('人员类型只能选择一项')
   if (!editingId.value) {
-    // 后端创建链强制要求：身份证号（冻结唯一约束无 NULL）与学校归属
-    // （挂组织 ADMIN 必须落在授权子树内）。表单提前校验，避免提交后才报错。
+    // 后端创建链强制要求身份证号（冻结唯一约束无 NULL）；表单提前校验，
+    // 避免提交后才报错。
     if (!/^\d{17}[\dXx]$/.test(form.idNumber.trim()))
       return ElMessage.warning('请填写 18 位身份证号')
-    if (!form.schoolOrgId) return ElMessage.warning('请选择所属学校')
+    if (!form.phone.trim()) return ElMessage.warning('请填写手机号')
   }
+  if (!form.schoolOrgId) return ElMessage.warning('请选择学校 / 单位')
+  if (!form.education.trim()) return ElMessage.warning('请填写学历')
   saving.value = true
   try {
     if (editingId.value) {
@@ -324,6 +371,228 @@ async function removePerson(row: Person) {
   }
 }
 
+/* ---------------------------------------------------------------- 批量建档 */
+
+function closeBatch(done: () => void) {
+  if (batchParsing.value || batchImporting.value) {
+    ElMessage.warning('正在处理文件，请等待完成后再关闭')
+    return
+  }
+  done()
+}
+
+function resetBatch() {
+  batchFile.value = null
+  batchRows.value = []
+  batchFileErrors.value = []
+  batchSummary.value = null
+  batchParsing.value = false
+  batchImporting.value = false
+  if (batchFileInput.value) batchFileInput.value.value = ''
+}
+
+async function openBatch() {
+  resetBatch()
+  batchVisible.value = true
+  if (!orgs.value.length) await loadOrgs()
+  if (!orgs.value.some((org) => org.enabled && (org.orgType === 'SCHOOL' || org.orgType === 'UNIVERSITY'))) {
+    ElMessage.warning('未加载到可用学校组织，名单中的学校将无法匹配，请先检查组织管理')
+  }
+}
+
+function pickBatchFile() {
+  batchFileInput.value?.click()
+}
+
+async function onBatchFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (!file.name.toLowerCase().endsWith('.xlsx')) {
+    return ElMessage.warning('仅支持 .xlsx 文件，请使用下载的模板填写')
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    return ElMessage.warning('文件不能超过 5MB')
+  }
+  batchFile.value = file
+  batchRows.value = []
+  batchFileErrors.value = []
+  batchSummary.value = null
+  await parseBatchFile(file)
+}
+
+function clearBatchFile() {
+  resetBatch()
+}
+
+async function parseBatchFile(file: File) {
+  batchParsing.value = true
+  try {
+    // xlsx 体积较大，只在真正导入时加载，避免影响人员管理首屏。
+    const XLSX = await import('xlsx')
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+    const sheetName = workbook.SheetNames[0]
+    if (!sheetName) throw new Error('工作簿为空，请使用模板填写人员名单')
+    const sheet = workbook.Sheets[sheetName]
+    if (!sheet) throw new Error('未找到可读取的工作表')
+    const matrix = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: '',
+      blankrows: true,
+      raw: true,
+    }) as unknown[][]
+    const parsed = parsePersonImportRows(matrix, orgs.value)
+    // 重新选择修正后的文件时，已经导入成功的人不再进入可导入集合。
+    for (const row of parsed.rows) {
+      if (row.status === 'READY' && row.idNumber && batchImportedIds.value.has(row.idNumber)) {
+        row.status = 'SUCCESS'
+        row.serverMessage = '本次页面会话已导入，跳过重复行'
+      }
+    }
+    batchFileErrors.value = parsed.headerErrors
+    batchRows.value = parsed.rows
+    if (parsed.headerErrors.length) {
+      ElMessage.warning(parsed.headerErrors[0])
+    } else if (!parsed.rows.length) {
+      ElMessage.warning('文件中没有可导入的人员行')
+    } else if (parsed.rows.every((row) => row.status === 'ERROR')) {
+      ElMessage.warning('所有行均未通过校验，请按问题列修正后重新选择文件')
+    } else if (!parsed.rows.some((row) => row.status === 'READY')) {
+      ElMessage.warning('文件中没有新的可导入行；本次已导入的人员会自动跳过')
+    } else {
+      const ready = parsed.rows.filter((row) => row.status === 'READY').length
+      ElMessage.success(`已解析 ${parsed.rows.length} 行，可导入 ${ready} 行`)
+    }
+  } catch (error) {
+    batchFileErrors.value = [
+      error instanceof Error ? error.message : '文件解析失败，请确认是有效的 .xlsx 文件',
+    ]
+  } finally {
+    batchParsing.value = false
+  }
+}
+
+async function downloadPersonTemplate() {
+  try {
+    const XLSX = await import('xlsx')
+    const listSheet = XLSX.utils.aoa_to_sheet([
+      PERSON_IMPORT_TEMPLATE_HEADERS,
+      ['张三', '510101201001011234', '13800000000', '运动员', '成都七中', '小学', '男', '2010-01-01'],
+    ])
+    listSheet['!cols'] = [
+      { wch: 12 },
+      { wch: 22 },
+      { wch: 15 },
+      { wch: 12 },
+      { wch: 28 },
+      { wch: 10 },
+      { wch: 8 },
+      { wch: 14 },
+    ]
+    const guideSheet = XLSX.utils.aoa_to_sheet([
+      ['填写说明'],
+      ['1. 单批最多 500 行，文件不超过 5MB；示例行请替换为真实数据或删除。'],
+      ['2. 姓名、身份证号、手机号、人员类型、学校为必填；学历、性别、出生日期可留空。'],
+      ['3. 身份证号必须把单元格设为「文本」再填写，否则 Excel 会丢失 18 位精度。'],
+      ['4. 人员类型填写「运动员」或「教练员」；一个人只能选一种类型。'],
+      ['5. 学校填写组织编码或学校全称；遇到同名学校时必须填写组织编码。'],
+      ['6. 同一文件内身份证号不能重复；导入后档案默认进入待审核状态。'],
+      ['7. 性别、出生日期留空时，系统会尝试从身份证号推导。'],
+      ['8. 系统只读取第一个工作表；表头可以放在标题行下方（前 20 行内自动识别）。'],
+    ])
+    guideSheet['!cols'] = [{ wch: 92 }]
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, listSheet, '人员名单')
+    XLSX.utils.book_append_sheet(workbook, guideSheet, '填写说明')
+    XLSX.writeFile(workbook, '人员档案批量导入模板.xlsx')
+  } catch {
+    ElMessage.error('模板生成失败，请刷新页面后重试')
+  }
+}
+
+function batchStatusLabel(status: PersonImportStatus): string {
+  return batchStatusLabels[status]
+}
+
+function batchStatusType(status: PersonImportStatus): 'success' | 'danger' | 'warning' | 'info' {
+  if (status === 'SUCCESS') return 'success'
+  if (status === 'FAILED') return 'danger'
+  if (status === 'ERROR') return 'warning'
+  return 'info'
+}
+
+function batchRowMessage(row: PersonImportRow): string {
+  if (row.status === 'ERROR') return row.errors.join('；') || '校验未通过'
+  if (row.status === 'FAILED') return row.serverMessage || '服务器拒绝创建'
+  if (row.status === 'SUCCESS') return row.serverMessage || '已创建人员档案'
+  return '校验通过，等待导入'
+}
+
+async function importBatch(retryOnly = false) {
+  const targets = batchRows.value.filter((row) =>
+    retryOnly ? row.status === 'FAILED' : row.status === 'READY',
+  )
+  if (!targets.length) {
+    return ElMessage.warning(retryOnly ? '没有可重试的失败行' : '没有通过校验的行可导入')
+  }
+  if (retryOnly) {
+    try {
+      await ElMessageBox.confirm(
+        `将重新提交 ${targets.length} 条失败行；已成功的行不会重复创建。`,
+        '重试失败行',
+        { confirmButtonText: '开始重试', cancelButtonText: '取消', type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  } else if (batchErrorCount.value) {
+    try {
+      await ElMessageBox.confirm(
+        `文件共 ${batchRows.value.length} 行，校验通过 ${targets.length} 行、有误 ${batchErrorCount.value} 行。确认后只导入通过校验的行，失败行跳过。`,
+        '部分行未通过校验',
+        {
+          confirmButtonText: `导入 ${targets.length} 行`,
+          cancelButtonText: '暂不导入',
+          type: 'warning',
+        },
+      )
+    } catch {
+      return
+    }
+  }
+
+  batchImporting.value = true
+  const summary = { success: 0, failure: 0 }
+  try {
+    // 控制并发，避免一次导入把后端写接口打满；每一行独立成功或失败。
+    await mapLimit(targets, 3, async (row) => {
+      row.serverMessage = undefined
+      try {
+        await personApi.create(buildPersonImportPayload(row), { silentError: true })
+        row.status = 'SUCCESS'
+        if (row.idNumber) batchImportedIds.value.add(row.idNumber)
+        summary.success += 1
+      } catch (error) {
+        row.status = 'FAILED'
+        row.serverMessage = httpMessageOf(error)
+        summary.failure += 1
+      }
+    })
+    batchSummary.value = { ...summary }
+    if (summary.success) await load()
+    if (summary.failure) {
+      ElMessage.warning(
+        `已导入 ${summary.success} 人，${summary.failure} 人失败；失败原因见问题列，可修正后重试`,
+      )
+    } else {
+      ElMessage.success(`已导入 ${summary.success} 人，档案默认待审核`)
+    }
+  } finally {
+    batchImporting.value = false
+  }
+}
+
 onMounted(() => {
   load()
   loadOrgs()
@@ -338,6 +607,7 @@ onMounted(() => {
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button v-if="!scopeLimited" :icon="UploadFilled" @click="openBatch">批量导入</el-button>
         <el-button v-if="!scopeLimited" type="primary" :icon="Plus" @click="openCreate">新建人员</el-button>
       </template>
     </PageHeader>
@@ -474,16 +744,16 @@ onMounted(() => {
             <el-form-item label="身份证号" required>
               <el-input v-model="form.idNumber" maxlength="18" placeholder="18 位，仅用于脱敏存储" />
             </el-form-item>
-            <el-form-item label="手机号">
+            <el-form-item label="手机号" required>
               <el-input v-model="form.phone" maxlength="11" placeholder="仅用于脱敏存储" />
             </el-form-item>
           </template>
-          <el-form-item label="学校 / 单位" :required="!editingId">
+          <el-form-item label="学校 / 单位" required>
             <el-select v-model="form.schoolOrgId" filterable clearable style="width: 100%">
               <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
             </el-select>
           </el-form-item>
-          <el-form-item label="学历">
+          <el-form-item label="学历" required>
             <el-input v-model="form.education" placeholder="如：本科" />
           </el-form-item>
           <el-form-item v-if="form.kinds.includes('COACH')" label="教练员类别">
@@ -509,6 +779,150 @@ onMounted(() => {
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">保存档案</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="batchVisible"
+      title="批量导入人员档案"
+      width="900px"
+      :close-on-click-modal="false"
+      :before-close="closeBatch"
+      @closed="resetBatch"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="先用 Excel 批量建档，再在「参赛账号」发放邀请"
+        description="系统逐行校验身份证号、手机号、人员类型与学校；有问题的行不会写入。导入后档案默认进入待审核状态。"
+      />
+
+      <div class="batch-toolbar">
+        <input
+          ref="batchFileInput"
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          class="batch-file-input"
+          @change="onBatchFileChange"
+        />
+        <el-button :icon="UploadFilled" :disabled="batchParsing || batchImporting" @click="pickBatchFile">
+          选择 .xlsx
+        </el-button>
+        <span v-if="batchFile" class="batch-file-name">{{ batchFile.name }}</span>
+        <span v-else class="muted">未选择文件，单批最多 500 行、5MB</span>
+        <el-button v-if="batchFile" link type="danger" @click="clearBatchFile">移除</el-button>
+        <span class="batch-toolbar__spacer" />
+        <el-button link type="primary" :icon="Download" @click="downloadPersonTemplate">
+          下载模板
+        </el-button>
+      </div>
+
+      <div v-if="batchParsing" class="batch-parsing">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        正在解析并校验文件…
+      </div>
+
+      <div v-if="batchFileErrors.length" class="batch-errors">
+        <el-alert
+          v-for="(message, index) in batchFileErrors"
+          :key="index"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="message"
+        />
+      </div>
+
+      <div v-if="!batchFile && !batchParsing" class="batch-guide">
+        <strong>模板列</strong>
+        <p>{{ PERSON_IMPORT_TEMPLATE_HEADERS.join('、') }}</p>
+        <small>学校列填写组织编码或学校全称；遇到同名学校时必须填写组织编码。</small>
+      </div>
+
+      <el-alert
+        v-if="batchSummary"
+        class="batch-summary-alert"
+        :type="batchSummary.failure ? 'warning' : 'success'"
+        :closable="false"
+        show-icon
+        :title="`本次导入：成功 ${batchSummary.success} 人，失败 ${batchSummary.failure} 人`"
+        :description="
+          batchSummary.failure
+            ? '失败行已保留在下方；可修正文件后重新选择，或直接重试失败行。已成功的行不会重复创建。'
+            : '人员列表已刷新，档案默认待审核。'
+        "
+      />
+
+      <div v-if="batchRows.length" class="batch-stats">
+        <span class="batch-stat batch-stat--ready">校验通过 <b>{{ batchReadyCount }}</b></span>
+        <span v-if="batchErrorCount" class="batch-stat batch-stat--error">文件有误 <b>{{ batchErrorCount }}</b></span>
+        <span v-if="batchSuccessCount" class="batch-stat batch-stat--success">已导入 <b>{{ batchSuccessCount }}</b></span>
+        <span v-if="batchFailedCount" class="batch-stat batch-stat--failed">导入失败 <b>{{ batchFailedCount }}</b></span>
+        <span class="muted">共 {{ batchRows.length }} 行</span>
+      </div>
+
+      <el-table
+        v-if="batchRows.length"
+        :data="batchRows"
+        size="small"
+        max-height="360"
+        style="width: 100%"
+      >
+        <el-table-column prop="rowNumber" label="行号" width="60" />
+        <el-table-column label="姓名" width="90">
+          <template #default="{ row }">{{ row.realName || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="身份证号" width="150">
+          <template #default="{ row }">
+            <span class="batch-id">{{ row.maskedIdNumber || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="schoolName" label="学校" min-width="150" show-overflow-tooltip />
+        <el-table-column label="类型" width="72">
+          <template #default="{ row }">
+            {{ row.kind === 'ATHLETE' ? '运动员' : row.kind === 'COACH' ? '教练员' : '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="96">
+          <template #default="{ row }">
+            <el-tag :type="batchStatusType(row.status)" size="small" effect="plain">
+              {{ batchStatusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="问题" min-width="280" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span
+              :class="{
+                'batch-problem': row.status === 'ERROR' || row.status === 'FAILED',
+                'batch-ok': row.status === 'SUCCESS',
+              }"
+            >
+              {{ batchRowMessage(row) }}
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <el-button :disabled="batchParsing || batchImporting" @click="batchVisible = false">关闭</el-button>
+        <el-button
+          v-if="batchFailedCount"
+          :loading="batchImporting"
+          :disabled="batchParsing || batchImporting"
+          @click="importBatch(true)"
+        >
+          重试失败 {{ batchFailedCount }} 行
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="batchImporting"
+          :disabled="!batchReadyCount || batchParsing || batchImporting"
+          @click="importBatch(false)"
+        >
+          导入有效行（{{ batchReadyCount }}）
+        </el-button>
       </template>
     </el-dialog>
 
@@ -651,6 +1065,129 @@ onMounted(() => {
   margin-top: 2px;
   font-size: 9.5px;
   color: var(--ink-300);
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.batch-file-input {
+  display: none;
+}
+
+.batch-file-name {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--brand-700);
+  word-break: break-all;
+}
+
+.batch-toolbar__spacer {
+  flex: 1;
+}
+
+.batch-parsing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 130px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.batch-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.batch-guide {
+  margin: 18px 0 4px;
+  padding: 16px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.batch-guide strong {
+  font-size: 12px;
+  color: var(--ink-700);
+}
+
+.batch-guide p {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-700);
+}
+
+.batch-guide small {
+  display: block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--ink-300);
+}
+
+.batch-summary-alert {
+  margin-bottom: 14px;
+}
+
+.batch-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 10px;
+  font-size: 11.5px;
+}
+
+.batch-stat {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink-500);
+}
+
+.batch-stat b {
+  margin-left: 2px;
+}
+
+.batch-stat--ready b {
+  color: var(--brand-700);
+}
+
+.batch-stat--error b {
+  color: var(--warning-600, #b7791f);
+}
+
+.batch-stat--success b {
+  color: var(--brand-700);
+}
+
+.batch-stat--failed b {
+  color: var(--danger-600, #b33a3a);
+}
+
+.batch-id {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
+.batch-problem {
+  color: var(--danger-600, #b33a3a);
+  line-height: 1.5;
+}
+
+.batch-ok {
+  color: var(--brand-700);
 }
 
 .material-head {

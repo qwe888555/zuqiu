@@ -8,15 +8,17 @@ import { publicApi } from '../../api'
 import type { PublicEvent } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import { openLoginDialog } from '../../composables/useLoginDialog'
+import { canEnroll } from '../../utils/roles'
 import {
-  EVENT_LEVELS,
+  EVENT_CATEGORIES,
   eventCategoryLabel,
-  eventLevelOf,
-  type EventLevel,
+  normalizeEventCategory,
+  type EventCategory,
 } from '../../config/labels'
 import { fetchAllPages } from '../../utils/asyncPool'
 
 type RegisterState = 'OPEN' | 'UPCOMING' | 'CLOSED' | 'NOT_OPEN'
+type CategoryKey = EventCategory | 'UNCATEGORIZED'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,7 +26,7 @@ const auth = useAuthStore()
 
 const loading = ref(false)
 const events = ref<PublicEvent[]>([])
-const levelFilter = ref<'' | EventLevel>('')
+const categoryFilter = ref<'' | CategoryKey>('')
 const loadError = ref(false)
 
 const lastUpdated = ref('')
@@ -51,22 +53,43 @@ const stateMeta: Record<RegisterState, { label: string; tone: string }> = {
   NOT_OPEN: { label: '未开放', tone: 'closed' },
 }
 
-const levelTabs = computed(() => {
-  const total = events.value.length
-  return [
-    { value: '' as const, label: '全部赛事', count: total },
-    ...EVENT_LEVELS.map((level) => ({
-      value: level.value,
-      label: level.label,
-      count: events.value.filter((event) => eventLevelOf(event.eventCategory) === level.value).length,
+function categoryKeyOf(event: PublicEvent): CategoryKey {
+  return normalizeEventCategory(event.eventCategory) || 'UNCATEGORIZED'
+}
+
+/** 展示全部赛事类别，数量全部来自接口数据，未出现的类别显示为 0。 */
+const categoryTabs = computed(() => {
+  const counts = new Map<CategoryKey, number>()
+  for (const event of events.value) {
+    const key = categoryKeyOf(event)
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  const tabs: { value: '' | CategoryKey; label: string; count: number }[] = [
+    { value: '', label: '全部赛事', count: events.value.length },
+    ...EVENT_CATEGORIES.map((category) => ({
+      value: category.value,
+      label: category.label,
+      count: counts.get(category.value) || 0,
     })),
   ]
+  const uncategorized = counts.get('UNCATEGORIZED') || 0
+  if (uncategorized) tabs.push({ value: 'UNCATEGORIZED', label: '未分类', count: uncategorized })
+  return tabs
+})
+
+/** 头部统计只计当前赛事实际出现的类别，不把固定选项数量当成数据。 */
+const activeCategoryCount = computed(() => {
+  const keys = new Set(events.value.map(categoryKeyOf))
+  return (
+    EVENT_CATEGORIES.filter((category) => keys.has(category.value)).length +
+    (keys.has('UNCATEGORIZED') ? 1 : 0)
+  )
 })
 
 const visibleEvents = computed(() => {
   const order: Record<RegisterState, number> = { OPEN: 0, UPCOMING: 1, CLOSED: 2, NOT_OPEN: 3 }
   return events.value
-    .filter((event) => !levelFilter.value || eventLevelOf(event.eventCategory) === levelFilter.value)
+    .filter((event) => !categoryFilter.value || categoryKeyOf(event) === categoryFilter.value)
     .slice()
     .sort((a, b) => {
       const stateDiff = order[registrationState(a)] - order[registrationState(b)]
@@ -116,16 +139,16 @@ function enroll(event: PublicEvent) {
     openLoginDialog({ redirect, intent: 'enroll' })
     return
   }
-  if (auth.roles.includes('UNIVERSITY')) {
+  if (canEnroll(auth.roles)) {
     router.push({ name: 'enrollment-create', query: { eventId: event.id } })
     return
   }
-  if (auth.roles.some((role) => ['TEAM', 'CITY', 'ADMIN'].includes(role))) {
-    ElMessage.info('报名由学校端统一提交，已为你打开报名单列表')
+  if (auth.roles.some((role) => ['CITY', 'ADMIN'].includes(role))) {
+    ElMessage.info('报名由学校端或球队端提交，已为你打开报名单列表')
     router.push({ name: 'enrollments', query: { eventId: event.id } })
     return
   }
-  ElMessage.warning('当前账号没有报名权限，请使用学校账号报名')
+  ElMessage.warning('当前账号没有报名权限，请使用学校端或球队端账号报名')
 }
 
 onMounted(load)
@@ -139,7 +162,7 @@ onMounted(load)
           <span class="hero-kicker">REGISTRATION · 赛事报名</span>
           <h1>赛事报名</h1>
           <p>
-            按省级、市级、学校级查看当前开放的足球赛事。报名由学校账号统一提交，提交后依次经市州初审、省级终审。
+            按赛事类别查看当前开放的足球赛事。学校端可为本校及分校区球队报名，球队端可直接为本队报名，提交后依次经市州初审、省级终审。
           </p>
         </div>
         <div v-if="!loading" class="hero-stats">
@@ -152,8 +175,8 @@ onMounted(load)
             <span>报名中</span>
           </div>
           <div>
-            <strong class="num">{{ levelTabs.length - 1 }}</strong>
-            <span>赛事层级</span>
+            <strong class="num">{{ activeCategoryCount }}</strong>
+            <span>赛事类别</span>
           </div>
         </div>
       </div>
@@ -166,27 +189,27 @@ onMounted(load)
           <span v-if="lastUpdated">数据更新于 {{ lastUpdated }}</span>
         </div>
         <ol class="flow-steps">
-          <li><strong>选择赛事</strong><span>确认层级、组别与报名开放期</span></li>
-          <li><strong>学校登录</strong><span>使用学校端账号填报，球队账号可查看进度</span></li>
+          <li><strong>选择赛事</strong><span>确认类别、组别与报名开放期</span></li>
+          <li><strong>学校 / 球队登录</strong><span>学校端报本校及校区球队，球队端报本队</span></li>
           <li><strong>填报材料</strong><span>球队信息、球员名单与盖章材料</span></li>
           <li><strong>提交审核</strong><span>市州初审通过后进入省级终审</span></li>
         </ol>
         <p class="flow-note">
-          报名主体为学校。球队账号可查看权限范围内的报名进度，但提交与修改需由所属学校完成。
+          报送主体为学校球队：学校端可为本校及分校区球队报名，球队端可直接为本队报名；市州初审、省级终审后生效。
         </p>
       </section>
 
       <section class="filter-panel">
-        <div class="group-tabs" role="tablist" aria-label="按赛事层级筛选">
+        <div class="group-tabs" role="tablist" aria-label="按赛事类别筛选">
           <button
-            v-for="tab in levelTabs"
+            v-for="tab in categoryTabs"
             :key="tab.value || 'ALL'"
             type="button"
             role="tab"
             class="group-tab"
-            :class="{ 'is-active': levelFilter === tab.value, 'is-empty': tab.count === 0 }"
-            :aria-selected="levelFilter === tab.value"
-            @click="levelFilter = tab.value"
+            :class="{ 'is-active': categoryFilter === tab.value, 'is-empty': tab.count === 0 }"
+            :aria-selected="categoryFilter === tab.value"
+            @click="categoryFilter = tab.value"
           >
             {{ tab.label }}
             <span class="group-tab__count num">{{ tab.count }}</span>
@@ -242,7 +265,7 @@ onMounted(load)
 
         <el-empty
           v-if="!loading && !visibleEvents.length"
-          :description="loadError ? '赛事信息加载失败，请稍后重试' : '当前层级暂无公开赛事'"
+          :description="loadError ? '赛事信息加载失败，请稍后重试' : '当前类别暂无公开赛事'"
         >
           <el-button v-if="loadError" @click="load">重新加载</el-button>
         </el-empty>
@@ -253,7 +276,75 @@ onMounted(load)
 
 <style scoped>
 .registration-page {
+  min-height: 70vh;
   padding-bottom: 56px;
+  background: var(--paper);
+}
+
+.page-hero {
+  padding: 34px 0 38px;
+  background: var(--brand-900);
+  color: #fff;
+}
+
+.hero-grid {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 30px;
+}
+
+.hero-copy {
+  min-width: 0;
+}
+
+.hero-kicker {
+  display: block;
+  margin-bottom: 9px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--lime);
+}
+
+.page-hero h1 {
+  font-size: clamp(30px, 3.4vw, 42px);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.page-hero p {
+  max-width: 660px;
+  margin-top: 11px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.hero-stats {
+  display: flex;
+  gap: 26px;
+  flex-shrink: 0;
+  padding-bottom: 4px;
+}
+
+.hero-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.hero-stats strong {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--lime);
+}
+
+.hero-stats span {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.48);
 }
 
 .registration-body {
@@ -345,10 +436,61 @@ onMounted(load)
 .filter-panel {
   display: flex;
   align-items: center;
-  padding: 10px 14px;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 16px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   background: #fff;
+}
+
+.group-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.group-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 13px;
+  color: var(--ink-500);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.group-tab:hover {
+  background: var(--paper);
+  color: var(--ink-900);
+}
+
+.group-tab.is-active {
+  background: var(--brand-900);
+  color: #fff;
+  font-weight: 600;
+}
+
+.group-tab.is-empty {
+  color: var(--ink-300);
+}
+
+.group-tab__count {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--paper);
+  font-size: 10px;
+  color: var(--ink-500);
+}
+
+.group-tab.is-active .group-tab__count {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--lime);
 }
 
 .event-list {
@@ -482,6 +624,20 @@ onMounted(load)
 }
 
 @media (max-width: 900px) {
+  .hero-grid {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  .hero-stats {
+    gap: 28px;
+  }
+
+  .hero-stats strong {
+    font-size: 19px;
+  }
+
   .flow-steps {
     grid-template-columns: 1fr 1fr;
   }
@@ -496,6 +652,26 @@ onMounted(load)
 }
 
 @media (max-width: 540px) {
+  .page-hero {
+    padding: 28px 0 26px;
+  }
+
+  .hero-stats {
+    width: 100%;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .group-tabs {
+    width: 100%;
+  }
+
+  .group-tab {
+    min-height: 32px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
   .flow-steps {
     grid-template-columns: 1fr;
   }

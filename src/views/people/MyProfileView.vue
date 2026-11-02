@@ -5,8 +5,9 @@ import { ElMessage } from 'element-plus'
 import { Collection, Lock, Refresh } from '@element-plus/icons-vue'
 import { meApi } from '../../api'
 import type { Person } from '../../api/types'
-import { COACH_CATEGORY_LABELS, EDUCATION_LABELS, educationLabel, coachCategoryLabel } from '../../config/labels'
+import { EDUCATION_LABELS, educationLabel } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
+import { httpStatusOf } from '../../utils/httpError'
 import PageHeader from '../../components/common/PageHeader.vue'
 
 const router = useRouter()
@@ -15,13 +16,14 @@ const loading = ref(false)
 const saving = ref(false)
 const editing = ref(false)
 const person = ref<Person | null>(null)
+/** unbound=账号未绑定人员档案（404）；error=其他读取失败。两种状态都不允许编辑。 */
+const profileState = ref<'loading' | 'ready' | 'unbound' | 'error'>('loading')
 
 const form = reactive({
   realName: '',
-  gender: 'MALE',
+  gender: '',
   birthDate: '',
   education: '',
-  coachCategory: '',
 })
 
 const GENDER_LABELS: Record<string, string> = {
@@ -32,65 +34,83 @@ const GENDER_LABELS: Record<string, string> = {
 
 const genderLabel = computed(() => (form.gender ? GENDER_LABELS[form.gender] || form.gender : '未填写'))
 const educationDisplay = computed(() => educationLabel(form.education))
-const coachCategoryDisplay = computed(() => coachCategoryLabel(form.coachCategory))
 
 const isCoach = computed(() => person.value?.kinds.includes('COACH') ?? false)
 const kindLabel = computed(() => {
   const kinds = person.value?.kinds || []
-  return kinds.map((kind) => (kind === 'ATHLETE' ? '运动员' : '教练员')).join(' / ') || '未设置'
+  return kinds.map((kind) => (kind === 'ATHLETE' ? '运动员' : '教练员')).join(' / ') || '—'
 })
+const canEdit = computed(() => !!person.value && profileState.value === 'ready')
+
+function fillForm(source: Person) {
+  Object.assign(form, {
+    realName: source.realName || '',
+    gender: source.gender || '',
+    birthDate: source.birthDate || '',
+    education: source.education || '',
+  })
+}
 
 async function load() {
   loading.value = true
+  profileState.value = 'loading'
   try {
-    person.value = await meApi.profile()
-    Object.assign(form, {
-      realName: person.value.realName,
-      gender: person.value.gender || 'MALE',
-      birthDate: person.value.birthDate || '',
-      education: person.value.education || '',
-      coachCategory: person.value.coachCategory || '',
-    })
-  } catch {
+    // 404 表示账号未绑定人员档案，属正常业务状态，不弹全局错误。
+    const result = await meApi.profile({ silentError: true })
+    person.value = result
+    profileState.value = 'ready'
+    fillForm(result)
+  } catch (error) {
     person.value = null
+    profileState.value = httpStatusOf(error) === 404 ? 'unbound' : 'error'
+    Object.assign(form, { realName: '', gender: '', birthDate: '', education: '' })
+    editing.value = false
   } finally {
     loading.value = false
   }
 }
 
 async function save() {
-  if (!person.value) return ElMessage.warning('档案尚未加载，请刷新后重试')
+  if (!person.value) return ElMessage.warning('账号尚未绑定人员档案，无法修改个人资料')
   if (!form.realName.trim()) return ElMessage.warning('请填写真实姓名')
   saving.value = true
   try {
-    // 学校由 schoolOrgId 派生，本人不可改；学历/教练员类别落扩展档案 ext_json。
+    // 后端 MyProfileUpdate 为严格模式：schoolName 属派生字段，提交会被 400 拒绝；
+    // coachCategory 虽被接收但不持久化、不回显，故不提交，避免“保存成功但值消失”。
     person.value = await meApi.updateProfile({
       version: person.value.version,
       realName: form.realName,
-      gender: form.gender as Person['gender'],
+      // 未选择时省略，避免把“未登记”静默改成默认值。
+      gender: (form.gender || undefined) as Person['gender'],
       birthDate: form.birthDate || undefined,
-      schoolName: person.value.schoolName || undefined,
-      education: form.education || undefined,
-      coachCategory: form.coachCategory || undefined,
+      // 后端 education 未传＝保留原值，传空串才会清空；这里始终传当前值。
+      education: form.education.trim(),
     })
-    Object.assign(form, {
-      realName: person.value.realName,
-      gender: person.value.gender || 'MALE',
-      birthDate: person.value.birthDate || '',
-      education: person.value.education || '',
-      coachCategory: person.value.coachCategory || '',
-    })
+    fillForm(person.value)
+    profileState.value = 'ready'
     ElMessage.success('档案已更新')
     await auth.fetchMe()
     editing.value = false
-  } catch {
-    // 拦截器提示
+  } catch (error) {
+    // 版本冲突说明档案已在其他端更新，拉取最新数据后由本人确认再保存。
+    if (httpStatusOf(error) === 409) {
+      ElMessage.warning('档案已被其他端更新，已重新加载最新数据')
+      await load()
+    }
   } finally {
     saving.value = false
   }
 }
 
 function startEdit() {
+  if (!canEdit.value) {
+    ElMessage.warning(
+      profileState.value === 'unbound'
+        ? '当前账号未绑定人员档案，请先联系管理员绑定'
+        : '个人资料尚未加载成功，请刷新后重试',
+    )
+    return
+  }
   editing.value = true
 }
 
@@ -99,13 +119,7 @@ function cancelEdit() {
     editing.value = false
     return
   }
-  Object.assign(form, {
-    realName: person.value.realName,
-    gender: person.value.gender || 'MALE',
-    birthDate: person.value.birthDate || '',
-    education: person.value.education || '',
-    coachCategory: person.value.coachCategory || '',
-  })
+  fillForm(person.value)
   editing.value = false
 }
 
@@ -116,7 +130,7 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="个人资料"
-      description="维护真实姓名、性别、出生日期、学历与教练员类别。学校与证件信息由管理员档案维护。"
+      description="维护真实姓名、性别、出生日期与学历。学校、证件、手机号与教练员类别由管理员人员档案维护，本页仅展示档案中的实际数据。"
     >
       <template #actions>
         <template v-if="editing">
@@ -125,31 +139,56 @@ onMounted(load)
         </template>
         <template v-else>
           <el-button :icon="Refresh" @click="load">刷新</el-button>
-          <el-button type="primary" @click="startEdit">编辑资料</el-button>
+          <el-button v-if="canEdit" type="primary" @click="startEdit">编辑资料</el-button>
         </template>
       </template>
     </PageHeader>
+
+    <el-alert
+      v-if="profileState === 'unbound'"
+      class="state-alert"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="当前账号未绑定人员档案"
+      description="个人资料来自人员档案，账号本身不保存姓名、性别、学历等信息。请联系管理员在「参赛账号」中为当前账号关联人员档案；绑定前不开放资料修改。"
+    />
+    <el-alert
+      v-else-if="profileState === 'error'"
+      class="state-alert"
+      type="error"
+      :closable="false"
+      show-icon
+      title="个人资料读取失败"
+      description="请稍后刷新重试；读取成功前不开放资料修改，避免把空表单覆盖到已有档案。"
+    />
 
     <div v-loading="loading" class="profile-grid">
       <section class="page-card profile-main">
         <div class="profile-hero">
           <span class="profile-hero__avatar">
             <img v-if="person?.avatarUrl" :src="person.avatarUrl" alt="" />
-            <template v-else>{{ (person?.realName || auth.displayName).slice(0, 1) }}</template>
+            <template v-else>{{ (person?.realName || '未绑定').slice(0, 1) }}</template>
           </span>
           <div class="profile-hero__info">
             <div class="profile-hero__title">
-              <h2>{{ person?.realName || auth.displayName }}</h2>
+              <h2>{{ person?.realName || '未绑定人员档案' }}</h2>
             </div>
             <p>{{ kindLabel }} · {{ person?.schoolName || '学校未登记' }}</p>
-            <small>档案编号 {{ person?.id || '—' }}</small>
+            <small>登录账号 {{ auth.user?.username || '—' }} · 档案编号 {{ person?.id || '—' }}</small>
           </div>
         </div>
 
         <div class="section-title">基础信息</div>
 
+        <el-empty
+          v-if="!person"
+          :description="profileState === 'unbound' ? '账号未绑定人员档案，暂无可显示的身份信息' : '个人资料读取失败，暂无可显示的身份信息'"
+          :image-size="70"
+        />
+
         <!-- 查看模式 -->
-        <div v-if="!editing" class="info-grid">
+        <div v-else-if="!editing" class="info-grid">
           <div class="info-item">
             <span class="info-item__label">真实姓名</span>
             <span class="info-item__value">{{ form.realName || '未填写' }}</span>
@@ -167,23 +206,27 @@ onMounted(load)
             <span class="info-item__value">{{ person?.schoolName || '未登记' }}</span>
           </div>
           <div class="info-item">
+            <span class="info-item__label">人员类型</span>
+            <span class="info-item__value">{{ kindLabel }}</span>
+          </div>
+          <div class="info-item">
             <span class="info-item__label">学历</span>
             <span class="info-item__value">{{ educationDisplay }}</span>
           </div>
           <div v-if="isCoach" class="info-item">
             <span class="info-item__label">教练员类别</span>
-            <span class="info-item__value">{{ coachCategoryDisplay }}</span>
+            <span class="info-item__value muted">由管理员在人员档案维护（正式字典待发布）</span>
           </div>
         </div>
 
         <!-- 编辑模式 -->
-        <el-form v-else :model="form" label-position="top" class="profile-form">
+        <el-form v-else-if="canEdit" :model="form" label-position="top" class="profile-form">
           <div class="form-grid">
             <el-form-item label="真实姓名" required>
               <el-input v-model="form.realName" placeholder="与身份证保持一致" />
             </el-form-item>
             <el-form-item label="性别">
-              <el-select v-model="form.gender" style="width: 100%">
+              <el-select v-model="form.gender" clearable placeholder="未填写" style="width: 100%">
                 <el-option label="男" value="MALE" />
                 <el-option label="女" value="FEMALE" />
                 <el-option label="未说明" value="UNSPECIFIED" />
@@ -211,36 +254,36 @@ onMounted(load)
                 />
               </el-select>
             </el-form-item>
-            <el-form-item v-if="isCoach" label="教练员类别">
-              <el-select v-model="form.coachCategory" style="width: 100%" clearable placeholder="选择类别">
-                <el-option
-                  v-for="(label, value) in COACH_CATEGORY_LABELS"
-                  :key="value"
-                  :label="label"
-                  :value="value"
-                />
-              </el-select>
-            </el-form-item>
           </div>
         </el-form>
 
         <div class="readonly-grid">
           <div>
-            <span>身份证号</span>
-            <strong>{{ person?.maskedIdNumber || '未登记' }}</strong>
+            <span>登录账号</span>
+            <strong>{{ auth.user?.username || '—' }}</strong>
           </div>
           <div>
-            <span>手机号</span>
-            <strong>{{ person?.maskedPhone || '未登记' }}</strong>
+            <span>账号名称</span>
+            <strong>{{ auth.displayName }}</strong>
           </div>
-          <div>
-            <span>学籍号</span>
-            <strong>{{ person?.maskedStudentNumber || '未登记' }}</strong>
-          </div>
+          <template v-if="person">
+            <div v-if="person.maskedIdNumber">
+              <span>身份证号</span>
+              <strong>{{ person.maskedIdNumber }}</strong>
+            </div>
+            <div v-if="person.maskedStudentNumber">
+              <span>学籍号</span>
+              <strong>{{ person.maskedStudentNumber }}</strong>
+            </div>
+            <div v-if="person.maskedPhone">
+              <span>手机号</span>
+              <strong>{{ person.maskedPhone }}</strong>
+            </div>
+          </template>
         </div>
         <p class="form-tip">
           <el-icon><Lock /></el-icon>
-          学校 / 单位由管理员档案维护；身份证号与手机号需提交证明材料后由管理员变更。
+          个人资料只展示人员档案实际登记的数据；未登记字段保持空白。学校 / 单位、身份证号、手机号、学籍号与教练员类别由管理员维护。
         </p>
       </section>
 
@@ -250,9 +293,11 @@ onMounted(load)
             <el-icon class="side-card__icon" :size="19"><Collection /></el-icon>
             <h3>履历材料</h3>
           </div>
-          <p class="side-card__text">补充学籍、获奖、参赛经历等材料，有助于遴选与公示。</p>
+          <p class="side-card__text">
+            当前版本履历材料由管理员统一维护，个人端仅可查看归档状态；上传接口开放前请将材料交管理员录入。
+          </p>
           <el-button style="width: 100%; margin-top: 14px" @click="router.push('/console/materials')">
-            管理我的材料
+            查看履历材料
           </el-button>
         </div>
       </aside>
@@ -261,6 +306,10 @@ onMounted(load)
 </template>
 
 <style scoped>
+.state-alert {
+  margin-bottom: 16px;
+}
+
 .profile-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;

@@ -3,11 +3,12 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormRules } from 'element-plus'
 import { ArrowRight, Check, InfoFilled } from '@element-plus/icons-vue'
-import { enrollmentApi, eventApi, meApi } from '../../api'
+import { enrollmentApi, eventApi, teamApi } from '../../api'
 import type { Event, EventGroup, Team } from '../../api/types'
 import { subjectTypeLabel } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import { canEnroll } from '../../utils/roles'
+import { teamMatchesGroup } from '../../utils/teamEligibility'
 import PageHeader from '../../components/common/PageHeader.vue'
 
 const router = useRouter()
@@ -47,20 +48,50 @@ const selectedEvent = computed(() => events.value.find((e) => e.id === form.even
 const selectedGroup = computed(() => groups.value.find((g) => g.id === form.groupId))
 const selectedTeam = computed(() => teams.value.find((t) => t.id === form.teamId))
 
+const isTeamAccount = computed(() => auth.roles.includes('TEAM'))
 const subjectType = 'SCHOOL_TEAM' as const
-const routeSteps = ['学校填报', '市州初审', '省级终审']
+const routeSteps = computed(() => [
+  isTeamAccount.value ? '球队填报' : '学校填报',
+  '市州初审',
+  '省级终审',
+])
 const steps = ['选择赛事', '填写信息', '确认创建']
+const pageDescription = computed(() =>
+  isTeamAccount.value
+    ? '以所属球队为报送主体，选择赛事、组别与参赛球队。报名提交后依次经市州初审、省级终审。'
+    : '以学校为报送主体，选择赛事、组别与本校参赛球队（含分校区）。分校球队与本校共享同一个学校名额。',
+)
+const teamFieldLabel = computed(() =>
+  isTeamAccount.value ? '参赛球队（本队）' : '参赛球队（本校及校区）',
+)
+const subjectText = computed(() =>
+  isTeamAccount.value ? '球队报送' : subjectTypeLabel(subjectType),
+)
+const noticeItems = computed(() =>
+  isTeamAccount.value
+    ? [
+        '球队账号可直接为本队报名，并提交市州初审、省级终审。',
+        '每支球队每个组别仅可提交一份有效报名，草稿也占用名额。',
+        '报名名额按所属学校计算，与其他校区球队共享。',
+        '球员名单需满足组别人数下限，并通过资格预检。',
+        '提交后生成报名快照，撤回后方可修改。',
+        '所需材料：盖章报名表、学籍证明等，以组别配置为准。',
+      ]
+    : [
+        '学校端可为本校及分校区球队报名，并统一提交审核。',
+        '每支球队每个组别仅可提交一份有效报名，草稿也占用名额。',
+        '分校/校区球队与本校共享同一个学校名额，不单独计算。',
+        '球员名单需满足组别人数下限，并通过资格预检。',
+        '提交后生成报名快照，撤回后方可修改。',
+        '所需材料：盖章报名表、学籍证明等，以组别配置为准。',
+      ],
+)
 
-/** 仅保留符合组别学段与性别的本校球队（含各校区）。 */
+/** 仅保留认证通过、且符合组别学段与性别的可报送球队。 */
 const availableTeams = computed(() => {
   const group = selectedGroup.value
   if (!group) return teams.value
-  return teams.value.filter((team) => {
-    if (team.status === 'PENDING') return false
-    if (team.category && team.category !== group.category) return false
-    if (group.gender !== 'MIXED' && team.gender && team.gender !== group.gender) return false
-    return true
-  })
+  return teams.value.filter((team) => team.status !== 'PENDING' && teamMatchesGroup(team, group))
 })
 
 function groupFullReason(group: EventGroup): string {
@@ -87,12 +118,14 @@ async function loadBase() {
   loading.value = true
   try {
     // 两个接口的权限范围不同，任一失败都不能拖垮整个向导。
+    // /teams 由后端按账号数据范围收敛：学校端得到本校及分校区球队，球队端只得到本队，
+    // 且字段比 /me/teams 更全（含性别与校区），可直接用于组别匹配。
     const [eventRes, teamRes] = await Promise.allSettled([
       eventApi.available({ page: 1, pageSize: 50, registrationOpen: 'true' }),
-      meApi.teams(),
+      teamApi.list({ page: 1, pageSize: 200 }),
     ])
     events.value = eventRes.status === 'fulfilled' ? eventRes.value.items : []
-    teams.value = teamRes.status === 'fulfilled' ? teamRes.value : []
+    teams.value = teamRes.status === 'fulfilled' ? teamRes.value.items : []
     const presetTeamId = String(route.query.teamId || '')
     if (presetTeamId && teams.value.some((team) => team.id === presetTeamId)) {
       form.teamId = presetTeamId
@@ -157,7 +190,7 @@ function next() {
     if (!form.eventId) return ElMessage.warning('请选择赛事')
     if (!form.groupId) return ElMessage.warning('请选择参赛组别')
     if (!availableTeams.value.some((team) => team.id === form.teamId)) {
-      return ElMessage.warning('请选择与组别学段、性别一致的本校球队')
+      return ElMessage.warning('请选择与组别学段、性别一致的参赛球队')
     }
     step.value = 1
     return
@@ -204,7 +237,7 @@ watch(availableTeams, (items) => {
 
 onMounted(() => {
   if (!canEnroll(auth.roles)) {
-    ElMessage.warning('报名由学校端统一提交，请使用学校账号')
+    ElMessage.warning('报名由学校端或球队端提交，请使用对应账号')
     router.replace('/console/enrollments')
     return
   }
@@ -214,11 +247,7 @@ onMounted(() => {
 
 <template>
   <div class="page">
-    <PageHeader
-      title="新建报名"
-      description="以学校为报送主体，选择赛事、组别与本校参赛球队（含分校区）。分校球队与本校共享同一个学校名额。"
-      show-back
-    />
+    <PageHeader title="新建报名" :description="pageDescription" show-back />
 
     <section class="page-card wizard" v-loading="loading">
       <div class="steps">
@@ -242,7 +271,9 @@ onMounted(() => {
           <el-form ref="formRef" :model="form" :rules="rules" label-position="top" size="large">
             <div v-show="step === 0" class="step-panel">
               <h2>选择参赛赛事</h2>
-              <p class="step-desc">仅展示当前处于报名开放期的赛事。草稿即占用学校名额，提交前可在报名列表撤回或删除。</p>
+              <p class="step-desc">
+                仅展示当前处于报名开放期的赛事。草稿即占用名额，提交前可在报名列表撤回或删除。
+              </p>
 
               <el-form-item label="赛事" prop="eventId">
                 <el-select v-model="form.eventId" placeholder="请选择赛事" style="width: 100%">
@@ -279,7 +310,7 @@ onMounted(() => {
                 <el-empty v-else description="请先选择赛事以加载组别" :image-size="60" />
               </el-form-item>
 
-              <el-form-item label="参赛球队（本校及校区）" prop="teamId">
+              <el-form-item :label="teamFieldLabel" prop="teamId">
                 <el-select v-model="form.teamId" placeholder="请选择参赛球队" filterable style="width: 100%">
                   <el-option
                     v-for="team in availableTeams"
@@ -294,9 +325,16 @@ onMounted(() => {
                   </el-option>
                 </el-select>
                 <div v-if="selectedGroup && !availableTeams.length" class="team-hint">
-                  本校暂无符合「{{ selectedGroup.name }}」学段与性别的球队，请先到
-                  <router-link to="/console/school/teams">本校球队</router-link>
-                  新建或调整校区球队。
+                  <template v-if="isTeamAccount">
+                    本队暂不符合「{{ selectedGroup.name }}」的学段或性别要求，请先到
+                    <router-link to="/console/team/profile">球队资料</router-link>
+                    核对球队年龄组与性别。
+                  </template>
+                  <template v-else>
+                    本校暂无符合「{{ selectedGroup.name }}」学段与性别的球队，请先到
+                    <router-link to="/console/school/teams">本校球队</router-link>
+                    新建或调整校区球队。
+                  </template>
                 </div>
               </el-form-item>
             </div>
@@ -336,7 +374,7 @@ onMounted(() => {
                   <div><dt>组别</dt><dd>{{ selectedGroup?.name || '—' }}</dd></div>
                   <div><dt>参赛球队</dt><dd>{{ selectedTeam?.name || '—' }}</dd></div>
                   <div><dt>参赛学校 / 校区</dt><dd>{{ selectedTeam?.schoolName || '—' }} · {{ campusText(selectedTeam) }}</dd></div>
-                  <div><dt>报送主体</dt><dd>{{ subjectTypeLabel(subjectType) }}</dd></div>
+                  <div><dt>报送主体</dt><dd>{{ subjectText }}</dd></div>
                   <div><dt>联系人</dt><dd>{{ form.contactName }}</dd></div>
                   <div><dt>联系电话</dt><dd>{{ form.contactPhone }}</dd></div>
                   <div class="full"><dt>备注</dt><dd>{{ form.remarks || '无' }}</dd></div>
@@ -353,12 +391,7 @@ onMounted(() => {
             <el-icon class="side-card__icon" :size="20"><InfoFilled /></el-icon>
             <h3>报名须知</h3>
             <ul>
-              <li>学校是唯一报送主体，报名由学校管理员统一提交。</li>
-              <li>每支球队每个组别仅可提交一份有效报名，草稿也占用名额。</li>
-              <li>分校/校区球队与本校共享同一个学校名额，不单独计算。</li>
-              <li>球员名单需满足组别人数下限，并通过资格预检。</li>
-              <li>提交后生成报名快照，撤回后方可修改。</li>
-              <li>所需材料：盖章报名表、学籍证明等，以组别配置为准。</li>
+              <li v-for="item in noticeItems" :key="item">{{ item }}</li>
             </ul>
           </div>
           <div class="side-card side-card--tip">

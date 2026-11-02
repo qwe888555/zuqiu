@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { isUnauthenticated, useAuthStore } from '../stores/auth'
-import { homeForRoles } from '../utils/roles'
+import { canEnroll, canOpenEnrollment, homeForRoles } from '../utils/roles'
 import type { RoleCode } from '../api/types'
 
 declare module 'vue-router' {
@@ -10,6 +10,8 @@ declare module 'vue-router' {
     roles?: RoleCode[]
     requiresAuth?: boolean
     guestOnly?: boolean
+    /** 仅学校端/球队端可进入的报送页；ADMIN 也不得代报。 */
+    submitterOnly?: boolean
   }
 }
 
@@ -77,8 +79,8 @@ const routes: RouteRecordRaw[] = [
         path: 'enrollments/create',
         name: 'enrollment-create',
         component: () => import('../views/enrollment/EnrollmentWizardView.vue'),
-        // 学校是唯一报送主体；schoolOnly 在守卫中优先于 ADMIN 的全角色放行。
-        meta: { title: '新建报名', roles: ['UNIVERSITY'], schoolOnly: true },
+        // 学校端/球队端为报送主体；submitterOnly 在守卫中优先于 ADMIN 的全角色放行。
+        meta: { title: '新建报名', roles: ['TEAM', 'UNIVERSITY'], submitterOnly: true },
       },
       {
         path: 'enrollments/:id',
@@ -337,13 +339,13 @@ router.beforeEach(async (to) => {
       return true
     }
   }
-  if (to.meta.schoolOnly && !auth.roles.includes('UNIVERSITY')) {
-    if (auth.roles.some((role) => ['TEAM', 'CITY', 'ADMIN'].includes(role))) {
-      ElMessage.info('报名由学校端统一提交，已为你打开报名单列表')
+  if (to.meta.submitterOnly && !canEnroll(auth.roles)) {
+    if (canOpenEnrollment(auth.roles)) {
+      ElMessage.info('报名由学校端或球队端提交，已为你打开报名单列表')
       const eventId = to.query.eventId ? String(to.query.eventId) : ''
       return { name: 'enrollments', query: eventId ? { eventId } : undefined }
     }
-    ElMessage.warning('报名由学校端统一提交，请使用学校账号')
+    ElMessage.warning('报名由学校端或球队端提交，请使用对应账号')
     return { name: 'forbidden', query: { from: to.fullPath } }
   }
   if (to.meta.roles && !auth.hasRole(to.meta.roles)) {

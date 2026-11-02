@@ -45,13 +45,13 @@ export function useConsoleEntry() {
       router.push('/console/enrollments/create')
       return
     }
-    // 已登录的球队/市州/管理员进入只读报名列表，不重复弹登录框。
+    // 已登录的市州/省级/管理员进入报名列表，不重复弹登录框。
     if (canOpenEnrollment(auth.roles)) {
-      ElMessage.info('报名由学校端统一提交，当前仅可查看权限范围内的报名进度')
+      ElMessage.info('报名由学校端或球队端提交，当前仅可查看权限范围内的报名进度')
       router.push('/console/enrollments')
       return
     }
-    ElMessage.info('报名由学校端统一提交，请使用学校账号')
+    ElMessage.info('报名由学校端或球队端提交，请使用对应账号登录')
     openLoginDialog({ redirect: '/console/enrollments/create', intent: 'enroll' })
   }
 

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { TOKEN_KEY } from './http'
+import { TOKEN_KEY, toDownloadBlob } from './http'
 import type {
   PageResult,
   PublicityRecord,
@@ -125,8 +125,9 @@ async function download(
   params?: Record<string, unknown>,
 ): Promise<boolean> {
   const response = await instance.request({ method: 'get', url, params, responseType: 'blob' })
-  const payload = response.data
-  if (!(payload instanceof Blob)) return false
+  // 与主服务一致：响应拦截器已解包 data，download 不能再读 response.data。
+  const payload = toDownloadBlob(response)
+  if (!payload) return false
   const objectUrl = URL.createObjectURL(payload)
   const link = document.createElement('a')
   link.href = objectUrl
