@@ -170,6 +170,159 @@ export interface MatchWithEvents {
   events?: MatchEvent[]
 }
 
+export type TeamTraceKind = 'GOAL' | 'YELLOW_CARD' | 'RED_CARD'
+
+export interface TeamTrace {
+  matchId: string
+  eventId: string
+  matchLabel: string
+  opponentName?: string
+  kickoffAt?: string
+  minute?: number
+  stoppageMinute?: number
+  kind: TeamTraceKind
+  ownGoal?: boolean
+  scoreText?: string
+  /** 进球者/领牌球员，用于球队维度下钻时定位到人。 */
+  athleteName?: string
+  note?: string
+}
+
+export interface TeamStatRow {
+  key: string
+  teamId?: string
+  teamName: string
+  /** 区间内参加的比赛场次（按比赛主客队去重统计）。 */
+  matches: number
+  goals: number
+  yellowCards: number
+  redCards: number
+  traces: TeamTrace[]
+}
+
+/**
+ * 按球队汇总进球与红黄牌，并保留逐场明细。
+ * 乌龙球计入对方球队（与赛果口径一致）；牌数按事件所属球队统计。
+ */
+export function buildTeamStats(details: readonly MatchWithEvents[]): TeamStatRow[] {
+  const teams = new Map<string, TeamStatRow>()
+
+  const ensure = (teamId?: string, teamName?: string): TeamStatRow | null => {
+    if (!teamId && !teamName) return null
+    const key = teamId || `name:${teamName}`
+    let row = teams.get(key)
+    if (!row) {
+      row = {
+        key,
+        teamId: teamId || undefined,
+        teamName: teamName || teamId || '未知球队',
+        matches: 0,
+        goals: 0,
+        yellowCards: 0,
+        redCards: 0,
+        traces: [],
+      }
+      teams.set(key, row)
+    } else if (!row.teamName && teamName) {
+      row.teamName = teamName
+    }
+    return row
+  }
+
+  // 先按比赛主客队建队，保证 0 进球/0 牌的球队也能出现在统计表里。
+  for (const { match } of details) {
+    const home = ensure(match.homeTeamId, match.homeTeamName || match.homeTeamId)
+    const away = ensure(match.awayTeamId, match.awayTeamName || match.awayTeamId)
+    if (home) home.matches += 1
+    if (away) away.matches += 1
+  }
+
+  for (const { match, events } of details) {
+    if (!events) continue
+    for (const event of events) {
+      const isGoal = event.eventType === 'GOAL'
+      const cardType = event.eventType === 'PENALTY' ? event.penaltyType : undefined
+
+      let teamId = event.teamId
+      let teamName = event.teamName || teamNameById(match, teamId)
+      const ownGoal = Boolean(isGoal && event.ownGoal)
+      if (ownGoal) {
+        // 乌龙球由对方球队受益：事件记录的 teamId 是乌龙球员所属球队。
+        if (teamId && teamId === match.homeTeamId) {
+          teamId = match.awayTeamId
+          teamName = match.awayTeamName
+        } else if (teamId && teamId === match.awayTeamId) {
+          teamId = match.homeTeamId
+          teamName = match.homeTeamName
+        }
+      }
+
+      const row = ensure(teamId, teamName)
+      if (!row) continue
+      const opponentName =
+        row.teamId === match.homeTeamId
+          ? match.awayTeamName
+          : row.teamId === match.awayTeamId
+            ? match.homeTeamName
+            : undefined
+
+      if (isGoal) {
+        row.goals += 1
+        row.traces.push({
+          matchId: match.id,
+          eventId: event.id,
+          matchLabel: `${match.homeTeamName || '主队'} vs ${match.awayTeamName || '客队'}`,
+          opponentName,
+          kickoffAt: match.kickoffAt,
+          minute: event.minute,
+          stoppageMinute: event.stoppageMinute,
+          kind: 'GOAL',
+          ownGoal,
+          scoreText: scoreText(match),
+          athleteName: event.scorerName || event.athleteName,
+          note: event.note,
+        })
+        continue
+      }
+
+      if (cardType !== 'YELLOW_CARD' && cardType !== 'RED_CARD') continue
+      const kind: TeamTraceKind = cardType === 'RED_CARD' ? 'RED_CARD' : 'YELLOW_CARD'
+      if (kind === 'RED_CARD') row.redCards += 1
+      else row.yellowCards += 1
+      row.traces.push({
+        matchId: match.id,
+        eventId: event.id,
+        matchLabel: `${match.homeTeamName || '主队'} vs ${match.awayTeamName || '客队'}`,
+        opponentName,
+        kickoffAt: match.kickoffAt,
+        minute: event.minute,
+        stoppageMinute: event.stoppageMinute,
+        kind,
+        scoreText: scoreText(match),
+        athleteName: event.athleteName,
+        note: event.reason || event.note,
+      })
+    }
+  }
+
+  return [...teams.values()]
+    .map((row) => ({
+      ...row,
+      traces: row.traces.sort((a, b) => {
+        const timeA = a.kickoffAt ? Date.parse(a.kickoffAt) : 0
+        const timeB = b.kickoffAt ? Date.parse(b.kickoffAt) : 0
+        return timeB - timeA || (a.minute || 0) - (b.minute || 0)
+      }),
+    }))
+    .sort(
+      (a, b) =>
+        b.goals - a.goals ||
+        b.redCards - a.redCards ||
+        b.yellowCards - a.yellowCards ||
+        a.teamName.localeCompare(b.teamName, 'zh-Hans-CN'),
+    )
+}
+
 function scoreText(match: StatsMatch): string | undefined {
   if (typeof match.homeScore !== 'number' || typeof match.awayScore !== 'number') return undefined
   return `${match.homeScore}:${match.awayScore}`

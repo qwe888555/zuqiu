@@ -19,6 +19,7 @@ const keyword = ref('')
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
+const editingVersion = ref(0)
 const saving = ref(false)
 const form = reactive({
   name: '',
@@ -44,9 +45,16 @@ const cities = computed(() => allOrgs.value.filter((org) => org.orgType === 'CIT
 
 const teamCountByOrg = computed(() => {
   const map = new Map<string, number>()
+  // 后端 team_out 不输出 orgId（受控契约），但会输出 teamNo；组织树里 TEAM
+  // 节点的 code 即 teamNo（A′-min），因此按 code 反查节点与父学校节点计数。
+  const teamOrgs = new Map(
+    allOrgs.value.filter((org) => org.orgType === 'TEAM').map((org) => [org.code, org]),
+  )
   teams.value.forEach((team) => {
-    if (!team.orgId) return
-    map.set(team.orgId, (map.get(team.orgId) || 0) + 1)
+    const node = team.teamNo ? teamOrgs.get(team.teamNo) : undefined
+    if (!node) return
+    map.set(node.id, (map.get(node.id) || 0) + 1)
+    if (node.parentId) map.set(node.parentId, (map.get(node.parentId) || 0) + 1)
   })
   return map
 })
@@ -96,6 +104,7 @@ async function switchType() {
 
 function openCreate() {
   editingId.value = null
+  editingVersion.value = 0
   Object.assign(form, {
     name: '',
     orgType: activeType.value,
@@ -108,6 +117,7 @@ function openCreate() {
 
 function openEdit(row: Organization) {
   editingId.value = row.id
+  editingVersion.value = row.version
   Object.assign(form, {
     name: row.name,
     orgType: row.orgType,
@@ -124,7 +134,14 @@ async function save() {
   saving.value = true
   try {
     if (editingId.value) {
-      await orgApi.update(editingId.value, { ...form })
+      await orgApi.update(editingId.value, {
+        ...(form.parentId ? { parentId: form.parentId } : {}),
+        name: form.name,
+        orgType: form.orgType,
+        code: form.code,
+        enabled: form.enabled,
+        version: editingVersion.value,
+      })
       ElMessage.success('参赛主体已更新')
     } else {
       await orgApi.create({ ...form, parentId: form.parentId || undefined })
@@ -141,7 +158,16 @@ async function save() {
 
 async function toggleEnabled(row: Organization) {
   try {
-    await orgApi.update(row.id, { enabled: !row.enabled })
+    // OrganizationUpdate 为整份替换：name/orgType/code/version 必填，只传
+    // enabled 会被 StrictSchema 拒绝（管理端联调发现的开关失效问题）。
+    await orgApi.update(row.id, {
+      ...(row.parentId ? { parentId: row.parentId } : {}),
+      name: row.name,
+      orgType: row.orgType,
+      code: row.code,
+      enabled: !row.enabled,
+      version: row.version,
+    })
     ElMessage.success(row.enabled ? '已停用' : '已启用')
     await load()
   } catch {

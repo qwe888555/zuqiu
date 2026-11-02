@@ -24,6 +24,7 @@ import type {
   MatchDocument,
   MatchEvent,
   MatchResult,
+  MatchRoster,
   Material,
   Message,
   MyAffiliation,
@@ -535,6 +536,9 @@ export const matchApi = {
     http.post<{ success: boolean }>(`/matches/${id}/unpublish`, { version, reason }),
   events: (id: string, params?: Query, options?: { silentError?: boolean }) =>
     http.get<PageResult<MatchEvent>>(`/matches/${id}/events`, params, options),
+  /** 记录台球员选择器：本场双方现役名单（旧后端无此接口时静默降级为手填 ID）。 */
+  rosters: (id: string, options?: { silentError?: boolean }) =>
+    http.get<MatchRoster[]>(`/matches/${id}/rosters`, undefined, options),
   /** 事件录入必带 Idempotency-Key，重复提交不会重复计分 */
   addEvent: (id: string, data: Query) =>
     http.postIdempotent<MatchEvent>(`/matches/${id}/events`, data, newIdempotencyKey('event')),

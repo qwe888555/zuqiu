@@ -12,11 +12,13 @@ import { mapLimit, fetchAllPages } from '../../utils/asyncPool'
 import {
   buildPlayerStats,
   buildStandings,
+  buildTeamStats,
   summarizeCoverage,
   type MatchWithEvents,
   type PlayerStatRow,
   type PlayerTrace,
   type StandingRow,
+  type TeamStatRow,
 } from '../../utils/statsAggregation'
 import { toCsv } from '../../utils/csv'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -56,6 +58,16 @@ let standingsSeq = 0
 
 const traceVisible = ref(false)
 const tracePlayer = ref<PlayerStatRow | null>(null)
+
+const teamEventId = ref('')
+const teamLoading = ref(false)
+const teamRows = ref<TeamStatRow[]>([])
+const teamCoverage = ref('')
+const teamCardsAvailable = ref(true)
+const teamTruncated = ref(false)
+const teamKeyword = ref('')
+const teamTraceVisible = ref(false)
+const teamTraceRow = ref<TeamStatRow | null>(null)
 
 const rangeStart = computed(() => dayjs(dateRange.value[0]).startOf('day'))
 const rangeEnd = computed(() => dayjs(dateRange.value[1]).endOf('day'))
@@ -300,6 +312,63 @@ async function loadPlayers() {
   }
 }
 
+async function loadTeams() {
+  if (!teamEventId.value) return
+  const event = events.value.find((item) => item.id === teamEventId.value)
+  if (!event) return
+  teamLoading.value = true
+  teamRows.value = []
+  teamTruncated.value = false
+  teamCoverage.value = ''
+  try {
+    const all = (matchesByEvent.value[event.id] || []).filter((match) => inRange(match.kickoffAt))
+    const limited = all.slice(0, 60)
+    teamTruncated.value = all.length > limited.length
+    const details = await mapLimit(limited, 4, async (match): Promise<MatchWithEvents> => {
+      try {
+        const res = await fetchAllPages<MatchEvent>(
+          (pageNo, pageSize) => matchApi.events(match.id, { page: pageNo, pageSize }),
+          200,
+          10,
+        )
+        return { match, events: res.items }
+      } catch {
+        // 明细接口失败时保留 undefined，页面按“缺失事件”统计，不伪造 0。
+        return { match }
+      }
+    })
+    teamCardsAvailable.value = details.some((item) => item.events !== undefined)
+    teamRows.value = buildTeamStats(details)
+    teamCoverage.value = summarizeCoverage(details, teamTruncated.value).text
+  } catch {
+    teamRows.value = []
+    teamCoverage.value = '球队数据加载失败，请稍后重试'
+  } finally {
+    teamLoading.value = false
+  }
+}
+
+const displayTeamRows = computed(() => {
+  const keyword = teamKeyword.value.trim()
+  return teamRows.value.filter((row) => !keyword || row.teamName.includes(keyword))
+})
+
+function teamTraceMatchCount(row: TeamStatRow): number {
+  return new Set(row.traces.map((trace) => trace.matchId)).size
+}
+
+function openTeamTrace(row: TeamStatRow) {
+  teamTraceRow.value = row
+  teamTraceVisible.value = true
+}
+
+function resetTeams() {
+  teamRows.value = []
+  teamCoverage.value = ''
+  teamTruncated.value = false
+  teamCardsAvailable.value = true
+}
+
 const playerTeams = computed(() =>
   [...new Set(playerRows.value.map((row) => row.teamName).filter(Boolean) as string[])].sort(),
 )
@@ -348,8 +417,11 @@ function resetPlayers() {
   playerCardsAvailable.value = true
 }
 
-// 日期范围或级别变化后，已加载的球员数据不再对应当前口径，清空等待重新加载。
-watch([dateRange, level], resetPlayers, { deep: true })
+// 日期范围或级别变化后，已加载的球员/球队数据不再对应当前口径，清空等待重新加载。
+watch([dateRange, level], () => {
+  resetPlayers()
+  resetTeams()
+}, { deep: true })
 
 onMounted(load)
 </script>
@@ -525,6 +597,81 @@ onMounted(load)
         />
       </el-tab-pane>
 
+      <el-tab-pane label="球队数据" name="teams">
+        <section class="page-card filter-card">
+          <span class="filter-card__label">赛事</span>
+          <el-select
+            v-model="teamEventId"
+            placeholder="请选择赛事"
+            filterable
+            style="width: 280px"
+            @change="resetTeams"
+          >
+            <el-option
+              v-for="row in eventRows"
+              :key="row.event.id"
+              :label="row.event.name"
+              :value="row.event.id"
+            />
+          </el-select>
+          <el-button type="primary" :loading="teamLoading" :disabled="!teamEventId" @click="loadTeams">
+            加载球队数据
+          </el-button>
+          <el-input
+            v-if="teamRows.length"
+            v-model="teamKeyword"
+            placeholder="搜索球队"
+            clearable
+            style="width: 180px"
+          />
+        </section>
+
+        <el-alert
+          v-if="teamRows.length && !teamCardsAvailable"
+          class="coverage-alert"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="逐场事件明细不可用"
+          description="当前接口未返回比赛事件，进球与红黄牌仅能展示部分数据；缺失部分不记为 0。"
+        />
+
+        <section v-if="teamRows.length || teamLoading" class="page-card">
+          <div class="section-title">
+            球队进球与红黄牌
+            <small v-if="teamCoverage">{{ teamCoverage }}；点击行查看逐场明细</small>
+          </div>
+          <el-table v-loading="teamLoading" :data="displayTeamRows" style="width: 100%" @row-click="openTeamTrace">
+            <el-table-column type="index" label="#" width="60" align="center" />
+            <el-table-column prop="teamName" label="球队" min-width="220">
+              <template #default="{ row }"><strong>{{ row.teamName }}</strong></template>
+            </el-table-column>
+            <el-table-column prop="matches" label="场次" width="80" align="center" />
+            <el-table-column prop="goals" label="进球" width="90" align="center" />
+            <el-table-column label="黄牌" width="90" align="center">
+              <template #default="{ row }">{{ teamCardsAvailable ? row.yellowCards : '—' }}</template>
+            </el-table-column>
+            <el-table-column label="红牌" width="90" align="center">
+              <template #default="{ row }">{{ teamCardsAvailable ? row.redCards : '—' }}</template>
+            </el-table-column>
+            <el-table-column label="可追溯场次" width="120" align="center">
+              <template #default="{ row }">{{ teamTraceMatchCount(row) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="100" align="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click.stop="openTeamTrace(row)">明细</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+
+        <el-empty
+          v-else-if="!teamLoading"
+          description="请选择赛事并加载球队数据；逐场事件按需读取，点击球队可追溯到具体比赛"
+          :image-size="80"
+        />
+      </el-tab-pane>
+
       <el-tab-pane label="报名分布" name="enrollments">
         <section class="page-card enroll-panel">
           <h3>报名分布统一下钻</h3>
@@ -623,6 +770,47 @@ onMounted(load)
         </el-table-column>
       </el-table>
       <el-empty v-if="!tracePlayer?.traces.length" description="暂无可追溯的逐场事件" :image-size="70" />
+    </el-drawer>
+
+    <el-drawer v-model="teamTraceVisible" size="760px" :title="`${teamTraceRow?.teamName || ''} · 逐场明细`">
+      <el-table :data="teamTraceRow?.traces || []" style="width: 100%">
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.kind === 'GOAL' ? 'success' : row.kind === 'RED_CARD' ? 'danger' : 'warning'" size="small">
+              {{ traceKindLabel(row.kind) }}<template v-if="row.ownGoal">（乌龙）</template>
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="球员" width="130">
+          <template #default="{ row }">{{ row.athleteName || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="matchLabel" label="比赛" min-width="180" />
+        <el-table-column label="对手" width="130">
+          <template #default="{ row }">{{ row.opponentName || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="时间" width="130">
+          <template #default="{ row }">
+            {{ row.kickoffAt ? dayjs(row.kickoffAt).format('MM-DD HH:mm') : '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="分钟" width="80" align="center">
+          <template #default="{ row }">
+            {{ typeof row.minute === 'number' ? `${row.minute}${row.stoppageMinute ? `+${row.stoppageMinute}` : ''}'` : '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="scoreText" label="比分" width="80" align="center">
+          <template #default="{ row }">{{ row.scoreText || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="备注" min-width="120">
+          <template #default="{ row }">{{ row.note || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="90" align="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openMatch(row.matchId)">查看比赛</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!teamTraceRow?.traces.length" description="暂无可追溯的逐场事件" :image-size="70" />
     </el-drawer>
   </div>
 </template>

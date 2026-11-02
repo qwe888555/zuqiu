@@ -144,11 +144,14 @@ async function saveEvent() {
       })
       ElMessage.success('赛事已更新')
     } else {
+      // 新建一律先落草稿：组别配置完成后再走「发布并开放报名」，
+      // 否则可绕过“至少一个组别、报名期未过期”的发布校验。
       await eventApi.create({
         ...eventForm,
+        status: 'DRAFT',
         eventCategory: eventForm.eventCategory.trim(),
       })
-      ElMessage.success('赛事已创建')
+      ElMessage.success('赛事已创建为草稿，请配置组别后发布并开放报名')
     }
     eventVisible.value = false
     await load()
@@ -562,7 +565,7 @@ onMounted(load)
             />
           </el-form-item>
         </div>
-        <el-form-item label="赛事状态">
+        <el-form-item v-if="editingId" label="赛事状态">
           <el-select v-model="eventForm.status" style="width: 100%">
             <el-option label="草稿" value="DRAFT" />
             <el-option label="报名开放" value="REGISTRATION_OPEN" />
@@ -570,6 +573,13 @@ onMounted(load)
             <el-option label="比赛进行中" value="RUNNING" />
             <el-option label="已结束" value="FINISHED" />
           </el-select>
+          <span class="field-hint">
+            发布/开放报名请优先使用列表中的「发布并开放报名」，系统会校验组别与报名截止时间。
+          </span>
+        </el-form-item>
+        <el-form-item v-else label="赛事状态">
+          <el-tag type="info" effect="plain">草稿</el-tag>
+          <span class="field-hint">创建后请先在「组别配置」添加组别，再发布并开放报名。</span>
         </el-form-item>
         <el-form-item label="赛事说明">
           <el-input v-model="eventForm.description" type="textarea" :rows="3" placeholder="赛事规程摘要（选填）" />

@@ -264,6 +264,8 @@ export interface Material {
 
 export interface Team {
   id: string
+  /** 后端球队编号（T+年份+8位id）；TEAM 组织节点 code 即该值。 */
+  teamNo?: string
   name: string
   shortName?: string
   orgId?: string
@@ -503,6 +505,16 @@ export interface MatchEvent {
   note?: string
   version: number
   createdAt?: string
+}
+
+/** 记录台球员选择项：后端只返回姓名/球衣号/档案 ID，不含证件信息。 */
+export interface MatchRoster {
+  teamId: string
+  athleteId: string
+  athleteName: string
+  jerseyNumber?: number | null
+  position?: string
+  status: 'CURRENT' | 'EXITED'
 }
 
 export interface LivePost {

@@ -19,7 +19,15 @@ import {
   VideoCamera,
 } from '@element-plus/icons-vue'
 import { fileApi, matchApi } from '../../api'
-import type { LiveLink, LivePost, Match, MatchDocument, MatchEvent, MatchResult } from '../../api/types'
+import type {
+  LiveLink,
+  LivePost,
+  Match,
+  MatchDocument,
+  MatchEvent,
+  MatchResult,
+  MatchRoster,
+} from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
@@ -33,6 +41,7 @@ const matchId = String(route.params.id)
 const loading = ref(false)
 const match = ref<Match | null>(null)
 const events = ref<MatchEvent[]>([])
+const rosters = ref<MatchRoster[]>([])
 const livePosts = ref<LivePost[]>([])
 const links = ref<LiveLink[]>([])
 const documents = ref<MatchDocument[]>([])
@@ -122,6 +131,16 @@ function teamTally(teamId?: string) {
 const homeTally = computed(() => teamTally(match.value?.homeTeamId))
 const awayTally = computed(() => teamTally(match.value?.awayTeamId))
 
+/** 事件弹窗按所选球队过滤本场名单；旧后端无名单接口时为空，仍可手填 ID。 */
+const activeRoster = computed(() =>
+  rosters.value.filter((member) => member.teamId === eventForm.teamId),
+)
+
+function rosterLabel(member: MatchRoster): string {
+  const no = member.jerseyNumber != null ? `#${member.jerseyNumber} ` : ''
+  return `${no}${member.athleteName}（${member.athleteId}）`
+}
+
 function eventSummary(event: MatchEvent) {
   if (event.eventType === 'GOAL') {
     return `${event.scorerName || event.scorerAthleteId || '未知球员'} 进球${event.ownGoal ? '（乌龙）' : ''}`
@@ -168,6 +187,12 @@ async function loadAll() {
     resultForm.manualAwayScore = res.awayScore
     resultForm.reason = res.reason || ''
     if (!eventForm.teamId) eventForm.teamId = m.homeTeamId
+    try {
+      rosters.value = await matchApi.rosters(matchId, { silentError: true })
+    } catch {
+      // 旧后端没有名单接口时静默降级为手填档案 ID，不影响记录比赛。
+      rosters.value = []
+    }
   } catch {
     // 拦截器提示
   } finally {
@@ -891,8 +916,24 @@ onMounted(loadAll)
         </el-form-item>
 
         <template v-if="eventForm.eventType === 'GOAL'">
-          <el-form-item label="进球球员 ID">
-            <el-input v-model="eventForm.scorerAthleteId" placeholder="输入成员4 运动员档案 ID" />
+          <el-form-item label="进球球员">
+            <el-select
+              v-model="eventForm.scorerAthleteId"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              placeholder="选择本场球员，或直接输入档案 ID"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="member in activeRoster"
+                :key="member.athleteId"
+                :label="rosterLabel(member)"
+                :value="member.athleteId"
+              />
+            </el-select>
+            <span v-if="!activeRoster.length" class="field-hint">名单未加载时可手动输入档案 ID。</span>
           </el-form-item>
           <el-form-item>
             <el-checkbox v-model="eventForm.ownGoal">该进球为乌龙球</el-checkbox>
@@ -908,8 +949,24 @@ onMounted(loadAll)
               <el-option label="其他" value="OTHER" />
             </el-select>
           </el-form-item>
-          <el-form-item label="球员 ID">
-            <el-input v-model="eventForm.athleteId" placeholder="输入成员4 运动员档案 ID" />
+          <el-form-item label="球员">
+            <el-select
+              v-model="eventForm.athleteId"
+              filterable
+              allow-create
+              default-first-option
+              clearable
+              placeholder="选择本场球员，或直接输入档案 ID"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="member in activeRoster"
+                :key="member.athleteId"
+                :label="rosterLabel(member)"
+                :value="member.athleteId"
+              />
+            </el-select>
+            <span v-if="!activeRoster.length" class="field-hint">名单未加载时可手动输入档案 ID。</span>
           </el-form-item>
           <el-form-item label="判罚原因">
             <el-input v-model="eventForm.reason" placeholder="如：战术犯规" />
@@ -918,11 +975,41 @@ onMounted(loadAll)
 
         <template v-else>
           <div class="form-grid">
-            <el-form-item label="换下球员 ID">
-              <el-input v-model="eventForm.outAthleteId" placeholder="成员4 档案 ID" />
+            <el-form-item label="换下球员">
+              <el-select
+                v-model="eventForm.outAthleteId"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                placeholder="选择或输入档案 ID"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="member in activeRoster"
+                  :key="member.athleteId"
+                  :label="rosterLabel(member)"
+                  :value="member.athleteId"
+                />
+              </el-select>
             </el-form-item>
-            <el-form-item label="换上球员 ID">
-              <el-input v-model="eventForm.inAthleteId" placeholder="成员4 档案 ID" />
+            <el-form-item label="换上球员">
+              <el-select
+                v-model="eventForm.inAthleteId"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                placeholder="选择或输入档案 ID"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="member in activeRoster"
+                  :key="member.athleteId"
+                  :label="rosterLabel(member)"
+                  :value="member.athleteId"
+                />
+              </el-select>
             </el-form-item>
           </div>
         </template>
@@ -1867,6 +1954,12 @@ onMounted(loadAll)
   .score__nums {
     font-size: 30px;
   }
+}
+
+.field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ink-500);
 }
 
 @media (max-width: 640px) {

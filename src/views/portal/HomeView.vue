@@ -179,9 +179,11 @@ function handleHeroVideoEnded() {
 }
 
 function handleHeroMediaError() {
-  // 直播视频失败时退回“视频入口 + 轮播图”，保留正在直播的提示。
+  // 直播视频失败时退回“视频入口 + 轮播图”，保留正在直播的提示；
+  // 同时启动低频探测，推流恢复后自动回到页内播放（现场断流不必手动刷新）。
   if (heroLive.value?.mode === 'video' || heroLive.value?.mode === 'hls') {
     heroLive.value = { ...heroLive.value, mode: 'link' }
+    scheduleHeroRecoverProbe()
     return
   }
   bannerVideoBroken.value = true
@@ -192,12 +194,45 @@ function handleHeroMediaError() {
 const heroVideoEl = ref<HTMLVideoElement | null>(null)
 let heroHls: { destroy: () => void } | null = null
 
+// 断流容错：现场网络抖动或推流端重启时，hls.js 会抛致命错误并彻底停下来。
+// 这里先自动重连 3 次（每次间隔 2 秒），全部失败才退回「跳转入口」，不必手动刷新。
+const HERO_HLS_RETRY_LIMIT = 5
+const HERO_HLS_RETRY_DELAY_MS = 2_000
+let heroHlsRetries = 0
+let heroRetryTimer: ReturnType<typeof setTimeout> | undefined
+
+function clearHeroRetry() {
+  if (heroRetryTimer) {
+    clearTimeout(heroRetryTimer)
+    heroRetryTimer = undefined
+  }
+}
+
 function destroyHeroHls() {
+  clearHeroRetry()
   heroHls?.destroy()
   heroHls = null
 }
 
-async function attachHeroHls() {
+/** 致命错误：还有重试机会就延时重连，次数用完才降级。 */
+function retryHeroHls() {
+  // 已有一次重连在排队：看门狗和 ERROR 事件可能同时触发，别重复计数
+  if (heroRetryTimer) return
+  if (heroHlsRetries >= HERO_HLS_RETRY_LIMIT) {
+    handleHeroMediaError()
+    return
+  }
+  heroHlsRetries += 1
+  clearHeroRetry()
+  heroRetryTimer = setTimeout(() => {
+    heroRetryTimer = undefined
+    void attachHeroHls(true)
+  }, HERO_HLS_RETRY_DELAY_MS)
+}
+
+async function attachHeroHls(isRetry = false) {
+  // 换源/换场次才清零重试次数；重连本身不清零，否则会无限重试。
+  if (!isRetry) heroHlsRetries = 0
   destroyHeroHls()
   const video = heroVideoEl.value
   const url = heroVideoUrl.value
@@ -216,15 +251,108 @@ async function attachHeroHls() {
   hls.loadSource(url)
   hls.attachMedia(video)
   hls.on(Hls.Events.ERROR, (_event, data) => {
-    if (data?.fatal) handleHeroMediaError()
+    if (data?.fatal) retryHeroHls()
+  })
+  // 真正播出新分片才算恢复，重置重试计数（避免解析成功但解码失败时死循环）。
+  hls.on(Hls.Events.FRAG_CHANGED, () => {
+    heroHlsRetries = 0
   })
 }
 
+// 降级后的兜底探测：推流端常常要几十秒才恢复（OBS 重启、现场网络抖动），
+// 上面 3 次重连撑不到。这里每 10 秒探一次播放列表，通了就恢复页内播放。
+const HERO_RECOVER_PROBE_MS = 10_000
+let heroRecoverTimer: ReturnType<typeof setTimeout> | undefined
+
+function clearHeroRecoverProbe() {
+  if (heroRecoverTimer) {
+    clearTimeout(heroRecoverTimer)
+    heroRecoverTimer = undefined
+  }
+}
+
+async function heroStreamAlive(url: string) {
+  try {
+    // no-store：绕开缓存，避免把断流前的旧播放列表当成“已恢复”
+    const res = await fetch(url, { method: 'GET', cache: 'no-store' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+function scheduleHeroRecoverProbe() {
+  clearHeroRecoverProbe()
+  heroRecoverTimer = setTimeout(async () => {
+    heroRecoverTimer = undefined
+    const live = heroLive.value
+    if (!live || live.mode !== 'link') return
+    if (!(await heroStreamAlive(live.url))) {
+      scheduleHeroRecoverProbe()
+      return
+    }
+    // 推流恢复：回到原来的播放方式，watcher 会重新接管 <video>
+    heroHlsRetries = 0
+    heroLive.value = { ...live, mode: HLS_URL_RE.test(live.url) ? 'hls' : 'video' }
+  }, HERO_RECOVER_PROBE_MS)
+}
+
+// 卡顿看门狗：推流断掉时 hls.js 往往不报致命错误，只是停在缓冲状态（画面定格），
+// 所以光等 ERROR 事件不够。这里每 2 秒看一次播放进度，8 秒没前进就当断流处理。
+const HERO_STALL_CHECK_MS = 2_000
+const HERO_STALL_TOLERANCE_MS = 8_000
+let heroStallTimer: ReturnType<typeof setInterval> | undefined
+let heroLastTime = -1
+let heroLastAdvanceAt = 0
+
+function stopHeroStallWatchdog() {
+  if (heroStallTimer) {
+    clearInterval(heroStallTimer)
+    heroStallTimer = undefined
+  }
+}
+
+function startHeroStallWatchdog() {
+  stopHeroStallWatchdog()
+  heroLastTime = -1
+  heroLastAdvanceAt = Date.now()
+  heroStallTimer = setInterval(() => {
+    const now = Date.now()
+    const video = heroVideoEl.value
+    const live = heroLive.value
+    // 非页面内直播、暂停中（含轮播间隙）：重置计时，不算卡顿
+    if (!video || !live || (live.mode !== 'hls' && live.mode !== 'video') || video.paused) {
+      heroLastTime = -1
+      heroLastAdvanceAt = now
+      return
+    }
+    if (video.currentTime !== heroLastTime) {
+      heroLastTime = video.currentTime
+      heroLastAdvanceAt = now
+      return
+    }
+    if (now - heroLastAdvanceAt >= HERO_STALL_TOLERANCE_MS) {
+      heroLastAdvanceAt = now
+      retryHeroHls()
+    }
+  }, HERO_STALL_CHECK_MS)
+}
+
+/** <video> 自身报错：HLS 走重连，其余（轮播视频等）仍按原逻辑降级。 */
+function handleHeroVideoError() {
+  if (heroLive.value?.mode === 'hls') {
+    retryHeroHls()
+    return
+  }
+  handleHeroMediaError()
+}
+
 watch([heroVideoUrl, heroResting], () => {
-  nextTick(attachHeroHls)
+  nextTick(() => attachHeroHls())
 })
 
 async function loadHeroLive(match: PublicMatch | undefined) {
+  clearHeroRecoverProbe()
   heroLive.value = null
   if (!match) return
   try {
@@ -322,9 +450,14 @@ async function loadStars(publicEventId: string) {
   }
 }
 
-onMounted(loadHome)
+onMounted(() => {
+  loadHome()
+  startHeroStallWatchdog()
+})
 onBeforeUnmount(() => {
   stopHeroRestTimer()
+  stopHeroStallWatchdog()
+  clearHeroRecoverProbe()
   destroyHeroHls()
 })
 
@@ -388,7 +521,7 @@ function publicationLink(star: PublicityRecord) {
           :preload="heroIsHls ? 'auto' : 'metadata'"
           aria-hidden="true"
           @ended="handleHeroVideoEnded"
-          @error="handleHeroMediaError"
+          @error="handleHeroVideoError"
         />
         <iframe
           v-if="showHeroFrame"

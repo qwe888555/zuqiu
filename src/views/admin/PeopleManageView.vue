@@ -32,6 +32,26 @@ const saving = ref(false)
 const avatarFileId = ref('')
 const avatarUrl = ref('')
 const avatarUploading = ref(false)
+/** 新建档案时人员尚不存在，头像文件先暂存本地，保存成功后再上传并回填。 */
+const pendingAvatarFile = ref<File | null>(null)
+
+/**
+ * 人员接口按附件安全基线只输出 avatarFileId，不输出公开直链 avatarUrl。
+ * 列表与编辑弹窗展示头像时必须用 fileId 换取短期签名地址（/files/{id}/signed-url），
+ * 否则重新打开弹窗时头像恒为默认占位（管理端联调发现）。
+ */
+async function resolveAvatarUrl(fileId: string): Promise<string> {
+  if (!fileId) return ''
+  for (const variant of ['thumbnail', 'content'] as const) {
+    try {
+      const { url } = await fileApi.signedUrl(fileId, variant)
+      if (url) return url
+    } catch {
+      // 非图片或没有缩略图时回退到原图；两者都失败则保持占位
+    }
+  }
+  return ''
+}
 
 const materialsVisible = ref(false)
 const materialsLoading = ref(false)
@@ -67,6 +87,13 @@ async function load() {
     })
     rows.value = res.items
     total.value = res.total
+    // 并行换取签名地址，失败只影响该行头像占位，不阻断列表
+    await Promise.all(
+      rows.value.map(async (row) => {
+        if (!row.avatarFileId || row.avatarUrl) return
+        row.avatarUrl = await resolveAvatarUrl(row.avatarFileId)
+      }),
+    )
   } catch {
     rows.value = []
   } finally {
@@ -81,7 +108,11 @@ async function loadOrgs() {
   }
   try {
     const res = await orgApi.list({ page: 1, pageSize: 500 })
-    orgs.value = res.items.filter((org) => org.enabled)
+    // 人员归属只接受 SCHOOL/UNIVERSITY 节点（后端 _resolve_school 契约）；
+    // 把市州/省级/TEAM 节点也列出来会让用户选中后必然 400。
+    orgs.value = res.items.filter(
+      (org) => org.enabled && (org.orgType === 'SCHOOL' || org.orgType === 'UNIVERSITY'),
+    )
   } catch {
     orgs.value = []
   }
@@ -97,6 +128,7 @@ function openCreate() {
   editingVersion.value = 0
   avatarFileId.value = ''
   avatarUrl.value = ''
+  pendingAvatarFile.value = null
   Object.assign(form, {
     realName: '',
     kinds: ['ATHLETE'],
@@ -111,11 +143,12 @@ function openCreate() {
   dialogVisible.value = true
 }
 
-function openEdit(row: Person) {
+async function openEdit(row: Person) {
   editingId.value = row.id
   editingVersion.value = row.version
   avatarFileId.value = row.avatarFileId || ''
   avatarUrl.value = row.avatarUrl || ''
+  pendingAvatarFile.value = null
   Object.assign(form, {
     realName: row.realName,
     kinds: [...row.kinds],
@@ -128,16 +161,29 @@ function openEdit(row: Person) {
     coachCategory: row.coachCategory || '',
   })
   dialogVisible.value = true
+  // 列表尚未水合或从别处进入时补一次签名地址，保证重新打开能看到已保存头像
+  if (!avatarUrl.value && avatarFileId.value) {
+    avatarUrl.value = await resolveAvatarUrl(avatarFileId.value)
+  }
 }
 
 async function save() {
   if (!form.realName.trim()) return ElMessage.warning('请填写姓名')
-  if (!form.kinds.length) return ElMessage.warning('请至少选择一个人员类型')
+  // 后端 PersonCreate/PersonUpdate 限 1 项（2026-10-30 一人一身份裁定），
+  // 这里提前拦截，避免勾选两项后提交才报“请求参数不合法”。
+  if (form.kinds.length !== 1) return ElMessage.warning('人员类型只能选择一项')
+  if (!editingId.value) {
+    // 后端创建链强制要求：身份证号（冻结唯一约束无 NULL）与学校归属
+    // （挂组织 ADMIN 必须落在授权子树内）。表单提前校验，避免提交后才报错。
+    if (!/^\d{17}[\dXx]$/.test(form.idNumber.trim()))
+      return ElMessage.warning('请填写 18 位身份证号')
+    if (!form.schoolOrgId) return ElMessage.warning('请选择所属学校')
+  }
   saving.value = true
   try {
     if (editingId.value) {
       await personApi.update(editingId.value, {
-        realName: form.realName,
+        realName: form.realName.trim(),
         kinds: form.kinds,
         gender: form.gender,
         birthDate: form.birthDate || undefined,
@@ -149,7 +195,29 @@ async function save() {
       })
       ElMessage.success('人员档案已更新')
     } else {
-      await personApi.create({ ...form })
+      // 空字符串不是“未填写”：idNumber/phone 有长度与格式约束、schoolOrgId 有
+      // min_length、birthDate 是 date，原样提交空串会被 StrictSchema 拒绝并提示
+      // “请求参数不合法”。可选字段未填时一律省略。
+      const created = await personApi.create({
+        realName: form.realName.trim(),
+        kinds: form.kinds,
+        gender: form.gender || undefined,
+        birthDate: form.birthDate || undefined,
+        idNumber: form.idNumber.trim() || undefined,
+        phone: form.phone.trim() || undefined,
+        schoolOrgId: form.schoolOrgId || undefined,
+        education: form.education.trim() || undefined,
+        coachCategory: form.coachCategory || undefined,
+      })
+      if (pendingAvatarFile.value) {
+        // 人员主档已存在才能建立 PERSON 归属；上传后立即回填头像。
+        const record = await fileApi.upload(pendingAvatarFile.value, 'PERSON', created.id, 'AVATAR')
+        await personApi.update(created.id, {
+          realName: form.realName,
+          avatarFileId: record.id,
+          version: created.version,
+        })
+      }
       ElMessage.success('人员档案已创建')
     }
     dialogVisible.value = false
@@ -164,7 +232,16 @@ async function save() {
 async function uploadAvatar(options: UploadRequestOptions) {
   avatarUploading.value = true
   try {
-    const record = await fileApi.upload(options.file, 'PERSON', editingId.value || '', 'AVATAR')
+    if (!editingId.value) {
+      // 新建态：人员档案尚不存在，PERSON 归属校验必然拒绝；先本地预览，
+      // 保存档案后再上传并回填（见 save()）。
+      pendingAvatarFile.value = options.file
+      avatarFileId.value = ''
+      avatarUrl.value = URL.createObjectURL(options.file)
+      ElMessage.success('头像已选择，保存档案后自动上传')
+      return
+    }
+    const record = await fileApi.upload(options.file, 'PERSON', editingId.value, 'AVATAR')
     avatarFileId.value = record.id
     avatarUrl.value = record.url || URL.createObjectURL(options.file)
     ElMessage.success('头像上传成功，保存档案后生效')
@@ -355,7 +432,7 @@ onMounted(() => {
     </section>
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑人员档案' : '新建人员档案'" width="660px">
-      <div v-if="editingId" class="avatar-row">
+      <div class="avatar-row">
         <span class="avatar-preview">
           <img v-if="avatarUrl" :src="avatarUrl" alt="头像" />
           <template v-else>{{ form.realName.slice(0, 1) || '人' }}</template>
@@ -394,14 +471,14 @@ onMounted(() => {
             </el-checkbox-group>
           </el-form-item>
           <template v-if="!editingId">
-            <el-form-item label="身份证号">
-              <el-input v-model="form.idNumber" maxlength="18" placeholder="仅用于脱敏存储" />
+            <el-form-item label="身份证号" required>
+              <el-input v-model="form.idNumber" maxlength="18" placeholder="18 位，仅用于脱敏存储" />
             </el-form-item>
             <el-form-item label="手机号">
               <el-input v-model="form.phone" maxlength="11" placeholder="仅用于脱敏存储" />
             </el-form-item>
           </template>
-          <el-form-item label="学校 / 单位">
+          <el-form-item label="学校 / 单位" :required="!editingId">
             <el-select v-model="form.schoolOrgId" filterable clearable style="width: 100%">
               <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
             </el-select>
