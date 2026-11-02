@@ -145,9 +145,9 @@ async function download(
   data?: unknown,
   params?: Record<string, unknown>,
 ): Promise<boolean> {
-  const response = await instance.request({ method, url, data, params, responseType: 'blob' })
-  const payload = toDownloadBlob(response)
-  if (!payload) return false
+  // 响应拦截器已把 AxiosResponse 解包成 body.data，这里拿到的就是 Blob 本身。
+  const payload: unknown = await instance.request({ method, url, data, params, responseType: 'blob' })
+  if (!(payload instanceof Blob)) return false
   saveBlob(payload, filename)
   return true
 }
