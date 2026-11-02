@@ -5,6 +5,7 @@ import { Medal, Trophy } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { GoalRankingRow, PublicEvent } from '../../api/types'
 import { useVisiblePolling } from '../../composables/useVisiblePolling'
+import { goalGapToPrevious, rankGoalRows } from '../../utils/goalRanking'
 import { sortPublicEvents } from '../../utils/portal'
 
 const loading = ref(false)
@@ -27,19 +28,7 @@ const currentCategoryLabel = computed(
  * 公开接口返回的 rank 是跨组别生成的，切组后会出现空号。
  * 这里按组内进球数重排；同分并列，后续名次顺延（1、1、3）。
  */
-const rankedRows = computed(() => {
-  const sorted = [...rows.value].sort(
-    (a, b) => b.goals - a.goals || a.athleteName.localeCompare(b.athleteName, 'zh-Hans-CN'),
-  )
-  let lastGoals: number | null = null
-  let lastRank = 0
-  return sorted.map((row, index) => {
-    const rank = row.goals === lastGoals ? lastRank : index + 1
-    lastGoals = row.goals
-    lastRank = rank
-    return { ...row, rank }
-  })
-})
+const rankedRows = computed(() => rankGoalRows(rows.value))
 
 const podium = computed(() => rankedRows.value.slice(0, 3))
 const rest = computed(() => rankedRows.value.slice(3))
@@ -82,13 +71,15 @@ function rankTag(row: GoalRankingRow) {
   return isTied(row) ? '并列追赶' : '追赶中'
 }
 
-function podiumFoot(row: GoalRankingRow, index: number) {
+function podiumFoot(index: number) {
   if (index === 0) {
     if (leaderTied.value) return '与追赶者并列榜首'
     if (!nextBest.value) return '本组唯一上榜球员'
     return `领先次席 ${leadMargin.value} 球`
   }
-  return gapToLeader(row.goals) ? `距榜首 ${gapToLeader(row.goals)} 球` : '与榜首并列'
+  const gap = goalGapToPrevious(rankedRows.value, index)
+  if (gap === null) return '追赶中'
+  return gap ? `距上一名 ${gap} 球` : '与上一名同分'
 }
 
 async function fetchGoals(id: string) {
@@ -232,11 +223,13 @@ useVisiblePolling(refreshSilently, 30_000)
       </div>
 
       <div v-loading="loading" class="ranking-content">
-        <div
-          v-if="podium.length"
-          class="podium"
-          :class="`podium--${podium.length}`"
-        >
+        <div v-if="podium.length" class="podium-hall">
+          <span class="podium-hall__pitch" aria-hidden="true">
+            <i class="podium-hall__box podium-hall__box--left" />
+            <i class="podium-hall__box podium-hall__box--right" />
+            <i class="podium-hall__spot" />
+          </span>
+          <div class="podium" :class="`podium--${podium.length}`">
           <article
             v-for="(row, index) in podium"
             :key="row.athleteId"
@@ -271,21 +264,14 @@ useVisiblePolling(refreshSilently, 30_000)
             </div>
 
             <footer class="podium-card__foot">
-              <span>{{ podiumFoot(row, index) }}</span>
+              <span>{{ podiumFoot(index) }}</span>
               <span>占全组 {{ goalShare(row.goals) }}%</span>
             </footer>
           </article>
+          </div>
         </div>
 
         <section v-if="rest.length" class="list-card">
-          <header class="list-card__head">
-            <div class="list-card__title">
-              <strong>其余球员</strong>
-              <span>共 {{ rest.length }} 名球员，按组内进球数排序</span>
-            </div>
-            <span class="list-card__scope">{{ currentCategoryLabel }}</span>
-          </header>
-
           <div class="list-head" aria-hidden="true">
             <span>排名</span>
             <span>球员 / 所属球队</span>
@@ -315,20 +301,16 @@ useVisiblePolling(refreshSilently, 30_000)
           </div>
         </section>
 
-        <p v-if="!loading && rows.length && !rest.length" class="solo-note">
-          本组共 {{ rows.length }} 名球员，完整榜单已在上方展示。
-        </p>
-
         <div v-if="!loading && !rows.length" class="empty-card">
           <el-empty :description="`${currentCategoryLabel}暂无进球数据`" />
         </div>
       </div>
 
-      <p class="ranking-note">
+      <p v-if="!loading && rows.length" class="ranking-note">
         <el-icon><Medal /></el-icon>
         <span>
-          射手榜数据来源于比赛记录台提交并确认的进球事件；同一球员按组内总进球数排名，进球相同并列。
-          如对统计有异议，请由参赛单位向组委会书面申诉。
+          {{ currentCategoryLabel }}共 {{ rows.length }} 名球员 · 同分并列，后续名次顺延 ·
+          数据以记录台确认赛果为准。如有异议，请由参赛单位向组委会书面申诉。
         </span>
       </p>
     </div>
@@ -444,8 +426,8 @@ useVisiblePolling(refreshSilently, 30_000)
 }
 
 .ranking-body {
-  /* 筛选项、领奖台、其余榜单共用同一内容宽度，左右边缘保持对齐。 */
-  --ranking-width: 1080px;
+  /* 与其他门户页面共用 .container 的内容宽度，避免榜单区看起来被单独收窄。 */
+  --ranking-width: 1360px;
   margin-top: 20px;
 }
 
@@ -622,27 +604,37 @@ useVisiblePolling(refreshSilently, 30_000)
   border-radius: 0 0 4px 4px;
 }
 
+.podium-card.is-rank-2 {
+  background: linear-gradient(150deg, #fafafa 0%, #ebebeb 55%, #d0d0d0 100%);
+  border-color: #c5c5c5;
+}
+
 .podium-card.is-rank-2::before {
-  background: linear-gradient(90deg, transparent, #aebfb6, transparent);
+  background: linear-gradient(90deg, transparent, #b8b8b8, transparent);
+}
+
+.podium-card.is-rank-3 {
+  background: linear-gradient(150deg, #fdf2e4 0%, #f0cfa6 55%, #d49a5f 100%);
+  border-color: #c9924f;
 }
 
 .podium-card.is-rank-3::before {
-  background: linear-gradient(90deg, transparent, #c9a27a, transparent);
+  background: linear-gradient(90deg, transparent, #b87333, transparent);
 }
 
 .podium-card:not(.is-leader):hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 26px rgba(7, 59, 44, 0.08);
+  box-shadow: 0 12px 26px rgba(120, 90, 40, 0.12);
 }
 
 .podium-card.is-leader {
   min-height: 292px;
   border-color: transparent;
   background:
-    radial-gradient(120% 120% at 86% 0%, rgba(200, 243, 106, 0.18) 0%, transparent 56%),
-    linear-gradient(150deg, #0a4a37 0%, #062f24 100%);
-  color: #fff;
-  box-shadow: 0 14px 30px rgba(7, 59, 44, 0.18);
+    radial-gradient(120% 120% at 86% 0%, rgba(255, 248, 200, 0.35) 0%, transparent 56%),
+    linear-gradient(150deg, #f9d976 0%, #e6a23c 50%, #b8860b 100%);
+  color: #3d2800;
+  box-shadow: 0 14px 30px rgba(180, 120, 20, 0.28);
 }
 
 .podium-card.is-leader::after {
@@ -652,7 +644,7 @@ useVisiblePolling(refreshSilently, 30_000)
   bottom: -150px;
   width: 320px;
   height: 320px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 50%;
   pointer-events: none;
 }
@@ -689,11 +681,11 @@ useVisiblePolling(refreshSilently, 30_000)
 }
 
 .is-leader .podium-card__rank i {
-  color: rgba(255, 255, 255, 0.38);
+  color: rgba(61, 40, 0, 0.45);
 }
 
 .is-leader .podium-card__rank b {
-  color: rgba(255, 255, 255, 0.34);
+  color: rgba(61, 40, 0, 0.4);
 }
 
 .podium-card__tag {
@@ -709,10 +701,20 @@ useVisiblePolling(refreshSilently, 30_000)
   color: var(--ink-500);
 }
 
+.is-rank-2 .podium-card__tag {
+  background: rgba(255, 255, 255, 0.5);
+  color: #4a4a4a;
+}
+
+.is-rank-3 .podium-card__tag {
+  background: rgba(255, 255, 255, 0.45);
+  color: #7a4a1e;
+}
+
 .is-leader .podium-card__tag {
-  border: 1px solid rgba(200, 243, 106, 0.24);
-  background: rgba(200, 243, 106, 0.1);
-  color: var(--lime);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.25);
+  color: #3d2800;
 }
 
 .podium-card__avatar {
@@ -729,22 +731,24 @@ useVisiblePolling(refreshSilently, 30_000)
 }
 
 .is-rank-2 .podium-card__avatar {
-  background: #eef2f0;
-  color: #5c6f65;
+  background: linear-gradient(145deg, #f0f0f0, #b0b0b0);
+  color: #4a4a4a;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.6);
 }
 
 .is-rank-3 .podium-card__avatar {
-  background: #f7efe6;
-  color: #9a6a3d;
+  background: linear-gradient(145deg, #f0c896, #b87333);
+  color: #5a3210;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.4);
 }
 
 .is-leader .podium-card__avatar {
   width: 54px;
   height: 54px;
-  background: linear-gradient(145deg, var(--lime), #a7df3e);
-  color: var(--brand-900);
+  background: linear-gradient(145deg, #ffe680, #e0a020);
+  color: #5a3a00;
   font-size: 20px;
-  box-shadow: 0 0 0 6px rgba(200, 243, 106, 0.1);
+  box-shadow: 0 0 0 6px rgba(255, 215, 0, 0.22), inset 0 1px 2px rgba(255, 255, 255, 0.5);
 }
 
 .podium-card__name {
@@ -760,7 +764,7 @@ useVisiblePolling(refreshSilently, 30_000)
 
 .is-leader .podium-card__name {
   font-size: 18px;
-  color: #fff;
+  color: #3d2800;
 }
 
 .podium-card__team {
@@ -773,8 +777,16 @@ useVisiblePolling(refreshSilently, 30_000)
   text-overflow: ellipsis;
 }
 
+.is-rank-2 .podium-card__team {
+  color: #6a6a6a;
+}
+
+.is-rank-3 .podium-card__team {
+  color: #8a5a2e;
+}
+
 .is-leader .podium-card__team {
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(61, 40, 0, 0.6);
 }
 
 .podium-card__score {
@@ -792,9 +804,17 @@ useVisiblePolling(refreshSilently, 30_000)
   color: var(--brand-700);
 }
 
+.is-rank-2 .podium-card__score strong {
+  color: #4a4a4a;
+}
+
+.is-rank-3 .podium-card__score strong {
+  color: #8a4a14;
+}
+
 .is-leader .podium-card__score strong {
   font-size: 42px;
-  color: var(--lime);
+  color: #3d2800;
 }
 
 .podium-card__score span {
@@ -802,8 +822,16 @@ useVisiblePolling(refreshSilently, 30_000)
   color: var(--ink-300);
 }
 
+.is-rank-2 .podium-card__score span {
+  color: #8a8a8a;
+}
+
+.is-rank-3 .podium-card__score span {
+  color: #a87a4a;
+}
+
 .is-leader .podium-card__score span {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(61, 40, 0, 0.55);
 }
 
 .podium-card__bar {
@@ -816,7 +844,7 @@ useVisiblePolling(refreshSilently, 30_000)
 }
 
 .is-leader .podium-card__bar {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(61, 40, 0, 0.12);
 }
 
 .podium-card__bar i {
@@ -827,15 +855,15 @@ useVisiblePolling(refreshSilently, 30_000)
 }
 
 .is-rank-2 .podium-card__bar i {
-  background: linear-gradient(90deg, #c3d1ca, #96a99f);
+  background: linear-gradient(90deg, #d0d0d0, #8a8a8a);
 }
 
 .is-rank-3 .podium-card__bar i {
-  background: linear-gradient(90deg, #d9bd9f, #b98b5f);
+  background: linear-gradient(90deg, #e0b070, #b87333);
 }
 
 .is-leader .podium-card__bar i {
-  background: linear-gradient(90deg, #8fd23c, var(--lime));
+  background: linear-gradient(90deg, #ffd54f, #e65100);
 }
 
 .podium-card__foot {
@@ -851,9 +879,27 @@ useVisiblePolling(refreshSilently, 30_000)
   color: var(--ink-300);
 }
 
+.is-rank-2 .podium-card__foot {
+  border-top-color: rgba(0, 0, 0, 0.08);
+  color: #7a7a7a;
+}
+
+.is-rank-3 .podium-card__foot {
+  border-top-color: rgba(120, 70, 20, 0.15);
+  color: #9a6a3a;
+}
+
+.is-rank-2 .podium-card__foot span:last-child {
+  color: #5a5a5a;
+}
+
+.is-rank-3 .podium-card__foot span:last-child {
+  color: #7a4a1e;
+}
+
 .is-leader .podium-card__foot {
-  border-top-color: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.46);
+  border-top-color: rgba(61, 40, 0, 0.18);
+  color: rgba(61, 40, 0, 0.55);
 }
 
 .podium-card__foot span:first-child {
@@ -868,7 +914,368 @@ useVisiblePolling(refreshSilently, 30_000)
 }
 
 .is-leader .podium-card__foot span:last-child {
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(61, 40, 0, 0.75);
+}
+
+/* ---------- 荣誉殿堂：与首页射手榜共用深绿 + 冠军金语言 ---------- */
+
+.podium-hall {
+  position: relative;
+  overflow: hidden;
+  width: min(100%, var(--ranking-width));
+  margin: 0 auto 12px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background:
+    radial-gradient(ellipse at 88% -10%, rgba(200, 243, 106, 0.16), transparent 46%),
+    radial-gradient(ellipse at 50% -24%, rgba(233, 185, 84, 0.16), transparent 56%),
+    linear-gradient(145deg, #052a20 0%, var(--brand-900) 52%, #0a4a37 100%);
+  box-shadow: 0 18px 40px rgba(7, 59, 44, 0.16);
+}
+
+.podium-hall__pitch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.podium-hall__pitch::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.podium-hall__pitch::after {
+  content: '';
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: 520px;
+  height: 520px;
+  border: 1px solid rgba(255, 255, 255, 0.035);
+  border-radius: 50%;
+  box-shadow: 0 0 0 64px rgba(255, 255, 255, 0.008);
+  transform: translate(-50%, -50%);
+}
+
+.podium-hall__box {
+  position: absolute;
+  top: 50%;
+  width: 100px;
+  height: 210px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  transform: translateY(-50%);
+}
+
+.podium-hall__box--left {
+  left: -1px;
+  border-left: 0;
+  border-radius: 0 10px 10px 0;
+}
+
+.podium-hall__box--right {
+  right: -1px;
+  border-right: 0;
+  border-radius: 10px 0 0 10px;
+}
+
+.podium-hall__spot {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.13);
+  transform: translate(-50%, -50%);
+}
+
+.podium-hall .podium {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin: 0;
+}
+
+.podium-hall .podium-card {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  animation: hall-rise 0.55s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.podium-hall .podium .is-position-2 {
+  animation-delay: 0.06s;
+}
+
+.podium-hall .podium .is-position-3 {
+  animation-delay: 0.12s;
+}
+
+@keyframes hall-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.podium-hall .podium-card.is-rank-2 {
+  border-color: rgba(211, 228, 218, 0.3);
+  background: linear-gradient(180deg, rgba(226, 238, 231, 0.1), rgba(255, 255, 255, 0.04));
+}
+
+.podium-hall .podium-card.is-rank-3 {
+  border-color: rgba(214, 154, 98, 0.38);
+  background: linear-gradient(180deg, rgba(214, 154, 98, 0.12), rgba(255, 255, 255, 0.04));
+}
+
+.podium-hall .podium-card.is-leader {
+  border-color: rgba(233, 185, 84, 0.58);
+  background:
+    radial-gradient(ellipse at 50% -18%, rgba(233, 185, 84, 0.24), transparent 62%),
+    linear-gradient(180deg, rgba(233, 185, 84, 0.14), rgba(255, 255, 255, 0.05));
+  color: #fff;
+  box-shadow:
+    0 16px 32px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 230, 170, 0.22);
+}
+
+.podium-hall .podium-card.is-leader::after {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.podium-hall .podium-card::before {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+}
+
+.podium-hall .podium-card.is-leader::before {
+  background: linear-gradient(90deg, transparent, #e9b954, transparent);
+}
+
+.podium-hall .podium-card.is-rank-2::before {
+  background: linear-gradient(90deg, transparent, #b8c6bd, transparent);
+}
+
+.podium-hall .podium-card.is-rank-3::before {
+  background: linear-gradient(90deg, transparent, #c98a56, transparent);
+}
+
+.podium-hall .podium-card:not(.is-leader):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
+}
+
+.podium-hall .podium-card__rank i {
+  color: #b9cec1;
+}
+
+.podium-hall .podium-card__rank b {
+  color: #fff;
+}
+
+.podium-hall .podium-card.is-leader .podium-card__rank i,
+.podium-hall .podium-card.is-leader .podium-card__rank b {
+  color: rgba(242, 207, 125, 0.72);
+}
+
+.podium-hall .podium-card__tag {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--on-dark-2);
+}
+
+.podium-hall .is-rank-2 .podium-card__tag {
+  background: rgba(226, 238, 231, 0.1);
+  color: #dfeae3;
+}
+
+.podium-hall .is-rank-3 .podium-card__tag {
+  background: rgba(214, 154, 98, 0.13);
+  color: #f0c9a5;
+}
+
+.podium-hall .podium-card.is-leader .podium-card__tag {
+  border-color: rgba(233, 185, 84, 0.42);
+  background: rgba(233, 185, 84, 0.14);
+  color: #f2cf7d;
+}
+
+.podium-hall .podium-card__avatar {
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04));
+  color: #fff;
+}
+
+.podium-hall .is-rank-2 .podium-card__avatar {
+  border-color: rgba(211, 228, 218, 0.65);
+  background: linear-gradient(145deg, rgba(226, 238, 231, 0.3), rgba(255, 255, 255, 0.05));
+  color: #e8f1ec;
+  box-shadow: none;
+}
+
+.podium-hall .is-rank-3 .podium-card__avatar {
+  border-color: rgba(214, 154, 98, 0.72);
+  background: linear-gradient(145deg, rgba(214, 154, 98, 0.28), rgba(255, 255, 255, 0.05));
+  color: #f7d8b8;
+  box-shadow: none;
+}
+
+.podium-hall .podium-card.is-leader .podium-card__avatar {
+  border-color: rgba(255, 226, 154, 0.9);
+  background: linear-gradient(145deg, #fbe3a1, #e9b954 58%, #c9922f);
+  color: #4a3008;
+  box-shadow:
+    0 0 0 6px rgba(233, 185, 84, 0.16),
+    0 0 26px rgba(233, 185, 84, 0.22);
+  animation: hall-champion-glow 3.6s ease-in-out infinite;
+}
+
+@keyframes hall-champion-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 6px rgba(233, 185, 84, 0.16),
+      0 0 26px rgba(233, 185, 84, 0.22);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 10px rgba(233, 185, 84, 0.04),
+      0 0 34px rgba(233, 185, 84, 0.12);
+  }
+}
+
+.podium-hall .podium-card__name {
+  color: #fff;
+}
+
+.podium-hall .podium-card.is-leader .podium-card__name {
+  color: #fff;
+}
+
+.podium-hall .podium-card__team {
+  color: #c3d6ca;
+}
+
+.podium-hall .is-rank-2 .podium-card__team {
+  color: rgba(232, 241, 236, 0.66);
+}
+
+.podium-hall .is-rank-3 .podium-card__team {
+  color: rgba(247, 216, 184, 0.7);
+}
+
+.podium-hall .podium-card.is-leader .podium-card__team {
+  color: rgba(242, 207, 125, 0.76);
+}
+
+.podium-hall .podium-card__score strong {
+  color: #fff;
+}
+
+.podium-hall .is-rank-2 .podium-card__score strong {
+  color: #e8f1ec;
+}
+
+.podium-hall .is-rank-3 .podium-card__score strong {
+  color: #f7d8b8;
+}
+
+.podium-hall .podium-card.is-leader .podium-card__score strong {
+  font-size: 48px;
+  color: #f2cf7d;
+}
+
+.podium-hall .podium-card__score span {
+  color: #b9cec1;
+}
+
+.podium-hall .is-rank-2 .podium-card__score span {
+  color: rgba(232, 241, 236, 0.6);
+}
+
+.podium-hall .is-rank-3 .podium-card__score span {
+  color: rgba(247, 216, 184, 0.6);
+}
+
+.podium-hall .podium-card.is-leader .podium-card__score span {
+  color: rgba(242, 207, 125, 0.7);
+}
+
+.podium-hall .podium-card__bar {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.podium-hall .podium-card.is-leader .podium-card__bar {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.podium-hall .podium-card__bar i {
+  background: linear-gradient(90deg, rgba(200, 243, 106, 0.45), var(--lime));
+}
+
+.podium-hall .is-rank-2 .podium-card__bar i {
+  background: linear-gradient(90deg, rgba(226, 238, 231, 0.4), #b8c6bd);
+}
+
+.podium-hall .is-rank-3 .podium-card__bar i {
+  background: linear-gradient(90deg, rgba(214, 154, 98, 0.4), #c98a56);
+}
+
+.podium-hall .is-leader .podium-card__bar i {
+  background: linear-gradient(90deg, rgba(233, 185, 84, 0.45), #e9b954);
+}
+
+.podium-hall .podium-card__foot {
+  border-top-color: rgba(255, 255, 255, 0.1);
+  color: #b9cec1;
+}
+
+.podium-hall .is-rank-2 .podium-card__foot {
+  border-top-color: rgba(255, 255, 255, 0.1);
+  color: rgba(232, 241, 236, 0.66);
+}
+
+.podium-hall .is-rank-3 .podium-card__foot {
+  border-top-color: rgba(255, 255, 255, 0.1);
+  color: rgba(247, 216, 184, 0.7);
+}
+
+.podium-hall .podium-card__foot span:last-child {
+  color: var(--on-dark-2);
+}
+
+.podium-hall .is-rank-2 .podium-card__foot span:last-child {
+  color: #dfeae3;
+}
+
+.podium-hall .is-rank-3 .podium-card__foot span:last-child {
+  color: #f0c9a5;
+}
+
+.podium-hall .is-leader .podium-card__foot {
+  border-top-color: rgba(233, 185, 84, 0.24);
+  color: rgba(242, 207, 125, 0.72);
+}
+
+.podium-hall .is-leader .podium-card__foot span:last-child {
+  color: #f2cf7d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .podium-hall .podium-card,
+  .podium-hall .podium-card.is-leader .podium-card__avatar {
+    animation: none;
+  }
 }
 
 /* ---------- 完整榜单 ---------- */
@@ -881,42 +1288,6 @@ useVisiblePolling(refreshSilently, 30_000)
   border-radius: 12px;
   background: #fff;
   box-shadow: var(--shadow-card);
-}
-
-.list-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 15px 22px;
-  border-bottom: 1px solid var(--line);
-}
-
-.list-card__title {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.list-card__title strong {
-  font-size: 15px;
-  color: var(--ink-900);
-}
-
-.list-card__title span {
-  font-size: 11.5px;
-  color: var(--ink-300);
-}
-
-.list-card__scope {
-  flex-shrink: 0;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--brand-50);
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--brand-700);
 }
 
 .list-head,
@@ -1049,18 +1420,6 @@ useVisiblePolling(refreshSilently, 30_000)
   text-align: right;
 }
 
-.solo-note {
-  width: min(100%, var(--ranking-width));
-  margin: 0 auto 18px;
-  padding: 13px 16px;
-  border: 1px dashed var(--line-strong);
-  border-radius: 9px;
-  background: #fff;
-  font-size: 12px;
-  color: var(--ink-500);
-  text-align: center;
-}
-
 .empty-card {
   width: min(100%, var(--ranking-width));
   margin: 0 auto;
@@ -1075,13 +1434,13 @@ useVisiblePolling(refreshSilently, 30_000)
   align-items: flex-start;
   gap: 8px;
   width: min(100%, var(--ranking-width));
-  margin: 18px auto 0;
-  padding: 12px 16px;
+  margin: 12px auto 0;
+  padding: 9px 14px;
   border: 1px solid var(--line);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.62);
-  font-size: 12px;
-  line-height: 1.75;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 11.5px;
+  line-height: 1.65;
   color: var(--ink-500);
 }
 
@@ -1212,14 +1571,15 @@ useVisiblePolling(refreshSilently, 30_000)
     display: none;
   }
 
-  .list-card__title span {
-    display: none;
-  }
 }
 
 @media (max-width: 560px) {
   .page-hero {
     padding: 28px 0 26px;
+  }
+
+  .podium-hall {
+    padding: 14px;
   }
 
   .page-hero p {
@@ -1258,10 +1618,6 @@ useVisiblePolling(refreshSilently, 30_000)
 
   .podium-card__foot {
     font-size: 10px;
-  }
-
-  .list-card__head {
-    padding: 13px 16px;
   }
 
   .list-row__goals {

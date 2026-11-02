@@ -65,7 +65,7 @@ export const authApi = {
 }
 
 export const meApi = {
-  get: () => http.get<CurrentUser>('/me'),
+  get: (options?: RequestOptions) => http.get<CurrentUser>('/me', undefined, options),
   changePassword: (data: { oldPassword: string; newPassword: string }) =>
     http.post<{ success: boolean }>('/me/password', data),
   messages: (params: Query) => http.get<PageResult<Message>>('/me/messages', params),
@@ -283,7 +283,8 @@ export const personApi = {
   list: (params: Query) => http.get<PageResult<Person>>('/people', params),
   search: (data: Query) => http.post<Person[]>('/people/search', data),
   get: (id: string) => http.get<Person>(`/people/${id}`),
-  create: (data: Query) => http.post<Person>('/people', data),
+  create: (data: Query, options?: RequestOptions) =>
+    http.post<Person>('/people', data, options),
   update: (id: string, data: Query) => http.put<Person>(`/people/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/people/${id}`, { version }),
 }

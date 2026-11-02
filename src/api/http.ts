@@ -96,7 +96,9 @@ instance.interceptors.response.use(
     if (status === 401 && !silent && !skipAuth) {
       localStorage.removeItem(TOKEN_KEY)
       if (!window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login'
+        // 带上当前地址，登录后回到原页面，避免深链接被统一丢回门户首页。
+        const target = `${window.location.pathname}${window.location.search}${window.location.hash}`
+        window.location.href = `/login?redirect=${encodeURIComponent(target)}`
       }
     }
     if (!silent) ElMessage.error(message)

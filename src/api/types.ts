@@ -762,6 +762,8 @@ export interface PublicMatch {
   awayTeamName?: string
   kickoffAt?: string
   venue?: string
+  /** 比赛阶段（如“半决赛”），公开接口返回时展示。 */
+  stage?: string
   status: MatchStatus
   homeScore: number
   awayScore: number
