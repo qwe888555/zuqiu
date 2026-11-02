@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus
 import { Delete, Document, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
 import { fileApi, materialApi } from '../../api'
 import type { Material } from '../../api/types'
+import { httpStatusOf } from '../../utils/httpError'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
 
@@ -13,6 +14,7 @@ const props = defineProps<{ teamId: string }>()
 const loading = ref(false)
 const rows = ref<Material[]>([])
 const total = ref(0)
+const loadError = ref<'' | 'FORBIDDEN' | 'FAILED'>('')
 const dialogVisible = ref(false)
 const uploading = ref(false)
 const saving = ref(false)
@@ -44,6 +46,7 @@ async function load() {
     return
   }
   loading.value = true
+  loadError.value = ''
   try {
     const res = await materialApi.list({
       page: 1,
@@ -53,8 +56,11 @@ async function load() {
     })
     rows.value = res.items
     total.value = res.total
-  } catch {
+  } catch (error) {
     rows.value = []
+    total.value = 0
+    // 403 是后端数据范围拒绝，不能伪装成“暂无材料”，否则用户无法判断是权限问题。
+    loadError.value = httpStatusOf(error) === 403 ? 'FORBIDDEN' : 'FAILED'
   } finally {
     loading.value = false
   }
@@ -174,7 +180,19 @@ watch(() => props.teamId, load, { immediate: true })
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!loading && !rows.length" description="暂无球队材料，点击右上角上传" :image-size="80" />
+      <el-empty
+        v-if="!loading && !rows.length"
+        :description="
+          loadError === 'FORBIDDEN'
+            ? '当前账号无权查看球队材料，请确认使用球队端或学校端账号登录'
+            : loadError
+              ? '球队材料加载失败，请稍后重试'
+              : '暂无球队材料，点击右上角上传'
+        "
+        :image-size="80"
+      >
+        <el-button v-if="loadError" @click="load">重新加载</el-button>
+      </el-empty>
     </section>
 
     <el-dialog v-model="dialogVisible" title="上传球队材料" width="560px">

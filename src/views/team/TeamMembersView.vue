@@ -360,12 +360,16 @@ onMounted(async () => {
           <div class="search-row">
             <el-input
               v-model="searchKeyword"
-              placeholder="输入姓名或证件号后四位"
+              placeholder="输入运动员姓名"
               :prefix-icon="Search"
               @keyup.enter="searchPeople"
             />
             <el-button :loading="searching" @click="searchPeople">搜索</el-button>
           </div>
+          <p class="search-hint">
+            从人员档案中检索已具备运动员身份、且未在本队现役的人员，仅按姓名匹配，最多显示 20 条。
+            搜不到时请先联系管理员在「人员管理」建档并勾选运动员身份。
+          </p>
         </el-form-item>
 
         <div v-if="candidates.length" class="candidate-list">
@@ -543,6 +547,13 @@ onMounted(async () => {
 
 .search-row .el-input {
   flex: 1;
+}
+
+.search-hint {
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--ink-300);
 }
 
 .candidate-list {

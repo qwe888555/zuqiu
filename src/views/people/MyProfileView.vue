@@ -206,6 +206,10 @@ onMounted(load)
             <span class="info-item__value">{{ person?.schoolName || '未登记' }}</span>
           </div>
           <div class="info-item">
+            <span class="info-item__label">人员类型</span>
+            <span class="info-item__value">{{ kindLabel }}</span>
+          </div>
+          <div class="info-item">
             <span class="info-item__label">学历</span>
             <span class="info-item__value">{{ educationDisplay }}</span>
           </div>
@@ -263,17 +267,17 @@ onMounted(load)
             <strong>{{ auth.displayName }}</strong>
           </div>
           <template v-if="person">
-            <div>
+            <div v-if="person.maskedIdNumber">
               <span>身份证号</span>
-              <strong>{{ person.maskedIdNumber || '未登记' }}</strong>
+              <strong>{{ person.maskedIdNumber }}</strong>
             </div>
-            <div>
-              <span>手机号</span>
-              <strong>{{ person.maskedPhone || '未登记' }}</strong>
-            </div>
-            <div>
+            <div v-if="person.maskedStudentNumber">
               <span>学籍号</span>
-              <strong>{{ person.maskedStudentNumber || '未登记' }}</strong>
+              <strong>{{ person.maskedStudentNumber }}</strong>
+            </div>
+            <div v-if="person.maskedPhone">
+              <span>手机号</span>
+              <strong>{{ person.maskedPhone }}</strong>
             </div>
           </template>
         </div>

@@ -133,6 +133,10 @@ function openEdit(row: Person) {
 async function save() {
   if (!form.realName.trim()) return ElMessage.warning('请填写姓名')
   if (!form.kinds.length) return ElMessage.warning('请至少选择一个人员类型')
+  if (!editingId.value && !form.idNumber.trim()) return ElMessage.warning('请填写身份证号')
+  if (!editingId.value && !form.phone.trim()) return ElMessage.warning('请填写手机号')
+  if (!form.schoolOrgId) return ElMessage.warning('请选择学校 / 单位')
+  if (!form.education.trim()) return ElMessage.warning('请填写学历')
   saving.value = true
   try {
     if (editingId.value) {
@@ -394,19 +398,19 @@ onMounted(() => {
             </el-checkbox-group>
           </el-form-item>
           <template v-if="!editingId">
-            <el-form-item label="身份证号">
+            <el-form-item label="身份证号" required>
               <el-input v-model="form.idNumber" maxlength="18" placeholder="仅用于脱敏存储" />
             </el-form-item>
-            <el-form-item label="手机号">
+            <el-form-item label="手机号" required>
               <el-input v-model="form.phone" maxlength="11" placeholder="仅用于脱敏存储" />
             </el-form-item>
           </template>
-          <el-form-item label="学校 / 单位">
+          <el-form-item label="学校 / 单位" required>
             <el-select v-model="form.schoolOrgId" filterable clearable style="width: 100%">
               <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
             </el-select>
           </el-form-item>
-          <el-form-item label="学历">
+          <el-form-item label="学历" required>
             <el-input v-model="form.education" placeholder="如：本科" />
           </el-form-item>
           <el-form-item v-if="form.kinds.includes('COACH')" label="教练员类别">
