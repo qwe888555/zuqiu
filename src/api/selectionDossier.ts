@@ -1,5 +1,14 @@
 import { http } from './http'
-import type { Match, Material, PageResult, Person, Team } from './types'
+import type {
+  Enrollment,
+  Match,
+  Material,
+  PageResult,
+  Person,
+  SelectionGroupType,
+  SelectionRound,
+  Team,
+} from './types'
 
 /** 遴选档案聚合结果，字段口径见《后端接口文档》CandidateDossier。 */
 export interface CandidateDossier {
@@ -7,10 +16,27 @@ export interface CandidateDossier {
   athlete: Person
   teams?: Team[]
   materials?: Material[]
-  enrollments?: Record<string, unknown>[]
+  enrollments?: Enrollment[]
   matchRecords?: Match[]
+  /** 该运动员的初选/复选评分记录，按初选在前、更新时间倒序。 */
+  scores?: DossierScore[]
   version: number
   createdAt?: string
+  updatedAt?: string
+}
+
+/** 档案内的评分摘要；修改评分跳转到「评分录入」页完成。 */
+export interface DossierScore {
+  id: string
+  eventId: string
+  groupType: SelectionGroupType
+  groupTypeLabel?: string
+  round: SelectionRound
+  roundLabel?: string
+  templateId?: string
+  templateName?: string
+  totalScore: number
+  version: number
   updatedAt?: string
 }
 

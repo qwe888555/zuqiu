@@ -393,6 +393,9 @@ export interface Enrollment {
   cityOrgId?: string
   cityName?: string
   status: EnrollmentStatus
+  /** 遴选档案聚合时补充：由赛事组别 category 派生，供跳转评分。 */
+  groupType?: SelectionGroupType
+  groupTypeLabel?: string
   submissionNo: number
   contactName: string
   maskedContactPhone?: string

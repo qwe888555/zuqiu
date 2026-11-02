@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { FolderOpened, Refresh, Search } from '@element-plus/icons-vue'
 import { teamApi } from '../../api'
-import { selectionDossierApi, type CandidateDossier } from '../../api/selection'
-import type { Team } from '../../api/types'
+import {
+  selectionDossierApi,
+  type CandidateDossier,
+  type DossierScore,
+} from '../../api/selection'
+import type { Enrollment, Team } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 
@@ -30,12 +35,18 @@ const rows = ref<DossierRow[]>([])
 const teams = ref<Team[]>([])
 const query = reactive({ athleteName: '', idNumber: '', teamId: '' })
 
+const router = useRouter()
 const drawerVisible = ref(false)
 const detailLoading = ref(false)
 const detail = ref<CandidateDossier | null>(null)
 const detailTeams = computed(() => detail.value?.teams || [])
 const detailMaterials = computed(() => detail.value?.materials || [])
 const detailMatches = computed(() => detail.value?.matchRecords || [])
+const detailEnrollments = computed(() => detail.value?.enrollments || [])
+const detailScores = computed(() => detail.value?.scores || [])
+const firstApprovedEnrollment = computed(() =>
+  detailEnrollments.value.find((item) => item.status === 'APPROVED'),
+)
 const primaryTeam = computed(() => detailTeams.value[0])
 
 /** 详情与检索结果都按 CandidateDossier 聚合结构返回，这里拍平成表格行。 */
@@ -133,6 +144,34 @@ async function openDossier(row: DossierRow) {
   }
 }
 
+/** 从档案跳到评分录入，携带人员、赛事、组别与轮次，评分页自动定位到该球员。 */
+function goScoring(score: Pick<DossierScore, 'eventId' | 'groupType' | 'round'>) {
+  if (!detail.value) return
+  router.push({
+    path: '/console/selection/scoring',
+    query: {
+      eventId: score.eventId,
+      groupType: score.groupType,
+      round: score.round,
+      athleteId: detail.value.id,
+      athleteName: detail.value.athlete.realName,
+    },
+  })
+}
+
+function goScoreEnrollment(enrollment: Enrollment) {
+  const existing = detailScores.value.find(
+    (score) =>
+      score.eventId === enrollment.eventId &&
+      (!enrollment.groupType || score.groupType === enrollment.groupType),
+  )
+  goScoring({
+    eventId: enrollment.eventId,
+    groupType: existing?.groupType || enrollment.groupType || 'PRIMARY',
+    round: existing?.round || 'INITIAL',
+  })
+}
+
 onMounted(async () => {
   await loadTeams()
   await loadRecent()
@@ -142,8 +181,8 @@ onMounted(async () => {
 <template>
   <div class="page">
     <PageHeader
-      title="遴选档案"
-      description="按姓名、完整证件号或球队检索运动员档案。档案聚合个人资料、履历材料与比赛经历。"
+      title="球员遴选档案"
+      description="按姓名、完整证件号或球队检索运动员档案。档案聚合个人资料、报名记录、遴选评分、履历材料与近期比赛。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="refresh">刷新</el-button>
@@ -252,6 +291,62 @@ onMounted(async () => {
           </section>
 
           <section class="dossier-section">
+            <h3>报名记录 <small>{{ detailEnrollments.length }} 条</small></h3>
+            <div class="enroll-list">
+              <div v-for="enrollment in detailEnrollments" :key="enrollment.id" class="enroll-row">
+                <div class="enroll-row__main">
+                  <strong>{{ enrollment.eventName || enrollment.eventId }}</strong>
+                  <small>
+                    {{ enrollment.groupName || '未分组' }} · {{ enrollment.teamName || '球队未登记' }}
+                  </small>
+                </div>
+                <StatusTag :status="enrollment.status" kind="enrollment" />
+                <el-button
+                  v-if="enrollment.status === 'APPROVED'"
+                  link
+                  type="primary"
+                  @click="goScoreEnrollment(enrollment)"
+                >
+                  {{ detailScores.some((score) => score.eventId === enrollment.eventId) ? '查看评分' : '去评分' }}
+                </el-button>
+              </div>
+              <el-empty v-if="!detailEnrollments.length" description="暂无报名记录" :image-size="60" />
+            </div>
+          </section>
+
+          <section class="dossier-section">
+            <h3>遴选评分 <small>{{ detailScores.length }} 条</small></h3>
+            <div class="score-list">
+              <div v-for="score in detailScores" :key="score.id" class="score-row">
+                <span class="score-row__round">{{ score.roundLabel || score.round }}</span>
+                <div class="score-row__main">
+                  <strong>
+                    {{ score.groupTypeLabel || score.groupType }} ·
+                    {{ score.templateName || '评分模板' }}
+                  </strong>
+                  <small>
+                    {{ score.eventId }} · 更新于
+                    {{ score.updatedAt ? dayjs(score.updatedAt).format('YYYY-MM-DD HH:mm') : '—' }}
+                  </small>
+                </div>
+                <span class="num score-row__total">{{ score.totalScore }}</span>
+                <el-button link type="primary" @click="goScoring(score)">查看/修改</el-button>
+              </div>
+              <div v-if="!detailScores.length" class="score-empty">
+                <span class="muted">尚无初选或复选评分</span>
+                <el-button
+                  v-if="firstApprovedEnrollment"
+                  link
+                  type="primary"
+                  @click="goScoreEnrollment(firstApprovedEnrollment)"
+                >
+                  去录入评分
+                </el-button>
+              </div>
+            </div>
+          </section>
+
+          <section class="dossier-section">
             <h3>履历材料 <small>{{ detailMaterials.length }} 份</small></h3>
             <div class="material-list">
               <div v-for="material in detailMaterials" :key="material.id" class="material-row">
@@ -264,7 +359,7 @@ onMounted(async () => {
           </section>
 
           <section class="dossier-section">
-            <h3>比赛经历 <small>最近 {{ detailMatches.length }} 场</small></h3>
+            <h3>球队近期比赛 <small>最近 {{ detailMatches.length }} 场</small></h3>
             <div class="match-list">
               <div v-for="match in detailMatches" :key="match.id" class="match-row">
                 <span class="match-row__date">{{ match.kickoffAt ? dayjs(match.kickoffAt).format('MM-DD') : '—' }}</span>
@@ -445,20 +540,73 @@ onMounted(async () => {
 }
 
 .material-list,
-.match-list {
+.match-list,
+.enroll-list,
+.score-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
 .material-row,
-.match-row {
+.match-row,
+.enroll-row,
+.score-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 9px;
+}
+
+.enroll-row__main,
+.score-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.enroll-row__main strong,
+.score-row__main strong {
+  display: block;
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enroll-row__main small,
+.score-row__main small {
+  display: block;
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.score-row__round {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: 9px;
+}
+
+.score-row__total {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--brand-700);
+}
+
+.score-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 11px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  font-size: 10.5px;
 }
 
 .material-row__type {

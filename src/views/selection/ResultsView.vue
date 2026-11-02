@@ -212,12 +212,12 @@ onMounted(async () => {
 <template>
   <div class="page">
     <PageHeader
-      title="正式结果"
-      description="按赛事与组别生成遴选结果批次。批次冻结当时的评分与权重口径，用于公示与上报；评分变更后需重新生成。"
+      title="最佳球员遴选结果"
+      description="按赛事与组别生成最佳球员遴选结果批次。批次冻结当时的评分与权重口径，用于公示与上报；评分变更后需重新生成。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="loadBatches">刷新</el-button>
-        <el-button type="primary" :icon="Stamp" @click="openGenerate()">生成遴选结果</el-button>
+        <el-button type="primary" :icon="Stamp" @click="openGenerate()">生成最佳球员结果</el-button>
       </template>
     </PageHeader>
 
@@ -279,7 +279,7 @@ onMounted(async () => {
       <el-empty v-if="!loading && !batches.length" description="尚未生成遴选结果" :image-size="80" />
     </section>
 
-    <el-dialog v-model="generateVisible" title="生成遴选结果" width="560px">
+    <el-dialog v-model="generateVisible" title="生成最佳球员遴选结果" width="560px">
       <div class="generate-context">
         <div>
           <span>赛事</span>

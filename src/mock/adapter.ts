@@ -23,6 +23,7 @@ import {
   portalResources,
   reviewRecords,
   rosterItems,
+  selectionRules,
   selectionScores,
   teamCoaches,
   teamMembers,
@@ -34,11 +35,13 @@ import type {
   Enrollment,
   Envelope,
   GoalRankingRow,
+  Match,
   Message,
   PageResult,
   Person,
   Team,
 } from '../api/types'
+import type { DossierScore } from '../api/selectionDossier'
 import { teamMatchesGroupCategory } from '../utils/teamEligibility'
 
 const API_PREFIX = '/api/v1'
@@ -1413,44 +1416,144 @@ on('GET', '/teams/:id/matches', ({ params, query }) => {
 // 遴选档案
 // ---------------------------------------------------------------------------
 
+/** 与真实后端保持同口径的组别/轮次文案，避免 mock 与接口返回不一致。 */
+const DOSSIER_GROUP_LABEL: Record<'PRIMARY' | 'MIDDLE', string> = {
+  PRIMARY: '小学组',
+  MIDDLE: '中学组',
+}
+const DOSSIER_ROUND_LABEL: Record<'INITIAL' | 'FINAL', string> = {
+  INITIAL: '初选',
+  FINAL: '复选',
+}
+
+/** 报名记录：mock 以球队成员近似「报名名单包含该运动员」，并补出组别类型。 */
+function dossierEnrollments(personId: string, eventId?: string): Enrollment[] {
+  return enrollments
+    .filter(
+      (e) =>
+        (!eventId || e.eventId === eventId) &&
+        teamMembers.some((m) => m.athleteId === personId && m.teamId === e.teamId),
+    )
+    .map((e) => {
+      const group = eventGroups.find((g) => g.id === e.groupId)
+      return {
+        ...e,
+        groupType: group?.category,
+        groupTypeLabel: group ? DOSSIER_GROUP_LABEL[group.category] : undefined,
+      }
+    })
+    .sort((a, b) => str(b.createdAt).localeCompare(str(a.createdAt)))
+}
+
+/** 比赛记录：报名球队或现役球队的近期比赛（最多 10 场），与后端聚合口径一致。 */
+function dossierMatches(teamIds: string[], eventId?: string): Match[] {
+  return matches
+    .filter((m) => !eventId || m.eventId === eventId)
+    .filter((m) => teamIds.includes(m.homeTeamId) || teamIds.includes(m.awayTeamId))
+    .sort((a, b) => str(b.kickoffAt).localeCompare(str(a.kickoffAt)))
+    .slice(0, 10)
+}
+
+/** 遴选评分：legacy mock 用 selectionRules/selectionScores，这里折算成档案评分摘要。 */
+function dossierScores(personId: string, eventId?: string): DossierScore[] {
+  const roundOrder: Record<string, number> = { INITIAL: 0, FINAL: 1 }
+  return selectionScores
+    .filter((s) => s.athleteId === personId)
+    .flatMap((score) => {
+      const rule = selectionRules.find((r) => r.id === score.ruleId)
+      if (!rule || (eventId && rule.eventId !== eventId)) return []
+      const group = eventGroups.find((g) => g.id === rule.groupId)
+      const round: 'INITIAL' | 'FINAL' = score.round === 'PRELIMINARY' ? 'INITIAL' : 'FINAL'
+      return [
+        {
+          id: score.id,
+          eventId: rule.eventId,
+          groupType: group?.category || 'PRIMARY',
+          groupTypeLabel: group ? DOSSIER_GROUP_LABEL[group.category] : undefined,
+          round,
+          roundLabel: DOSSIER_ROUND_LABEL[round],
+          templateId: rule.id,
+          templateName: `${rule.groupName || '组别'}${DOSSIER_ROUND_LABEL[round]}评分标准`,
+          totalScore: Number(score.totalScore || 0),
+          version: score.version,
+          updatedAt: score.createdAt,
+        },
+      ]
+    })
+    .sort(
+      (a, b) =>
+        roundOrder[a.round] - roundOrder[b.round] ||
+        str(b.updatedAt).localeCompare(str(a.updatedAt)),
+    )
+}
+
+/** Person → CandidateDossier；includeAggregates=false 供检索列表使用，避免逐行聚合。 */
+function dossierPayload(person: Person, eventId?: string, includeAggregates = true) {
+  const currentTeams = teamMembers
+    .filter((m) => m.athleteId === person.id && m.status === 'CURRENT')
+    .map((m) => teams.find((t) => t.id === m.teamId))
+    .filter((t): t is Team => Boolean(t))
+  const rows = includeAggregates ? dossierEnrollments(person.id, eventId) : []
+  const teamIds = rows.length ? rows.map((row) => row.teamId) : currentTeams.map((t) => t.id)
+  return {
+    id: person.id,
+    athlete: person,
+    teams: currentTeams,
+    materials: materials.filter((m) => m.ownerId === person.id && m.ownerType === 'PERSON'),
+    enrollments: rows,
+    matchRecords: includeAggregates ? dossierMatches(teamIds, eventId) : [],
+    scores: includeAggregates ? dossierScores(person.id, eventId) : [],
+    version: person.version,
+    createdAt: person.createdAt,
+    updatedAt: person.createdAt,
+  }
+}
+
 on('POST', '/selection-dossiers/search', ({ body }) => {
   let items = persons.filter((p) => p.kinds.includes('ATHLETE'))
+  const name = str(body.athleteName).trim()
+  if (name) items = items.filter((p) => contains(p.realName, name))
   if (body.idNumber) items = items.filter((p) => str(p.maskedIdNumber).endsWith(str(body.idNumber).slice(-4)))
   if (body.teamId) {
-    const ids = teamMembers.filter((m) => m.teamId === body.teamId).map((m) => m.athleteId)
+    const ids = teamMembers
+      .filter((m) => m.teamId === body.teamId && m.status === 'CURRENT')
+      .map((m) => m.athleteId)
     items = items.filter((p) => ids.includes(p.id))
   }
-  if (body.keyword) items = items.filter((p) => contains(p.realName, str(body.keyword)))
-  return items.slice(0, 50).map((p) => {
-    const member = teamMembers.find((m) => m.athleteId === p.id)
-    const team = teams.find((t) => t.id === member?.teamId)
-    return {
-      athleteId: p.id,
-      realName: p.realName,
-      maskedIdNumber: p.maskedIdNumber,
-      gender: p.gender,
-      birthDate: p.birthDate,
-      schoolName: p.schoolName,
-      teamId: team?.id,
-      teamName: team?.name,
-      reviewStatus: p.reviewStatus,
-      materialCount: materials.filter((m) => m.ownerId === p.id).length,
-    }
-  })
+  const eventId = str(body.eventId).trim()
+  const groupId = str(body.groupId).trim()
+  if (eventId || groupId) {
+    const scored = new Set(
+      enrollments
+        .filter(
+          (e) =>
+            e.status === 'APPROVED' &&
+            (!eventId || e.eventId === eventId) &&
+            (!groupId || e.groupId === groupId),
+        )
+        .flatMap((e) =>
+          teamMembers.filter((m) => m.teamId === e.teamId).map((m) => m.athleteId),
+        ),
+    )
+    items = items.filter((p) => scored.has(p.id))
+  }
+  // 后端按 -id 倒序返回；mock 数据按种子顺序插入，这里反转近似「最近更新」。
+  const ordered = [...items].reverse()
+  const page = Math.max(1, Number(body.page) || 1)
+  const pageSize = Math.min(100, Math.max(1, Number(body.pageSize) || 20))
+  const start = (page - 1) * pageSize
+  return {
+    items: ordered.slice(start, start + pageSize).map((p) => dossierPayload(p, undefined, false)),
+    page,
+    pageSize,
+    total: ordered.length,
+  }
 })
 
-on('GET', '/selection-dossiers/:athleteId', ({ params }) => {
-  const person = persons.find((p) => p.id === params.athleteId)
-  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '档案不存在')
-  const member = teamMembers.find((m) => m.athleteId === params.athleteId)
-  const team = teams.find((t) => t.id === member?.teamId)
-  return {
-    person,
-    team,
-    materials: materials.filter((m) => m.ownerId === params.athleteId),
-    matches: matches.filter((m) => m.homeTeamId === team?.id || m.awayTeamId === team?.id).slice(0, 6),
-    scores: selectionScores.filter((s) => s.athleteId === params.athleteId),
-  }
+on('GET', '/selection-dossiers/:athleteId', ({ params, query }) => {
+  const person = persons.find((p) => p.id === params.athleteId && p.kinds.includes('ATHLETE'))
+  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '遴选档案不存在')
+  return dossierPayload(person, str(query.eventId) || undefined)
 })
 
 // ---------------------------------------------------------------------------

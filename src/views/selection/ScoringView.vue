@@ -39,6 +39,9 @@ const groupType = ref<SelectionGroupType>(
     : 'PRIMARY',
 )
 const round = ref<SelectionRound>(String(route.query.round) === 'FINAL' ? 'FINAL' : 'INITIAL')
+/** 从遴选档案跳转时携带的人员信息，加载完成后自动定位。 */
+const prefillAthleteId = String(route.query.athleteId || '')
+const prefillAthleteName = String(route.query.athleteName || '')
 const template = ref<SelectionTemplate | null>(null)
 const scores = ref<SelectionScoreRecord[]>([])
 const total = ref(0)
@@ -150,16 +153,16 @@ async function loadCandidates() {
   }
 }
 
-async function openCreate() {
+async function openCreate(prefill?: CandidateRow) {
   if (!eventId.value) return ElMessage.warning('请先选择赛事')
   if (!template.value) return ElMessage.warning('当前组别与轮次尚未启用评分模板')
   editingId.value = null
-  selectedAthlete.value = null
+  selectedAthlete.value = prefill || null
   searchKeyword.value = ''
   candidates.value = []
   resetValues()
   dialogVisible.value = true
-  await loadCandidates()
+  if (!prefill) await loadCandidates()
 }
 
 function openEdit(score: SelectionScoreRecord) {
@@ -220,10 +223,31 @@ async function save() {
   }
 }
 
+/** 档案页跳转：已有本轮评分则打开修改，否则带着人员信息打开录入弹窗。 */
+async function openFromRoute() {
+  if (!prefillAthleteId) return
+  if (!eventId.value) {
+    return ElMessage.warning('请先选择赛事')
+  }
+  if (!template.value) {
+    return ElMessage.warning('当前组别与轮次尚未启用评分模板，请先在「评分模板」中创建')
+  }
+  const existing = scores.value.find((score) => score.candidateId === prefillAthleteId)
+  if (existing) {
+    openEdit(existing)
+    return
+  }
+  await openCreate({
+    candidateId: prefillAthleteId,
+    realName: prefillAthleteName || '运动员',
+  })
+}
+
 onMounted(async () => {
   await loadEvents()
   await loadTemplate()
   await loadScores()
+  await openFromRoute()
 })
 </script>
 
@@ -235,7 +259,7 @@ onMounted(async () => {
     >
       <template #actions>
         <el-button :icon="Refresh" @click="loadScores">刷新</el-button>
-        <el-button type="primary" :icon="Plus" :disabled="!canEntry" @click="openCreate">录入评分</el-button>
+        <el-button type="primary" :icon="Plus" :disabled="!canEntry" @click="openCreate()">录入评分</el-button>
       </template>
     </PageHeader>
 

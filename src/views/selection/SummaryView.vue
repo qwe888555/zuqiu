@@ -114,8 +114,8 @@ onMounted(async () => {
 <template>
   <div class="page">
     <PageHeader
-      title="排名汇总"
-      description="根据评分实时计算排名，分数相同保留并列名次。正式入围名单需在「正式结果」中按名额生成并发布。"
+      title="评分汇总"
+      description="根据评分实时计算排名，分数相同保留并列名次。最佳球员入围名单需在「最佳球员遴选结果」中按名额生成并发布。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="loadSummary">刷新</el-button>
@@ -128,7 +128,7 @@ onMounted(async () => {
         >
           导出汇总
         </el-button>
-        <el-button type="primary" plain @click="router.push('/console/selection/results')">前往正式结果</el-button>
+        <el-button type="primary" plain @click="router.push('/console/selection/results')">前往最佳球员结果</el-button>
       </template>
     </PageHeader>
 

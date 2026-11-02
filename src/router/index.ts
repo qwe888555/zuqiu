@@ -188,7 +188,7 @@ const routes: RouteRecordRaw[] = [
         path: 'selection/dossiers',
         name: 'selection-dossiers',
         component: () => import('../views/selection/DossierView.vue'),
-        meta: { title: '遴选档案', roles: ['ADMIN'] },
+        meta: { title: '球员遴选档案', roles: ['ADMIN'] },
       },
       {
         path: 'selection/rules',
@@ -206,13 +206,13 @@ const routes: RouteRecordRaw[] = [
         path: 'selection/summary',
         name: 'selection-summary',
         component: () => import('../views/selection/SummaryView.vue'),
-        meta: { title: '排名汇总', roles: ['ADMIN'] },
+        meta: { title: '评分汇总', roles: ['ADMIN'] },
       },
       {
         path: 'selection/results',
         name: 'selection-results',
         component: () => import('../views/selection/ResultsView.vue'),
-        meta: { title: '正式结果', roles: ['ADMIN'] },
+        meta: { title: '最佳球员遴选结果', roles: ['ADMIN'] },
       },
       {
         path: 'cms/contents',

@@ -401,11 +401,14 @@ export const selectionCandidateApi = {
     eventId?: string
     groupType: SelectionGroupType
     keyword?: string
+    /** 按档案/人员 ID 精确定位，用于从遴选档案跳转评分。 */
+    candidateId?: string
   }): Promise<ScoringCandidate[]> {
     const raw = await request<Raw[]>('get', '/candidates/', undefined, {
       event_id: params.eventId || undefined,
       group_type: params.groupType,
       keyword: params.keyword || undefined,
+      candidate_id: params.candidateId || undefined,
     })
     return (raw || []).map((item) => ({
       candidateId: str(item.candidate_id ?? item.candidateId),
@@ -683,4 +686,8 @@ export const publicityApi = {
 
 /** 遴选档案（球员/报名档案）依赖成员4，走 /api/v1 档案聚合接口。 */
 export { selectionDossierApi } from './selectionDossier'
-export type { CandidateDossier, DossierSearchPayload } from './selectionDossier'
+export type {
+  CandidateDossier,
+  DossierScore,
+  DossierSearchPayload,
+} from './selectionDossier'

@@ -230,7 +230,7 @@ export const MENU_SECTIONS: MenuSection[] = [
     items: [
       {
         key: 'dossiers',
-        title: '遴选档案',
+        title: '球员遴选档案',
         path: '/console/selection/dossiers',
         icon: FolderOpened,
         roles: ['ADMIN'],
@@ -251,14 +251,14 @@ export const MENU_SECTIONS: MenuSection[] = [
       },
       {
         key: 'summary',
-        title: '排名汇总',
+        title: '评分汇总',
         path: '/console/selection/summary',
         icon: TrendCharts,
         roles: ['ADMIN'],
       },
       {
         key: 'results',
-        title: '正式结果',
+        title: '最佳球员遴选结果',
         path: '/console/selection/results',
         icon: Medal,
         roles: ['ADMIN'],
