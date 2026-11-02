@@ -5,6 +5,7 @@ import { Camera, Delete, Edit, Plus, Refresh, Search, User } from '@element-plus
 import { fileApi, personApi, teamApi } from '../../api'
 import type { Person, TeamMember } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
+import { usePermission } from '../../composables/usePermission'
 import { POSITION_LABELS, positionLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -14,6 +15,12 @@ import FilterBar from '../../components/common/FilterBar.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 
 const { teams, teamId, loadTeams } = useTeamScope()
+const { can } = usePermission()
+/**
+ * 成员照片实际写回人员主档（PUT /people/{id}），后端 personUpdate 仅放开 ADMIN；
+ * 球队/学校账号只维护成员关系，展示上传入口会必然 403 并留下孤立文件。
+ */
+const canUploadPhoto = computed(() => can('system.people'))
 const loading = ref(false)
 const rows = ref<TeamMember[]>([])
 const total = ref(0)
@@ -320,6 +327,7 @@ onMounted(async () => {
           <template #default="{ row }">
             <template v-if="row.status === 'CURRENT'">
               <el-upload
+                v-if="canUploadPhoto"
                 :show-file-list="false"
                 :http-request="(options: UploadRequestOptions) => uploadPhoto(row, options)"
                 accept=".jpg,.jpeg,.png"

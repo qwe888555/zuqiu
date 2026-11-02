@@ -370,7 +370,7 @@ export function visibleSections(roles: RoleCode[]): MenuSection[] {
         if (item.key === 'dashboard') return { ...item, title: workspaceLabel }
         if (item.key === 'enrollments') {
           if (roles.includes('UNIVERSITY')) return { ...item, title: '本校报名' }
-          if (roles.includes('TEAM')) return { ...item, title: '报名进度' }
+          if (roles.includes('TEAM')) return { ...item, title: '球队报名' }
           if (roles.includes('CITY')) return { ...item, title: '本市报名' }
         }
         // 参赛方只有查看权限，菜单名称不应让人误以为可以编排比赛。

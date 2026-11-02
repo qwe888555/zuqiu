@@ -392,7 +392,7 @@ function publicationLink(star: PublicityRecord) {
               @click="startEnrollment"
             >
               <el-icon><Ticket /></el-icon>
-              {{ loggedIn ? '继续报名' : '学校报名' }}
+              {{ loggedIn ? '继续报名' : '赛事报名' }}
             </button>
           </div>
         </div>

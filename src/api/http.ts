@@ -123,6 +123,21 @@ function saveBlob(payload: Blob, filename: string) {
   URL.revokeObjectURL(objectUrl)
 }
 
+/**
+ * 响应拦截器已经把 AxiosResponse 解包成 data，因此这里不能再读一次 `.data`。
+ * 同时兼容未解包的响应、ArrayBuffer 与 TypedArray，避免二进制下载被误判为演示数据。
+ */
+export function toDownloadBlob(payload: unknown): Blob | null {
+  if (payload instanceof Blob) return payload
+  if (payload instanceof ArrayBuffer) return new Blob([payload])
+  if (ArrayBuffer.isView(payload)) {
+    return new Blob([new Uint8Array(payload.buffer as ArrayBuffer, payload.byteOffset, payload.byteLength)])
+  }
+  const nested = (payload as { data?: unknown } | null | undefined)?.data
+  if (nested && nested !== payload) return toDownloadBlob(nested)
+  return null
+}
+
 async function download(
   url: string,
   filename: string,
@@ -131,8 +146,8 @@ async function download(
   params?: Record<string, unknown>,
 ): Promise<boolean> {
   const response = await instance.request({ method, url, data, params, responseType: 'blob' })
-  const payload = response.data
-  if (!(payload instanceof Blob)) return false
+  const payload = toDownloadBlob(response)
+  if (!payload) return false
   saveBlob(payload, filename)
   return true
 }

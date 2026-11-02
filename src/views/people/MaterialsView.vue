@@ -52,6 +52,15 @@ const coachTypes = [
 
 const isCoach = computed(() => person.value?.kinds.includes('COACH') ?? false)
 const materialTypes = computed(() => (isCoach.value ? coachTypes : athleteTypes))
+const pageDescription = computed(() => {
+  if (profileMissing.value) {
+    return '当前账号未绑定人员档案，无法按本人查询或维护履历材料；请联系管理员完成账号与档案绑定。'
+  }
+  if (restricted.value) {
+    return '履历材料数据范围当前仅对管理员、学校与球队账号开放；运动员/教练员端只展示后端允许读取的归档数据，不能自行上传。'
+  }
+  return '上传学籍、证书、获奖与参赛经历等材料。材料经审核后进入个人档案，用于资格审查与遴选。'
+})
 
 const filteredRows = computed(() =>
   filterStatus.value ? rows.value.filter((row) => row.reviewStatus === filterStatus.value) : rows.value,
@@ -168,7 +177,7 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="履历材料"
-      description="上传学籍、证书、获奖与参赛经历等材料。材料经管理员审核后进入个人档案，用于资格审查与遴选。"
+      :description="pageDescription"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>

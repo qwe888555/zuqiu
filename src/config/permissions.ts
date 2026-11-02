@@ -56,9 +56,9 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
   {
     key: 'enrollment',
     title: '报名与审核',
-    hint: '学校为唯一报送主体，市州初审、省级终审',
+    hint: '学校端为本校及分校区球队报送，球队端为本队报送；市州初审、省级终审',
     permissions: [
-      { code: 'enrollment.create', label: '新建报名', description: '由学校为本校及校区球队创建报名单' },
+      { code: 'enrollment.create', label: '新建报名', description: '学校端为本校及分校区球队、球队端为本队创建报名单' },
       { code: 'enrollment.edit', label: '编辑报名', description: '草稿或被驳回后修改报名信息与名单' },
       { code: 'enrollment.submit', label: '提交报名', description: '预检并冻结报名快照' },
       { code: 'enrollment.export', label: '导出报名资料', description: '报名表 PDF、球员 Word 与批量打包' },
@@ -161,6 +161,9 @@ const schoolReporterPermissions: PermissionCode[] = [
 ]
 
 const teamPermissions: PermissionCode[] = [
+  'enrollment.create',
+  'enrollment.edit',
+  'enrollment.submit',
   'enrollment.export',
   'match.view',
   'team.manage',
@@ -220,7 +223,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
 }
 
 export const ROLE_DESCRIPTIONS: Record<RoleCode, string> = {
-  TEAM: '球队端。维护所属球队、球员与教练，查看学校提交的报名进度；报名由学校统一报送。',
+  TEAM: '球队端。维护所属球队、球员与教练，可直接为本队创建并提交报名，查看审核进度。',
   UNIVERSITY: '学校端。以学校为报送主体，统筹本校及分校区球队完成报名、名单与材料报送。',
   CITY: '市州审核端。本市学校报名初审、统计与导出，不代报；数据范围限本市。',
   PROVINCE_REVIEWER: '省级审核端。全部报名终审、赛事配置、比赛与成绩发布、账号与内容运营；遴选评分由管理员完成。',

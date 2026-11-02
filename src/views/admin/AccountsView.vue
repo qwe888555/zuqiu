@@ -23,7 +23,7 @@ import type {
   RoleCode,
   Team,
 } from '../../api/types'
-import { ROLE_LABELS } from '../../config/labels'
+import { educationLabel, ROLE_LABELS } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import { toCsv } from '../../utils/csv'
 import { accountOrgTypes, accountPolicyRoles, roleFitsOrg } from '../../utils/roles'
@@ -173,6 +173,33 @@ const canOpenPeople = computed(
 const selectedInvitePerson = computed(() =>
   personOptions.value.find((person) => person.id === inviteForm.personId),
 )
+/** 运动员/教练账号的个人中心直接读取人员档案，因此建号前必须完成绑定。 */
+const playerRoleSelection = computed(() =>
+  form.roles.filter((role) => role === 'ATHLETE' || role === 'COACH'),
+)
+const selectedFormPerson = computed(() =>
+  personOptions.value.find((person) => person.id === form.personId),
+)
+const personKindMismatch = computed(() => {
+  const person = selectedFormPerson.value
+  const required = playerRoleSelection.value
+  if (!person || !required.length) return false
+  return !required.some((role) => person.kinds.includes(role as 'ATHLETE' | 'COACH'))
+})
+const selectedFormPersonMeta = computed(() => {
+  const person = selectedFormPerson.value
+  if (!person) return ''
+  const gender =
+    person.gender === 'MALE' ? '男' : person.gender === 'FEMALE' ? '女' : person.gender === 'UNSPECIFIED' ? '未说明' : ''
+  return [
+    gender,
+    person.birthDate ? `出生 ${person.birthDate}` : '',
+    `学历 ${educationLabel(person.education)}`,
+    person.schoolName || '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+})
 const inviteOrgLabel = computed(() => {
   if (selectedInvitePerson.value?.schoolName) return selectedInvitePerson.value.schoolName
   const org = orgs.value.find((item) => item.id === inviteForm.orgId)
@@ -324,6 +351,12 @@ async function save() {
   }
   if (form.roles.some((role) => roleBlocked(role))) {
     return ElMessage.warning('所选角色需要绑定下级组织，当前账号只能在本机构建号')
+  }
+  if (playerRoleSelection.value.length && !form.personId) {
+    return ElMessage.warning('运动员 / 教练账号必须关联人员档案，否则个人资料与履历材料无法读取')
+  }
+  if (personKindMismatch.value) {
+    return ElMessage.warning('所选人员档案的身份类型与账号角色不一致，请改选运动员或教练员档案')
   }
   if (!auth.isAdmin && !form.orgId) form.orgId = ownOrgId.value
   if (!form.orgId) {
@@ -825,7 +858,7 @@ onMounted(() => {
             <el-option v-for="team in teams" :key="team.id" :label="team.name" :value="team.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="关联人员档案">
+        <el-form-item label="关联人员档案" :required="playerRoleSelection.length > 0">
           <el-select
             v-model="form.personId"
             filterable
@@ -834,7 +867,11 @@ onMounted(() => {
             :remote-method="searchPersons"
             :loading="personLoading"
             style="width: 100%"
-            placeholder="运动员 / 教练账号建议绑定，否则个人中心无法读取档案"
+            :placeholder="
+              playerRoleSelection.length
+                ? '运动员 / 教练账号必填：选择已有人员档案'
+                : '可选；绑定后个人中心可读取档案'
+            "
           >
             <el-option
               v-for="person in personOptions"
@@ -844,6 +881,26 @@ onMounted(() => {
             />
           </el-select>
         </el-form-item>
+        <div v-if="selectedFormPerson" class="person-summary">
+          <div class="person-summary__head">
+            <strong>{{ selectedFormPerson.realName }}</strong>
+            <span>{{ selectedFormPerson.kinds.includes('ATHLETE') ? '运动员' : '教练员' }}</span>
+          </div>
+          <p>{{ selectedFormPersonMeta }}</p>
+        </div>
+        <p v-else-if="playerRoleSelection.length" class="field-hint person-required">
+          账号本身不保存姓名、性别、学历等身份信息，个人资料页只读取这里绑定的人员档案。
+          <router-link v-if="canOpenPeople" to="/console/admin/people">先到人员管理建档</router-link>
+        </p>
+        <el-alert
+          v-if="personKindMismatch"
+          class="person-mismatch"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="人员档案身份与账号角色不匹配"
+          description="运动员角色需绑定运动员档案，教练员角色需绑定教练员档案，否则个人资料与履历材料无法对应。"
+        />
         <el-form-item label="账号状态">
           <el-switch v-model="form.enabled" active-text="启用" inactive-text="停用" />
         </el-form-item>
@@ -1156,6 +1213,51 @@ onMounted(() => {
   font-size: 11px;
   line-height: 1.6;
   color: var(--ink-300);
+}
+
+.person-summary {
+  margin: -4px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--brand-50);
+}
+
+.person-summary__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.person-summary__head strong {
+  font-size: 13px;
+  color: var(--ink-700);
+}
+
+.person-summary__head span {
+  font-size: 10px;
+  color: var(--brand-700);
+}
+
+.person-summary p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-500);
+}
+
+.person-required {
+  margin: -4px 0 14px;
+}
+
+.person-required a {
+  margin-left: 4px;
+  color: var(--brand-700);
+  font-weight: 600;
+}
+
+.person-mismatch {
+  margin-bottom: 14px;
 }
 
 .invite-rule {

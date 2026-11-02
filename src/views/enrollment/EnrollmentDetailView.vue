@@ -33,7 +33,6 @@ import type {
 } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
 import { useAuthStore } from '../../stores/auth'
-import { canEnroll } from '../../utils/roles'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import { positionLabel, reviewActionLabel } from '../../config/labels'
@@ -90,20 +89,27 @@ const enrollmentId = computed(() => String(route.params.id))
 const isReviewer = computed(() => can(['enrollment.review.city', 'enrollment.review.province']))
 const isSchoolOwner = computed(
   () =>
-    canEnroll(auth.roles) &&
+    auth.roles.includes('UNIVERSITY') &&
     Boolean(detail.value) &&
     detail.value?.schoolOrgId === auth.user?.orgId,
 )
-// 报送、修改、提交、撤回、删除只属于报送学校，管理员不代替学校操作。
-const canSubmit = computed(() => isSchoolOwner.value)
-const canEdit = computed(() => isSchoolOwner.value && !!detail.value?.editable)
+/** 球队端的归属按 /me 返回的 teamIds 判断；后端对球队端只校验报名所属球队在数据范围内。 */
+const isTeamOwner = computed(
+  () =>
+    auth.roles.includes('TEAM') &&
+    Boolean(detail.value) &&
+    Boolean(auth.user?.teamIds?.includes(detail.value?.teamId || '')),
+)
+const isEnrollmentOwner = computed(() => isSchoolOwner.value || isTeamOwner.value)
+// 报送、修改、提交、撤回、删除只属于报送方（学校端/球队端），管理员不代替报送。
+const canSubmit = computed(() => isEnrollmentOwner.value)
+const canEdit = computed(() => isEnrollmentOwner.value && !!detail.value?.editable)
 const canDelete = computed(
   () =>
-    isSchoolOwner.value &&
+    isEnrollmentOwner.value &&
     Boolean(detail.value) &&
     ['DRAFT', 'REJECTED', 'WITHDRAWN'].includes(detail.value?.status || ''),
 )
-const isTeamViewer = computed(() => auth.roles.includes('TEAM') && !canEnroll(auth.roles))
 const canReview = computed(() => {
   const status = detail.value?.status
   if (auth.roles.includes('ADMIN')) {
@@ -283,7 +289,7 @@ async function returnForCorrection() {
   if (!detail.value) return
   try {
     const { value } = await ElMessageBox.prompt(
-      '请填写需要补正的内容。退回后报送学校可修改联系人、名单与材料，并重新提交审核。',
+      '请填写需要补正的内容。退回后报送方（学校或球队）可修改联系人、名单与材料，并重新提交审核。',
       '退回补正',
       {
         confirmButtonText: '确认退回',
@@ -305,7 +311,7 @@ async function returnForCorrection() {
 function openEditInfo() {
   if (!detail.value) return
   infoForm.contactName = detail.value.contactName || ''
-  // 详情只返回掩码手机号，必须让学校重新输入完整号码。
+  // 详情只返回掩码手机号，必须让报送方重新输入完整号码。
   infoForm.contactPhone = ''
   infoForm.remarks = detail.value.remarks || ''
   editInfoVisible.value = true
@@ -635,15 +641,6 @@ onMounted(load)
     </PageHeader>
 
     <template v-if="detail">
-      <el-alert
-        v-if="isTeamViewer"
-        class="readonly-alert"
-        type="info"
-        :closable="false"
-        show-icon
-        title="报名由学校端统一提交"
-        description="球队端仅查看本队报名进度。球员名单、球队资料与材料请在球队管理中维护，如需调整报名请联系学校管理员。"
-      />
       <section class="enrollment-hero">
         <div class="enrollment-hero__team">
           <span class="team-badge">{{ detail.teamName.slice(0, 1) }}</span>
@@ -680,7 +677,7 @@ onMounted(load)
           <section class="page-card">
             <div class="section-title">报名信息 <small>由参赛单位填写</small></div>
             <div class="info-grid">
-              <div class="info-item"><span class="info-item__label">报送主体</span><strong>学校报送</strong></div>
+              <div class="info-item"><span class="info-item__label">报送主体</span><strong>参赛球队报送</strong></div>
               <div class="info-item"><span class="info-item__label">参赛学校</span><strong>{{ detail.schoolName || '—' }}</strong></div>
               <div class="info-item"><span class="info-item__label">校区</span><strong>{{ detail.campusName || '—' }}</strong></div>
               <div class="info-item"><span class="info-item__label">所属市州</span><strong>{{ detail.cityName || '—' }}</strong></div>

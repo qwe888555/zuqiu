@@ -17,11 +17,12 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const canReport = computed(() => canEnroll(auth.roles))
+const pageTitle = computed(() => (auth.roles.includes('TEAM') ? '球队报名' : '报名管理'))
 const description = computed(() => {
-  if (auth.roles.includes('UNIVERSITY')) return '本校报名（含分校区）。学校是报送主体，草稿即占用学校名额，提交后进入市州初审、省级终审。'
-  if (auth.roles.includes('TEAM')) return '报名由学校端统一提交，本页仅查看本队报名进度；名单与材料请在球队管理中维护。'
-  if (auth.roles.includes('CITY')) return '本市学校报名清单，仅做初审、统计与导出，不代学校填报。'
-  return '全部学校报名数据，管理员可审核与配置名额，但不代替学校报送。'
+  if (auth.roles.includes('UNIVERSITY')) return '本校报名（含分校区）。学校端为报送主体，草稿即占用学校名额，提交后进入市州初审、省级终审。'
+  if (auth.roles.includes('TEAM')) return '本队报名。可直接创建、修改并提交本队报名单，提交后进入市州初审、省级终审。'
+  if (auth.roles.includes('CITY')) return '本市学校报名清单，仅做初审、统计与导出，不代学校或球队填报。'
+  return '全部学校报名数据，管理员可审核与配置名额，但不代替学校端或球队端报送。'
 })
 const loading = ref(false)
 const submitting = ref('')
@@ -56,15 +57,15 @@ const hasActiveFilters = computed(
 )
 const emptyTitle = computed(() => (hasActiveFilters.value ? '当前筛选条件下暂无报名记录' : '暂无报名记录'))
 /**
- * 球队端的报名单由学校提交后同步可见；后端数据范围异常时列表可能为空，
- * 这里给出可执行的核对路径，避免球队误以为学校没有提交。
+ * 球队端既可直接新建报名，也能看到学校端为本队提交的报名；
+ * 后端数据范围异常时列表可能为空，这里给出可执行的核对路径。
  */
 const emptyHint = computed(() => {
   if (auth.roles.includes('TEAM')) {
     const prefix = hasActiveFilters.value ? '可重置筛选后重试。' : ''
-    return `${prefix}报名由学校端统一提交；若学校已提交仍无记录，请联系学校端或赛事管理员确认该报名是否在您账号的可见范围内。`
+    return `${prefix}本队暂无报名记录，可直接新建；若学校端已提交仍无记录，请联系赛事管理员确认数据范围。`
   }
-  return '报名由学校端统一提交，本账号仅查看权限范围内的记录。'
+  return '学校端与球队端为报送主体，本账号仅查看权限范围内的记录。'
 })
 
 const statusOptions = [
@@ -227,7 +228,7 @@ onMounted(async () => {
 <template>
   <div class="page">
     <PageHeader
-      title="报名管理"
+      :title="pageTitle"
       :description="description"
     >
       <template #actions>

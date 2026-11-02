@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowRight, CircleCheck, Clock, Plus, Refresh, Trophy, User } from '@element-plus/icons-vue'
-import { enrollmentApi, meApi, teamApi } from '../../api'
+import { enrollmentApi, teamApi } from '../../api'
 import type { Enrollment, GroupCategory, Team } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import { CATEGORY_GROUP_LABELS } from '../../config/labels'
@@ -69,11 +69,12 @@ async function load() {
   loadError.value = ''
   try {
     const [teamRes, enrollmentRes] = await Promise.allSettled([
-      meApi.teams(),
+      // /me/teams 仅面向球队与运动员/教练账号，学校端使用 /teams 获取本校范围。
+      teamApi.list({ page: 1, pageSize: 200 }),
       enrollmentApi.list({ page: 1, pageSize: 200 }),
     ])
     if (teamRes.status === 'fulfilled') {
-      teams.value = teamRes.value
+      teams.value = teamRes.value.items
     } else {
       // 球队是页面主体；失败时保留上次成功的数据并给出可重试的错误态。
       loadError.value = '本校球队加载失败，请检查网络后重试'

@@ -8,6 +8,7 @@ import { publicApi } from '../../api'
 import type { PublicEvent } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
 import { openLoginDialog } from '../../composables/useLoginDialog'
+import { canEnroll } from '../../utils/roles'
 import {
   EVENT_LEVELS,
   eventCategoryLabel,
@@ -116,16 +117,16 @@ function enroll(event: PublicEvent) {
     openLoginDialog({ redirect, intent: 'enroll' })
     return
   }
-  if (auth.roles.includes('UNIVERSITY')) {
+  if (canEnroll(auth.roles)) {
     router.push({ name: 'enrollment-create', query: { eventId: event.id } })
     return
   }
-  if (auth.roles.some((role) => ['TEAM', 'CITY', 'ADMIN'].includes(role))) {
-    ElMessage.info('报名由学校端统一提交，已为你打开报名单列表')
+  if (auth.roles.some((role) => ['CITY', 'ADMIN'].includes(role))) {
+    ElMessage.info('报名由学校端或球队端提交，已为你打开报名单列表')
     router.push({ name: 'enrollments', query: { eventId: event.id } })
     return
   }
-  ElMessage.warning('当前账号没有报名权限，请使用学校账号报名')
+  ElMessage.warning('当前账号没有报名权限，请使用学校端或球队端账号报名')
 }
 
 onMounted(load)
@@ -139,7 +140,7 @@ onMounted(load)
           <span class="hero-kicker">REGISTRATION · 赛事报名</span>
           <h1>赛事报名</h1>
           <p>
-            按省级、市级、学校级查看当前开放的足球赛事。报名由学校账号统一提交，提交后依次经市州初审、省级终审。
+            按省级、市级、学校级查看当前开放的足球赛事。学校端可为本校及分校区球队报名，球队端可直接为本队报名，提交后依次经市州初审、省级终审。
           </p>
         </div>
         <div v-if="!loading" class="hero-stats">
@@ -167,12 +168,12 @@ onMounted(load)
         </div>
         <ol class="flow-steps">
           <li><strong>选择赛事</strong><span>确认层级、组别与报名开放期</span></li>
-          <li><strong>学校登录</strong><span>使用学校端账号填报，球队账号可查看进度</span></li>
+          <li><strong>学校 / 球队登录</strong><span>学校端报本校及校区球队，球队端报本队</span></li>
           <li><strong>填报材料</strong><span>球队信息、球员名单与盖章材料</span></li>
           <li><strong>提交审核</strong><span>市州初审通过后进入省级终审</span></li>
         </ol>
         <p class="flow-note">
-          报名主体为学校。球队账号可查看权限范围内的报名进度，但提交与修改需由所属学校完成。
+          报送主体为学校球队：学校端可为本校及分校区球队报名，球队端可直接为本队报名；市州初审、省级终审后生效。
         </p>
       </section>
 

@@ -129,12 +129,12 @@ export function workspaceLabelForRoles(roles: readonly RoleCode[]): string {
 }
 
 /**
- * 可以新建/提交报名的角色：学校是唯一报送主体。
- * 球队只读查看本队进度，市州只初审，管理员只做配置与审核。
+ * 可以新建/提交报名的角色：学校端为本校及分校区球队报送，球队端为本队报送。
+ * 市州只初审、管理员只做配置与审核，均不代报。
  * 必须与 `/console/enrollments/create` 的路由角色保持一致。
  */
 export function canEnroll(roles: readonly RoleCode[]): boolean {
-  return roles.includes('UNIVERSITY')
+  return roles.includes('UNIVERSITY') || roles.includes('TEAM')
 }
 
 /** 可以进入报名列表/详情页的角色；查看范围由后端数据权限决定。 */

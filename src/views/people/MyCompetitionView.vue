@@ -71,7 +71,6 @@ const teamNames = computed(() => {
   return names
 })
 
-const displayName = computed(() => profile.value?.realName || auth.user?.displayName || '本人')
 const isAthletePerson = computed(
   () => !!profile.value?.kinds?.includes('ATHLETE') || auth.roles.includes('ATHLETE'),
 )
@@ -80,9 +79,6 @@ const isCoachPerson = computed(
 )
 /** 纯教练账号不参与球员统计；同时具备运动员身份的账号仍按运动员口径展示。 */
 const coachOnly = computed(() => isCoachPerson.value && !isAthletePerson.value)
-const personaLabel = computed(() =>
-  isAthletePerson.value ? '运动员' : isCoachPerson.value ? '教练员' : '用户',
-)
 const pageDescription = computed(() =>
   coachOnly.value
     ? '汇总所执教球队参与的赛事与比赛。教练账号不参与球员进球与红黄牌统计，相关球员数据请前往赛事统计或比赛记录台查看。'
@@ -356,18 +352,6 @@ onMounted(loadBase)
       description="公开赛程优先按主客队 ID 匹配本人参赛场次，旧接口无 ID 时回退为球队名称匹配；公开详情未提供逐场事件时，只展示公开射手榜汇总，红黄牌显示为“—”。"
     />
 
-    <div class="profile-strip">
-      <div class="profile-strip__name">
-        <span class="eyebrow">{{ personaLabel }}</span>
-        <strong>{{ displayName }}</strong>
-        <small v-if="profile?.teamName">{{ profile.teamName }}</small>
-      </div>
-      <div class="profile-strip__teams">
-        <span v-if="!teams.length" class="muted">未读取到本人球队信息</span>
-        <el-tag v-for="team in teams" :key="team.id" size="small" effect="plain">{{ team.name }}</el-tag>
-      </div>
-    </div>
-
     <div v-if="coachOnly" class="stat-grid">
       <StatCard
         label="执教赛事"
@@ -607,58 +591,6 @@ onMounted(loadBase)
 <style scoped>
 .scope-alert {
   margin-bottom: 16px;
-}
-
-.profile-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 16px 20px;
-  margin-bottom: 18px;
-  border-radius: 10px;
-  background: var(--brand-900);
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.profile-strip__name {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.profile-strip__name .eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.profile-strip__name strong {
-  font-size: 20px;
-  color: #fff;
-}
-
-.profile-strip__name small {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.profile-strip__teams {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.profile-strip__teams .el-tag {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.18);
-  color: #fff;
-}
-
-.profile-strip__teams .muted {
-  color: rgba(255, 255, 255, 0.45);
 }
 
 .my-tabs {

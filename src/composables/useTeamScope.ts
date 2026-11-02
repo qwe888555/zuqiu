@@ -18,11 +18,13 @@ export function useTeamScope() {
   async function loadTeams(forceId?: string) {
     loading.value = true
     try {
-      if (auth.isAdmin) {
+      if (auth.isAdmin || auth.roles.includes('UNIVERSITY')) {
+        // 学校端 /me/teams 仅对 TEAM/ATHLETE/COACH 开放（403），
+        // 改用 /teams：后端按组织数据范围自动收敛为本校球队。
         const res = await teamApi.list({ page: 1, pageSize: 200 })
         teams.value = res.items
       } else {
-        // 学校端返回本校全部球队，球队端只返回所属球队；没有返回时不能退化为全量球队。
+        // 球队端只返回所属球队；没有返回时不能退化为全量球队。
         teams.value = await meApi.teams()
       }
       // 从学校端球队列表进入时，通过 query 指定要维护的球队。
