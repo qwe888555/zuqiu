@@ -26,5 +26,8 @@ lerna-debug.log*
 *.sln
 *.sw?
 
+# Office temporary lock files
+~$*
+
 # Local tooling
 .chrome-*/
