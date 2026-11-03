@@ -40,6 +40,8 @@ export const useAuthStore = defineStore('auth', () => {
       usableDisplayName(user.value?.displayName) || user.value?.username || '未登录',
   )
   const isAdmin = computed(() => roles.value.includes('ADMIN'))
+  /** 学校账号：后端建档、审核与人员数据范围均使用 UNIVERSITY 角色。 */
+  const isUniversity = computed(() => roles.value.includes('UNIVERSITY'))
   const sections = computed(() => visibleSections(roles.value))
 
   async function login(username: string, password: string) {
@@ -105,6 +107,7 @@ export const useAuthStore = defineStore('auth', () => {
     roles,
     displayName,
     isAdmin,
+    isUniversity,
     sections,
     login,
     fetchMe,

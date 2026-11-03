@@ -12,7 +12,7 @@ import PageHeader from '../../components/common/PageHeader.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 
 type CategoryKey = 'ALL' | 'REVIEW' | 'MATERIAL' | 'MATCH' | 'PUBLICATION' | 'SYSTEM'
-type ViewKey = 'PENDING' | 'UNREAD' | 'ALL'
+type ViewKey = 'UNREAD' | 'ALL'
 
 interface Category {
   key: CategoryKey
@@ -35,7 +35,7 @@ const { linkFor } = useMessageLink()
 const loading = ref(false)
 const rows = ref<MessageItem[]>([])
 const activeCategory = ref<CategoryKey>('ALL')
-const activeView = ref<ViewKey>('PENDING')
+const activeView = ref<ViewKey>('UNREAD')
 const page = ref(1)
 const pageSize = 12
 
@@ -68,9 +68,7 @@ const typeLabel: Record<string, string> = {
 
 /** 当前视图下一条消息是否应出现；分类计数和列表共用同一口径。 */
 function matchesActiveView(item: MessageItem) {
-  if (activeView.value === 'PENDING') return Boolean(linkFor(item))
-  if (activeView.value === 'UNREAD') return !item.read
-  return true
+  return activeView.value === 'ALL' || !item.read
 }
 
 // 分类计数跟随当前视图，避免在“未读”里看到“全部”的数量。
@@ -92,10 +90,8 @@ const categoryCounts = computed(() => {
 })
 
 const unreadCount = computed(() => rows.value.filter((item) => !item.read).length)
-const pendingCount = computed(() => rows.value.filter((item) => Boolean(linkFor(item))).length)
 
 const views = computed(() => [
-  { key: 'PENDING' as ViewKey, label: '待处理', count: pendingCount.value },
   { key: 'UNREAD' as ViewKey, label: '未读', count: unreadCount.value },
   { key: 'ALL' as ViewKey, label: '全部', count: rows.value.length },
 ])
@@ -104,42 +100,8 @@ function inCategory(item: MessageItem) {
   return activeCategory.value === 'ALL' || categoryOf(item.businessType) === activeCategory.value
 }
 
-function dueAtOf(item: MessageItem) {
-  return item.dueAt && Boolean(linkFor(item)) ? dayjs(item.dueAt) : null
-}
-
-function dueInfo(item: MessageItem) {
-  const due = dueAtOf(item)
-  if (!due) return null
-  const diffDays = due.startOf('day').diff(dayjs().startOf('day'), 'day')
-  const overdue = diffDays < 0
-  return {
-    overdue,
-    urgent: overdue || diffDays <= 1,
-    text: overdue
-      ? `已逾期 ${Math.abs(diffDays)} 天`
-      : diffDays === 0
-        ? '今日截止'
-        : `剩余 ${diffDays} 天`,
-    date: due.format('MM-DD HH:mm'),
-  }
-}
-
 const filteredRows = computed(() => {
-  const list = rows.value.filter((item) => {
-    if (!inCategory(item)) return false
-    return matchesActiveView(item)
-  })
-
-  // 待处理按截止时间升序，未设截止时间的排在后面；其余视图按时间倒序。
-  if (activeView.value === 'PENDING') {
-    return [...list].sort((a, b) => {
-      const aDue = a.dueAt ? dayjs(a.dueAt).valueOf() : Number.MAX_SAFE_INTEGER
-      const bDue = b.dueAt ? dayjs(b.dueAt).valueOf() : Number.MAX_SAFE_INTEGER
-      if (aDue !== bDue) return aDue - bDue
-      return (b.createdAt || '').localeCompare(a.createdAt || '')
-    })
-  }
+  const list = rows.value.filter((item) => inCategory(item) && matchesActiveView(item))
   return [...list].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
 })
 
@@ -149,7 +111,6 @@ const pagedRows = computed(() =>
 
 const emptyText = computed(() => {
   if (activeView.value === 'UNREAD') return '没有未读消息'
-  if (activeView.value === 'PENDING') return '当前没有需要处理的消息'
   return activeCategory.value === 'ALL' ? '暂无消息' : '该分类暂无消息'
 })
 
@@ -300,14 +261,6 @@ onMounted(load)
                 </span>
                 <strong class="message-item__title">{{ item.title }}</strong>
                 <span class="message-item__text">{{ item.body || '无详细内容' }}</span>
-                <span
-                  v-if="dueInfo(item)"
-                  class="message-item__due"
-                  :class="{ 'is-urgent': dueInfo(item)?.urgent }"
-                >
-                  <span v-if="dueInfo(item)?.overdue" class="message-item__due-flag">已逾期</span>
-                  截止 {{ dueInfo(item)?.date }} · {{ dueInfo(item)?.text }}
-                </span>
               </span>
             </div>
 
@@ -315,7 +268,6 @@ onMounted(load)
               <button
                 type="button"
                 class="message-item__action"
-                :class="{ 'is-primary': Boolean(dueAtOf(item)) }"
                 @click.stop="openBusiness(item)"
               >
                 {{ linkFor(item)?.label }}
@@ -601,28 +553,6 @@ onMounted(load)
   overflow-wrap: anywhere;
 }
 
-.message-item__due {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 1px;
-  font-size: 11px;
-  color: var(--ink-500);
-}
-
-.message-item__due.is-urgent {
-  color: #a94f34;
-  font-weight: 600;
-}
-
-.message-item__due-flag {
-  padding: 0 5px;
-  border-radius: 4px;
-  background: rgba(169, 79, 52, 0.1);
-  font-size: 10px;
-  line-height: 16px;
-}
-
 .message-item__side {
   display: flex;
   align-items: center;
@@ -648,19 +578,6 @@ onMounted(load)
 .message-item__action:hover {
   background: var(--brand-50);
   color: var(--brand-800);
-}
-
-/* 有截止时间的待办才使用实心按钮，纯通知保持文字链接的轻量层级 */
-.message-item__action.is-primary {
-  padding: 5px 12px;
-  border-color: var(--brand-100);
-  background: var(--brand-50);
-  color: var(--brand-800);
-}
-
-.message-item__action.is-primary:hover {
-  border-color: var(--brand-500);
-  background: #fff;
 }
 
 @media (max-width: 760px) {

@@ -153,7 +153,13 @@ const batchCsvName = ref('')
 const templateUrl = `${import.meta.env.BASE_URL}templates/invitation-batch-template.xlsx`
 
 const ownOrgId = computed(() => auth.user?.orgId || '')
-const ownOrgName = computed(() => auth.user?.orgName || ownOrgId.value || '未绑定机构')
+/** /me 不返回 orgName；学校端用本校球队的 schoolName 补全组织显示名。 */
+const ownOrgName = computed(
+  () =>
+    auth.user?.orgName ||
+    orgs.value.find((org) => org.id === ownOrgId.value)?.name ||
+    '本机构',
+)
 const formOrgLabel = computed(() => {
   if (auth.isAdmin) return ''
   if (editingRow.value) return editingRow.value.orgName || editingRow.value.orgId || ownOrgName.value
@@ -167,8 +173,9 @@ const inviteOrgOptions = computed(() =>
 const canUseOwnOrgForInvite = computed(
   () => !auth.isAdmin && auth.roles.includes('UNIVERSITY'),
 )
+/** 人员档案权限与后端一致：ADMIN 全局、UNIVERSITY 本校；省审核员无人员数据权限。 */
 const canOpenPeople = computed(
-  () => auth.isAdmin || auth.roles.includes('PROVINCE_REVIEWER'),
+  () => auth.isAdmin || auth.isUniversity,
 )
 const selectedInvitePerson = computed(() =>
   personOptions.value.find((person) => person.id === inviteForm.personId),
@@ -180,10 +187,11 @@ const invitePersonKindMismatch = computed(() => {
 })
 const isPlayerAccount = (row: Account) =>
   row.roles.some((role) => role === 'ATHLETE' || role === 'COACH')
-/** 仅统计当前页；用于提示管理员优先处理无档案的运动员/教练账号。 */
-const unboundPlayerRows = computed(() =>
-  rows.value.filter((row) => isPlayerAccount(row) && !row.personId),
-)
+/**
+ * 后端 /accounts?unbound=true 统计全部无档案运动员/教练账号（受当前账号数据范围限制）。
+ * 单独取一次总数，避免提示只覆盖当前页而漏掉需要治理的账号。
+ */
+const unboundTotal = ref(0)
 /** 运动员/教练账号的个人中心直接读取人员档案，因此建号前必须完成绑定。 */
 const playerRoleSelection = computed(() =>
   form.roles.filter((role) => role === 'ATHLETE' || role === 'COACH'),
@@ -230,12 +238,17 @@ const batchFailureRows = computed(() => batchRows.value.filter((row) => row.stat
 async function load() {
   loading.value = true
   try {
-    const res = await accountApi.list({
-      page: page.value,
-      pageSize: pageSize.value,
-      username: filters.keyword || undefined,
-      role: filters.role || undefined,
-    })
+    const [res, unbound] = await Promise.all([
+      accountApi.list({
+        page: page.value,
+        pageSize: pageSize.value,
+        username: filters.keyword || undefined,
+        role: filters.role || undefined,
+      }),
+      // 只取 total；失败不影响账号列表
+      accountApi.list({ unbound: true, page: 1, pageSize: 1 }).catch(() => null),
+    ])
+    unboundTotal.value = unbound?.total ?? 0
     rows.value = res.items
     total.value = res.total
   } catch {
@@ -263,6 +276,23 @@ async function loadBase() {
     teamRes.status === 'fulfilled'
       ? (teamRes.value as { items: Team[] }).items
       : []
+  // 学校端没有组织结构接口；用本校球队的 schoolName 合成本人组织，
+  // 让账号表、邀请与建号表单显示学校名称而不是组织 ID。
+  if (!auth.isAdmin && auth.roles.includes('UNIVERSITY') && ownOrgId.value) {
+    orgs.value = [
+      {
+        id: ownOrgId.value,
+        name:
+          auth.user?.orgName ||
+          teams.value.find((team) => team.schoolName)?.schoolName ||
+          '本校',
+        orgType: 'UNIVERSITY',
+        code: '',
+        enabled: true,
+        version: 0,
+      },
+    ]
+  }
 }
 
 function search() {
@@ -546,7 +576,7 @@ async function generateInvite() {
     inviteInfo.value = await accountApi.invite({
       kind: inviteForm.kind,
       orgId: inviteForm.orgId,
-      personId: inviteForm.personId || undefined,
+      personId: person.id,
       expiresInMinutes: 1440,
     })
   } catch {
@@ -731,12 +761,12 @@ onMounted(() => {
       description="只能授予角色策略允许的角色；本账号、同级或更高权限账号不可操作。人员检索与邀请发放同样受组织数据范围限制。"
     />
     <el-alert
-      v-if="unboundPlayerRows.length"
+      v-if="unboundTotal"
       class="scope-alert"
       type="warning"
       :closable="false"
       show-icon
-      :title="`当前页有 ${unboundPlayerRows.length} 个运动员 / 教练账号未绑定人员档案`"
+      :title="`本数据范围内有 ${unboundTotal} 个运动员 / 教练账号未绑定人员档案`"
       description="这类账号无法读取个人资料与履历材料，也无法从人员档案追溯身份。请点击行内「补绑」关联档案；人员记录不存在时先到人员管理建档。"
     />
 
@@ -1012,7 +1042,7 @@ onMounted(() => {
             :closable="false"
             show-icon
             title="邀请必须绑定人员档案"
-            description="注册成功后账号会关联该档案并读取本人资料；未建档人员请先由管理员在「人员管理」建档。"
+            description="注册成功后账号会关联该档案并读取本人资料；未建档人员请先在「人员管理」建档（管理员或所属学校均可录入）。"
           />
           <el-alert
             v-else-if="invitePersonKindMismatch"
@@ -1076,7 +1106,7 @@ onMounted(() => {
               。
             </template>
             <template v-else>
-              名单必须先有人员主档；当前学校端尚不能直接建档，请联系管理员在「人员管理」录入。
+              名单必须先有人员主档；当前账号无人员管理权限，请联系管理员或学校端在「人员管理」录入。
             </template>
           </p>
         </div>

@@ -1061,7 +1061,6 @@ export const messages: Message[] = [
   {
     id: 'msg_002', title: '材料补充提醒', body: '您提交的报名缺少加盖学校公章的报名表扫描件，请在报名截止前补充。',
     businessType: 'MATERIAL', businessId: 'enr_004', read: false, version: 1,
-    dueAt: '2026-10-24T18:00:00+08:00',
     createdAt: '2026-10-17T14:20:00+08:00',
   },
   {
@@ -1077,7 +1076,6 @@ export const messages: Message[] = [
   {
     id: 'msg_005', title: '报名被退回，请补充材料', body: '「绵阳南山中学·初中男子组」报名单缺少近三个月体检证明，请在被退回后 3 日内补交并重新提交。',
     businessType: 'REVIEW', businessId: 'enr_004', read: false, version: 1,
-    dueAt: '2026-10-21T18:00:00+08:00',
     createdAt: '2026-10-18T16:40:00+08:00',
   },
   {
@@ -1093,7 +1091,6 @@ export const messages: Message[] = [
   {
     id: 'msg_008', title: '公示期即将结束', body: '「2026 年省级最佳阵容遴选名单」公示将于 10 月 22 日 18:00 结束，如无异议将进入正式发布。',
     businessType: 'PUBLICATION', businessId: 'pub_003', read: false, version: 1,
-    dueAt: '2026-10-22T18:00:00+08:00',
     createdAt: '2026-10-19T09:05:00+08:00',
   },
   {

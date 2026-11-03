@@ -214,8 +214,6 @@ export interface Message {
   body?: string
   businessType?: string
   businessId?: string
-  /** 需要处理的事项截止时间；普通通知不填。 */
-  dueAt?: string
   read: boolean
   readAt?: string
   version: number
@@ -241,6 +239,8 @@ export interface Person {
   education?: string
   coachCategory?: string
   reviewStatus?: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED'
+  /** 当前账号是否可审核该档案（后端按权限点、PENDING、防自审计算）。 */
+  canReview?: boolean
   version: number
   createdAt?: string
 }

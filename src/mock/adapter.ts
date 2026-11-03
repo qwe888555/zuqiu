@@ -386,6 +386,12 @@ on('GET', '/accounts', ({ query }) => {
   let items = accounts.map(withOrgName)
   if (query.keyword) items = items.filter((a) => contains(a.username, str(query.keyword)) || contains(a.displayName, str(query.keyword)))
   if (query.role) items = items.filter((a) => a.roles.includes(query.role as never))
+  // 与后端一致：unbound 只返回未绑定人员档案的运动员/教练账号。
+  if (query.unbound === true || query.unbound === 'true') {
+    items = items.filter(
+      (a) => !a.personId && (a.roles.includes('ATHLETE') || a.roles.includes('COACH')),
+    )
+  }
   return pageOf(items, query)
 })
 
@@ -1074,6 +1080,15 @@ function scopePersons(config: AxiosRequestConfig, items: Person[]): Person[] {
   return items.filter((p) => p.id === account.personId)
 }
 
+/** 与真实后端同口径：仅学校端、PENDING 档案可审（mock 不模拟自审日志）。 */
+function withCanReview(person: Person, config: AxiosRequestConfig): Person {
+  const account = accountFrom(config)
+  const canReview = Boolean(
+    account?.roles.includes('UNIVERSITY') && person.reviewStatus === 'PENDING',
+  )
+  return { ...person, canReview }
+}
+
 on('GET', '/people', ({ config, query }) => {
   let items = scopePersons(config, persons)
   if (query.kind) items = items.filter((p) => p.kinds.includes(query.kind as never))
@@ -1083,25 +1098,28 @@ on('GET', '/people', ({ config, query }) => {
     const ids = teamMembers.filter((m) => m.teamId === query.teamId).map((m) => m.athleteId)
     items = items.filter((p) => ids.includes(p.id))
   }
-  return pageOf(items, query)
+  return pageOf(items.map((p) => withCanReview(p, config)), query)
 })
 
 on('POST', '/people/search', ({ body, config }) => {
   const keyword = str(body.keyword)
   let items = scopePersons(config, persons)
+  // 与真实后端一致：选择器默认只返回已审核档案。
+  const reviewStatus = str(body.reviewStatus) || 'APPROVED'
+  items = items.filter((p) => p.reviewStatus === reviewStatus)
   if (body.idNumber) items = items.filter((p) => str(p.maskedIdNumber).endsWith(str(body.idNumber).slice(-4)))
   if (keyword) items = items.filter((p) => contains(p.realName, keyword) || contains(p.maskedIdNumber, keyword))
   if (body.teamId) {
     const ids = teamMembers.filter((m) => m.teamId === body.teamId).map((m) => m.athleteId)
     items = items.filter((p) => ids.includes(p.id))
   }
-  return items.slice(0, 20)
+  return items.slice(0, 20).map((p) => withCanReview(p, config))
 })
 
-on('GET', '/people/:id', ({ params }) => {
+on('GET', '/people/:id', ({ params, config }) => {
   const person = persons.find((p) => p.id === params.id)
   if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
-  return person
+  return withCanReview(person, config)
 })
 
 on('POST', '/people', ({ body }) => {
@@ -1118,7 +1136,8 @@ on('POST', '/people', ({ body }) => {
     teamName: body.teamName,
     education: body.education,
     coachCategory: body.coachCategory,
-    reviewStatus: 'PENDING',
+    // 与后端一致：新建档案从草稿起步，需学校端提交并审核。
+    reviewStatus: 'DRAFT',
     version: 1,
     createdAt: now(),
   }
@@ -1134,6 +1153,33 @@ on('PUT', '/people/:id', ({ params, body }) => {
   if (body.avatarFileId) {
     person.avatarUrl = `https://picsum.photos/seed/${encodeURIComponent(str(body.avatarFileId))}/300/300`
   }
+  return person
+})
+
+on('POST', '/people/:id/submit', ({ params, body }) => {
+  const person = persons.find((p) => p.id === params.id)
+  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
+  ensureVersion(person.version, body.version)
+  if (person.reviewStatus === 'APPROVED') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '档案已通过审核，无需重复提交')
+  }
+  person.reviewStatus = 'PENDING'
+  person.version += 1
+  return person
+})
+
+on('POST', '/people/:id/review', ({ params, body }) => {
+  const person = persons.find((p) => p.id === params.id)
+  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
+  ensureVersion(person.version, body.version)
+  if (person.reviewStatus !== 'PENDING') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '仅待审核档案可以审核')
+  }
+  if (body.decision === 'REJECT' && !str(body.reason).trim()) {
+    throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '驳回时必须填写原因')
+  }
+  person.reviewStatus = body.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
+  person.version += 1
   return person
 })
 
@@ -1329,6 +1375,16 @@ on('GET', '/teams/:id/members', ({ params, query }) => {
 
 on('POST', '/teams/:id/members', ({ params, body }) => {
   const person = persons.find((p) => p.id === body.athleteId)
+  const team = teams.find((t) => t.id === params.id)
+  // 与后端一致：仅本校且档案已审核通过的运动员可加入球队。
+  if (person && team) {
+    if (person.schoolOrgId !== team.orgId) {
+      throw new MockHttpError(409, 'STATE_CONFLICT', '仅可加入本校球队')
+    }
+    if (person.reviewStatus !== 'APPROVED') {
+      throw new MockHttpError(409, 'STATE_CONFLICT', '人员档案尚未通过审核')
+    }
+  }
   const member = {
     id: nextId('tm'),
     teamId: params.id,
@@ -1345,15 +1401,19 @@ on('POST', '/teams/:id/members', ({ params, body }) => {
     version: 1,
   }
   teamMembers.push(member)
-  const team = teams.find((t) => t.id === params.id)
   if (team) team.memberCount = (team.memberCount || 0) + 1
   return member
 })
 
 on('POST', '/teams/:id/members/search', ({ params, body }) => {
   const keyword = str(body.keyword)
+  const team = teams.find((t) => t.id === params.id)
+  if (!team) throw new MockHttpError(404, 'NOT_FOUND', '球队不存在')
+  // 与后端一致：仅本校、档案已审核通过、且未在本队现役的运动员；姓名或身份证后四位。
   return persons
     .filter((p) => p.kinds.includes('ATHLETE'))
+    .filter((p) => p.reviewStatus === 'APPROVED')
+    .filter((p) => p.schoolOrgId === team.orgId)
     .filter((p) => contains(p.realName, keyword) || contains(p.maskedIdNumber, keyword))
     .filter((p) => !teamMembers.some((m) => m.teamId === params.id && m.athleteId === p.id))
     .slice(0, 20)
