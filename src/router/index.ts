@@ -125,7 +125,7 @@ const routes: RouteRecordRaw[] = [
         path: 'events',
         name: 'events',
         component: () => import('../views/events/EventConfigView.vue'),
-        meta: { title: '赛事与组别', roles: ['ADMIN', 'PROVINCE_REVIEWER'] },
+        meta: { title: '赛事与组别', roles: ['ADMIN', 'PROVINCE_REVIEWER', 'CITY'] },
       },
       {
         path: 'team/profile',
