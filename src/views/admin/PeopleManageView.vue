@@ -3,18 +3,20 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import {
+  CircleCheck,
+  CircleClose,
   Delete,
   Document,
   Download,
   Edit,
   Loading,
   Plus,
+  Promotion,
   Refresh,
   Search,
   UploadFilled,
 } from '@element-plus/icons-vue'
-import { fileApi, materialApi, orgApi, personApi } from '../../api'
-import { MOCK_ENABLED } from '../../api/http'
+import { fileApi, materialApi, orgApi, personApi, teamApi } from '../../api'
 import { useAuthStore } from '../../stores/auth'
 import type { Material, Organization, Person, PersonKind } from '../../api/types'
 import { COACH_CATEGORY_LABELS } from '../../config/labels'
@@ -33,8 +35,12 @@ import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const auth = useAuthStore()
-/** 人员与组织接口一期仅 ADMIN；真实模式下非管理员不再发必然 403 的请求。 */
-const scopeLimited = computed(() => !MOCK_ENABLED && !auth.isAdmin)
+/** 人员管理仅管理员（全局）与学校账号（本校范围）可进入，路由已按角色拦截。 */
+const canUsePeople = computed(() => auth.isAdmin || auth.isUniversity)
+const canDeletePerson = computed(() => auth.isAdmin)
+/** 后端 personReview 仅 UNIVERSITY；ADMIN 可建档/提交但不能审核。 */
+const canReviewPerson = computed(() => auth.isUniversity)
+const ownSchoolOrgId = computed(() => auth.user?.orgId || '')
 
 const loading = ref(false)
 const rows = ref<Person[]>([])
@@ -43,6 +49,13 @@ const page = ref(1)
 const pageSize = ref(10)
 const filters = reactive({ keyword: '', kind: '', reviewStatus: '' })
 const orgs = ref<Organization[]>([])
+/** /me 不返回 orgName；优先用列表里已有的 schoolName 补全，避免下拉显示组织 ID。 */
+const ownSchoolName = computed(
+  () =>
+    auth.user?.orgName ||
+    rows.value.find((row) => row.schoolName)?.schoolName ||
+    '本校',
+)
 
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
@@ -77,6 +90,8 @@ const materialsLoading = ref(false)
 const materials = ref<Material[]>([])
 const materialOwner = ref<Person | null>(null)
 const reviewingMaterialId = ref('')
+const submittingPersonId = ref('')
+const reviewingPersonId = ref('')
 
 const batchVisible = ref(false)
 const batchFileInput = ref<HTMLInputElement>()
@@ -111,7 +126,7 @@ const form = reactive({
 })
 
 async function load() {
-  if (scopeLimited.value) {
+  if (!canUsePeople.value) {
     rows.value = []
     total.value = 0
     return
@@ -142,26 +157,67 @@ async function load() {
 }
 
 async function loadOrgs() {
-  if (scopeLimited.value) {
+  // 组织树接口仅 ADMIN；学校端只能使用本人所属学校节点，不请求必然 403 的接口。
+  if (auth.isAdmin) {
+    try {
+      // 批量导入要按学校编码/全称匹配，必须拿到完整组织树；500 条上限会漏学校。
+      const { items } = await fetchAllPages(
+        (page, pageSize) => orgApi.list({ page, pageSize }),
+        200,
+        50,
+      )
+      // 人员归属只接受 SCHOOL/UNIVERSITY 节点（后端 _resolve_school 契约）。
+      orgs.value = items.filter(
+        (org) => org.enabled && (org.orgType === 'SCHOOL' || org.orgType === 'UNIVERSITY'),
+      )
+    } catch {
+      orgs.value = []
+    }
+    return
+  }
+  if (!ownSchoolOrgId.value) {
     orgs.value = []
     return
   }
-  try {
-    // 批量导入要按学校编码/全称匹配，必须拿到完整组织树；500 条上限会漏学校。
-    const { items } = await fetchAllPages(
-      (page, pageSize) => orgApi.list({ page, pageSize }),
-      200,
-      50,
-    )
-    // 人员归属只接受 SCHOOL/UNIVERSITY 节点（后端 _resolve_school 契约）；
-    // 把市州/省级/TEAM 节点也列出来会让用户选中后必然 400。
-    orgs.value = items.filter(
-      (org) => org.enabled && (org.orgType === 'SCHOOL' || org.orgType === 'UNIVERSITY'),
-    )
-  } catch {
-    orgs.value = []
+  // /me 不返回组织名称，学校端也没有组织详情权限；用本校球队的 schoolName 补全，
+  // 否则下拉与批量导入的学校匹配只能看到组织 ID。
+  let name = ownSchoolName.value
+  if (name === '本校') {
+    try {
+      const teams = await teamApi.list({ page: 1, pageSize: 1 })
+      name = teams.items[0]?.schoolName || name
+    } catch {
+      // 无球队时不阻断建档，显示“本校”兜底
+    }
   }
+  orgs.value = [
+    {
+      id: ownSchoolOrgId.value,
+      name,
+      orgType: 'UNIVERSITY',
+      code: '',
+      enabled: true,
+      version: 0,
+    },
+  ]
 }
+
+/** 学校端固定本校；管理员可选择授权范围内的学校节点。 */
+const schoolOptions = computed(() =>
+  auth.isAdmin
+    ? orgs.value.filter(
+        (org) => org.enabled && (org.orgType === 'SCHOOL' || org.orgType === 'UNIVERSITY'),
+      )
+    : orgs.value,
+)
+
+/** 后端限一人一身份（kinds 恰好 1 项），表单用单选直接映射 kinds[0]。 */
+const personKind = computed<PersonKind>({
+  get: () => form.kinds[0] || 'ATHLETE',
+  set: (value) => {
+    form.kinds = value ? [value] : []
+  },
+})
 
 function search() {
   page.value = 1
@@ -181,7 +237,7 @@ function openCreate() {
     birthDate: '',
     idNumber: '',
     phone: '',
-    schoolOrgId: '',
+    schoolOrgId: auth.isAdmin ? '' : ownSchoolOrgId.value,
     education: '',
     coachCategory: '',
   })
@@ -265,7 +321,7 @@ async function save() {
           version: created.version,
         })
       }
-      ElMessage.success('人员档案已创建')
+      ElMessage.success('人员档案已创建（草稿），请提交审核')
     }
     dialogVisible.value = false
     await load()
@@ -353,6 +409,51 @@ async function reviewMaterial(material: Material, decision: 'APPROVE' | 'REJECT'
     // 拦截器提示
   } finally {
     reviewingMaterialId.value = ''
+  }
+}
+
+/** DRAFT / REJECTED → PENDING。ADMIN 与 UNIVERSITY 均可提交。 */
+async function submitPerson(row: Person) {
+  submittingPersonId.value = row.id
+  try {
+    await personApi.submit(row.id, row.version)
+    ElMessage.success('档案已提交审核，等待学校审核')
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    submittingPersonId.value = ''
+  }
+}
+
+/** PENDING → APPROVED / REJECTED；仅 UNIVERSITY 可操作，后端另有防自审。 */
+async function reviewPerson(row: Person, decision: 'APPROVE' | 'REJECT') {
+  let reason = ''
+  if (decision === 'REJECT') {
+    try {
+      const result = await ElMessageBox.prompt('请填写驳回原因，本人修改后可重新提交。', '驳回档案', {
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消',
+        inputValidator: (value) => (value && value.trim().length >= 4 ? true : '请至少填写 4 个字符'),
+      })
+      reason = result.value
+    } catch {
+      return
+    }
+  }
+  reviewingPersonId.value = row.id
+  try {
+    await personApi.review(row.id, {
+      decision,
+      reason: reason || undefined,
+      version: row.version,
+    })
+    ElMessage.success(decision === 'APPROVE' ? '档案已通过审核' : '档案已驳回')
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    reviewingPersonId.value = ''
   }
 }
 
@@ -497,7 +598,7 @@ async function downloadPersonTemplate() {
       ['3. 身份证号必须把单元格设为「文本」再填写，否则 Excel 会丢失 18 位精度。'],
       ['4. 人员类型填写「运动员」或「教练员」；一个人只能选一种类型。'],
       ['5. 学校填写组织编码或学校全称；遇到同名学校时必须填写组织编码。'],
-      ['6. 同一文件内身份证号不能重复；导入后档案默认进入待审核状态。'],
+      ['6. 同一文件内身份证号不能重复；导入后档案为草稿，需提交审核后才进入待审核。'],
       ['7. 性别、出生日期留空时，系统会尝试从身份证号推导。'],
       ['8. 系统只读取第一个工作表；表头可以放在标题行下方（前 20 行内自动识别）。'],
     ])
@@ -586,7 +687,7 @@ async function importBatch(retryOnly = false) {
         `已导入 ${summary.success} 人，${summary.failure} 人失败；失败原因见问题列，可修正后重试`,
       )
     } else {
-      ElMessage.success(`已导入 ${summary.success} 人，档案默认待审核`)
+      ElMessage.success(`已导入 ${summary.success} 人，档案为草稿，请提交审核`)
     }
   } finally {
     batchImporting.value = false
@@ -603,24 +704,14 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="人员管理"
-      description="统一管理运动员与教练员档案。敏感证件号与手机号按脱敏规则存储，新建档案默认进入待审核状态。"
+      description="统一管理运动员与教练员档案。学校账号仅可维护本校人员；新建档案为草稿，提交后进入待审核。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button v-if="!scopeLimited" :icon="UploadFilled" @click="openBatch">批量导入</el-button>
-        <el-button v-if="!scopeLimited" type="primary" :icon="Plus" @click="openCreate">新建人员</el-button>
+        <el-button :icon="UploadFilled" @click="openBatch">批量导入</el-button>
+        <el-button type="primary" :icon="Plus" @click="openCreate">新建人员</el-button>
       </template>
     </PageHeader>
-
-    <el-alert
-      v-if="scopeLimited"
-      class="scope-alert"
-      type="info"
-      :closable="false"
-      show-icon
-      title="人员档案当前仅管理员可查看"
-      description="人员数据范围一期仅对管理员开放；省审核员可继续使用报名审核、赛事与账号管理功能。"
-    />
 
     <section class="page-card">
       <FilterBar :summary="'共 ' + total + ' 人'">
@@ -638,6 +729,7 @@ onMounted(() => {
           <el-option label="教练员" value="COACH" />
         </el-select>
         <el-select v-model="filters.reviewStatus" placeholder="全部状态" clearable @change="search">
+          <el-option label="草稿" value="DRAFT" />
           <el-option label="待审核" value="PENDING" />
           <el-option label="已通过" value="APPROVED" />
           <el-option label="已驳回" value="REJECTED" />
@@ -683,11 +775,35 @@ onMounted(() => {
             <span class="muted">{{ dayjs(row.createdAt).format('YYYY-MM-DD') }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="210" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" :icon="Document" @click="openMaterials(row)">材料</el-button>
             <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="danger" :icon="Delete" @click="removePerson(row)">删除</el-button>
+            <el-button
+              v-if="row.reviewStatus === 'DRAFT' || row.reviewStatus === 'REJECTED'"
+              link
+              type="primary"
+              :icon="Promotion"
+              :loading="submittingPersonId === row.id"
+              @click="submitPerson(row)"
+            >提交审核</el-button>
+            <template v-if="canReviewPerson && row.reviewStatus === 'PENDING'">
+              <el-button
+                link
+                type="success"
+                :icon="CircleCheck"
+                :loading="reviewingPersonId === row.id"
+                @click="reviewPerson(row, 'APPROVE')"
+              >通过</el-button>
+              <el-button
+                link
+                type="danger"
+                :icon="CircleClose"
+                :loading="reviewingPersonId === row.id"
+                @click="reviewPerson(row, 'REJECT')"
+              >驳回</el-button>
+            </template>
+            <el-button v-if="canDeletePerson" link type="danger" :icon="Delete" @click="removePerson(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -735,10 +851,10 @@ onMounted(() => {
             <el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
           </el-form-item>
           <el-form-item label="人员类型" required>
-            <el-checkbox-group v-model="form.kinds">
-              <el-checkbox value="ATHLETE">运动员</el-checkbox>
-              <el-checkbox value="COACH">教练员</el-checkbox>
-            </el-checkbox-group>
+            <el-radio-group v-model="personKind">
+              <el-radio value="ATHLETE">运动员</el-radio>
+              <el-radio value="COACH">教练员</el-radio>
+            </el-radio-group>
           </el-form-item>
           <template v-if="!editingId">
             <el-form-item label="身份证号" required>
@@ -749,8 +865,14 @@ onMounted(() => {
             </el-form-item>
           </template>
           <el-form-item label="学校 / 单位" required>
-            <el-select v-model="form.schoolOrgId" filterable clearable style="width: 100%">
-              <el-option v-for="org in orgs" :key="org.id" :label="org.name" :value="org.id" />
+            <el-select
+              v-model="form.schoolOrgId"
+              filterable
+              clearable
+              :disabled="!auth.isAdmin"
+              style="width: 100%"
+            >
+              <el-option v-for="org in schoolOptions" :key="org.id" :label="org.name" :value="org.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="学历" required>
@@ -772,8 +894,8 @@ onMounted(() => {
           type="info"
           :closable="false"
           show-icon
-          title="新建档案默认待审核"
-          description="证件号与手机号仅脱敏保存，不展示完整值。"
+          title="新建档案为草稿"
+          description="证件号与手机号仅脱敏保存。保存后需提交审核，待学校审核通过后才能进入球队候选池。"
         />
       </el-form>
       <template #footer>
@@ -795,7 +917,7 @@ onMounted(() => {
         :closable="false"
         show-icon
         title="先用 Excel 批量建档，再在「参赛账号」发放邀请"
-        description="系统逐行校验身份证号、手机号、人员类型与学校；有问题的行不会写入。导入后档案默认进入待审核状态。"
+        description="系统逐行校验身份证号、手机号、人员类型与学校；有问题的行不会写入。导入后档案为草稿，需提交审核。"
       />
 
       <div class="batch-toolbar">
@@ -850,7 +972,7 @@ onMounted(() => {
         :description="
           batchSummary.failure
             ? '失败行已保留在下方；可修正文件后重新选择，或直接重试失败行。已成功的行不会重复创建。'
-            : '人员列表已刷新，档案默认待审核。'
+            : '人员列表已刷新，档案为草稿，请提交审核。'
         "
       />
 

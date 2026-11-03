@@ -48,6 +48,7 @@ const memberMap: Record<string, [string, TagType]> = {
 }
 
 const reviewMap: Record<string, [string, TagType]> = {
+  DRAFT: ['草稿', 'info'],
   PENDING: ['待审核', 'primary'],
   NOT_REVIEWED: ['待复核', 'primary'],
   APPROVED: ['已通过', 'success'],
