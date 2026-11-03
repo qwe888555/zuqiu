@@ -53,7 +53,7 @@ const filters = reactive({ keyword: '', kind: '', reviewStatus: '' })
 /** 人员管理只展示已提交档案；草稿仅在建档流程内存在。 */
 const SUBMITTED_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const
 const orgs = ref<Organization[]>([])
-/** /me 不返回 orgName；优先用列表里已有的 schoolName 补全，避免下拉显示组织 ID。 */
+/** 优先用 /me 的 orgName；旧后端未返回时回落到列表 schoolName，避免显示组织 ID。 */
 const ownSchoolName = computed(
   () =>
     auth.user?.orgName ||
@@ -976,7 +976,9 @@ onMounted(() => {
               :loading="submittingPersonId === row.id"
               @click="submitPerson(row)"
             >提交审核</el-button>
-            <template v-if="canReviewPerson && row.reviewStatus === 'PENDING'">
+            <template
+              v-if="row.reviewStatus === 'PENDING' && (row.canReview ?? canReviewPerson)"
+            >
               <el-button
                 link
                 type="success"
