@@ -418,8 +418,19 @@ on('POST', '/accounts/registration-invitations', ({ body }) => {
   if (!['SCHOOL', 'UNIVERSITY', 'TEAM'].includes(org.orgType)) {
     throw new MockHttpError(400, 'INVALID_ARGUMENT', '邀请只能挂学校或球队组织')
   }
-  const person = persons.find((item) => item.id === str(body.personId))
-  if (person?.schoolOrgId && org.orgType !== 'TEAM' && person.schoolOrgId !== org.id) {
+  const personId = str(body.personId)
+  if (!personId) {
+    throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '邀请必须绑定人员档案', [
+      { field: 'personId', reason: '请先在人员管理中建档' },
+    ])
+  }
+  const person = persons.find((item) => item.id === personId)
+  if (!person) {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', '人员档案不存在', [
+      { field: 'personId', reason: '请先在人员管理中建档' },
+    ])
+  }
+  if (person.schoolOrgId && org.orgType !== 'TEAM' && person.schoolOrgId !== org.id) {
     throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '人员所属学校与邀请组织不一致')
   }
   return {
