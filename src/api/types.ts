@@ -241,6 +241,8 @@ export interface Person {
   education?: string
   coachCategory?: string
   reviewStatus?: 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED'
+  /** 当前账号是否可审核该档案（后端按权限点、PENDING、防自审计算）。 */
+  canReview?: boolean
   version: number
   createdAt?: string
 }

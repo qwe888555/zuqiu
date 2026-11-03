@@ -1074,6 +1074,15 @@ function scopePersons(config: AxiosRequestConfig, items: Person[]): Person[] {
   return items.filter((p) => p.id === account.personId)
 }
 
+/** 与真实后端同口径：仅学校端、PENDING 档案可审（mock 不模拟自审日志）。 */
+function withCanReview(person: Person, config: AxiosRequestConfig): Person {
+  const account = accountFrom(config)
+  const canReview = Boolean(
+    account?.roles.includes('UNIVERSITY') && person.reviewStatus === 'PENDING',
+  )
+  return { ...person, canReview }
+}
+
 on('GET', '/people', ({ config, query }) => {
   let items = scopePersons(config, persons)
   if (query.kind) items = items.filter((p) => p.kinds.includes(query.kind as never))
@@ -1083,25 +1092,28 @@ on('GET', '/people', ({ config, query }) => {
     const ids = teamMembers.filter((m) => m.teamId === query.teamId).map((m) => m.athleteId)
     items = items.filter((p) => ids.includes(p.id))
   }
-  return pageOf(items, query)
+  return pageOf(items.map((p) => withCanReview(p, config)), query)
 })
 
 on('POST', '/people/search', ({ body, config }) => {
   const keyword = str(body.keyword)
   let items = scopePersons(config, persons)
+  // 与真实后端一致：选择器默认只返回已审核档案。
+  const reviewStatus = str(body.reviewStatus) || 'APPROVED'
+  items = items.filter((p) => p.reviewStatus === reviewStatus)
   if (body.idNumber) items = items.filter((p) => str(p.maskedIdNumber).endsWith(str(body.idNumber).slice(-4)))
   if (keyword) items = items.filter((p) => contains(p.realName, keyword) || contains(p.maskedIdNumber, keyword))
   if (body.teamId) {
     const ids = teamMembers.filter((m) => m.teamId === body.teamId).map((m) => m.athleteId)
     items = items.filter((p) => ids.includes(p.id))
   }
-  return items.slice(0, 20)
+  return items.slice(0, 20).map((p) => withCanReview(p, config))
 })
 
-on('GET', '/people/:id', ({ params }) => {
+on('GET', '/people/:id', ({ params, config }) => {
   const person = persons.find((p) => p.id === params.id)
   if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
-  return person
+  return withCanReview(person, config)
 })
 
 on('POST', '/people', ({ body }) => {
