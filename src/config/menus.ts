@@ -111,7 +111,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: '赛事与组别',
         path: '/console/events',
         icon: Trophy,
-        roles: ['ADMIN', 'PROVINCE_REVIEWER'],
+        roles: ['ADMIN', 'PROVINCE_REVIEWER', 'CITY'],
       },
       {
         key: 'tournament-stats',
