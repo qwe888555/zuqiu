@@ -20,15 +20,7 @@ const restricted = ref(false)
 /** 账号未绑定人员档案（404）。 */
 const profileMissing = ref(false)
 
-const pageDescription = computed(() => {
-  if (profileMissing.value) {
-    return '当前账号未绑定人员档案，无法查看履历材料；请联系管理员完成账号与档案绑定。'
-  }
-  if (restricted.value) {
-    return '履历材料由学校或管理员统一上传并审核，本人仅可查看已归档的材料。'
-  }
-  return '查看本人已归档的履历材料，材料由学校或管理员上传并审核，用于资格审查与遴选。'
-})
+const pageDescription = '查看本人已归档的履历材料，用于资格审查与遴选。'
 
 const filteredRows = computed(() =>
   filterStatus.value ? rows.value.filter((row) => row.reviewStatus === filterStatus.value) : rows.value,

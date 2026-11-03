@@ -46,7 +46,7 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="我的公示"
-      description="查看本人被纳入赛事公示的信息。公示内容仅供赛事展示，不包含身份证号、手机号等敏感信息。"
+      description="查看本人被纳入赛事公示的信息。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>

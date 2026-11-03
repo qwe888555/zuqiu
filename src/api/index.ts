@@ -98,7 +98,7 @@ export const accountApi = {
   invite: (data: {
     kind: 'ATHLETE' | 'COACH'
     orgId: string
-    personId?: string
+    personId: string
     expiresInMinutes?: number
   }) =>
     http.post<{ registrationToken: string; expiresAt: string }>(
@@ -283,11 +283,18 @@ export const fileApi = {
 export const personApi = {
   list: (params: Query) => http.get<PageResult<Person>>('/people', params),
   search: (data: Query) => http.post<Person[]>('/people/search', data),
-  get: (id: string) => http.get<Person>(`/people/${id}`),
+  get: (id: string, options?: RequestOptions) =>
+    http.get<Person>(`/people/${id}`, {}, options),
   create: (data: Query, options?: RequestOptions) =>
     http.post<Person>('/people', data, options),
   update: (id: string, data: Query) => http.put<Person>(`/people/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/people/${id}`, { version }),
+  /** 学校/管理员把 DRAFT / REJECTED 档案提交复核，version 必填。 */
+  submit: (id: string, version: number, options?: RequestOptions) =>
+    http.post<Person>(`/people/${id}/submit`, { version }, options),
+  /** 学校端审核；仅 UNIVERSITY 可调用，REJECT 时必须提供 reason。 */
+  review: (id: string, data: { decision: 'APPROVE' | 'REJECT'; reason?: string; version: number }) =>
+    http.post<Person>(`/people/${id}/review`, data),
 }
 
 export const materialApi = {

@@ -301,7 +301,7 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: '人员管理',
         path: '/console/admin/people',
         icon: User,
-        roles: ['ADMIN', 'PROVINCE_REVIEWER'],
+        roles: ['ADMIN', 'UNIVERSITY'],
       },
       {
         key: 'subjects',

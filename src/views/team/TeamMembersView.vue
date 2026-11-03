@@ -49,42 +49,7 @@ const uploadingPhotoId = ref('')
 const avatarUrls = ref<Record<string, string>>({})
 
 const positions = Object.entries(POSITION_LABELS).map(([value, label]) => ({ value, label }))
-const currentTeam = computed(() => teams.value.find((team) => team.id === teamId.value) || null)
-const REVIEW_STATUS_LABELS: Record<string, string> = {
-  DRAFT: '未提交',
-  PENDING: '待审核',
-  REJECTED: '已驳回',
-}
-
-/**
- * 后端候选人搜索不限定学校，且 team_out 不返回 orgId；优先比对组织 ID，
- * 取不到时退回学校名称。这里只作加入前提醒，最终以报名资格预检为准。
- */
-function candidateCrossSchool(person: Person): boolean {
-  const team = currentTeam.value
-  if (!team) return false
-  if (team.orgId && person.schoolOrgId) return person.schoolOrgId !== team.orgId
-  if (team.schoolName && person.schoolName) {
-    return team.schoolName.trim() !== person.schoolName.trim()
-  }
-  return false
-}
-
-function candidateReviewFlag(person: Person): string {
-  if (!person.reviewStatus || person.reviewStatus === 'APPROVED') return ''
-  return REVIEW_STATUS_LABELS[person.reviewStatus] || '未通过审核'
-}
-
-const selectedCandidateWarning = computed(() => {
-  if (!selected.value) return ''
-  const issues: string[] = []
-  if (candidateCrossSchool(selected.value)) {
-    issues.push(`所属学校「${selected.value.schoolName || '未登记'}」与当前球队不一致`)
-  }
-  const reviewFlag = candidateReviewFlag(selected.value)
-  if (reviewFlag) issues.push(`人员档案${reviewFlag}`)
-  return issues.join('；')
-})
+// 候选人搜索后端已限定「本校 + 档案已审核通过 + 未在本队现役」，前端无需再提示跨校/审核状态。
 
 // 成员状态是 CURRENT/EXITED（冻结关系枚举），不是报名或审核状态。
 const currentCount = computed(() => rows.value.filter((m) => m.status === 'CURRENT').length)
@@ -181,17 +146,6 @@ function choose(person: Person) {
 async function addMember() {
   if (!teamId.value) return
   if (!selected.value) return ElMessage.warning('请先搜索并选择球员')
-  if (selectedCandidateWarning.value) {
-    try {
-      await ElMessageBox.confirm(
-        `${selected.value.realName}：${selectedCandidateWarning.value}。加入后报名资格预检可能不通过，仍要加入吗？`,
-        '加入前请确认',
-        { confirmButtonText: '仍然加入', cancelButtonText: '取消', type: 'warning' },
-      )
-    } catch {
-      return
-    }
-  }
   adding.value = true
   try {
     await teamApi.addMember(teamId.value, {
@@ -407,16 +361,15 @@ onMounted(async () => {
           <div class="search-row">
             <el-input
               v-model="searchKeyword"
-              placeholder="输入运动员姓名"
+              placeholder="输入姓名或身份证后四位"
               :prefix-icon="Search"
               @keyup.enter="searchPeople"
             />
             <el-button :loading="searching" @click="searchPeople">搜索</el-button>
           </div>
           <p class="search-hint">
-            从人员档案中检索已具备运动员身份、且未在本队现役的人员，仅按姓名匹配，最多显示 20 条。
-            跨校提示按球队与人员登记的学校名称比对，仅作加入前提醒；最终以报名资格预检为准。
-            搜不到时请先联系管理员在「人员管理」建档并勾选运动员身份。
+            仅检索本校、档案已审核通过且未在本队现役的运动员，支持姓名或身份证后四位，最多显示 20 条。
+            搜不到时请先联系学校在「人员管理」建档并提交审核。
           </p>
         </el-form-item>
 
@@ -432,27 +385,16 @@ onMounted(async () => {
             <span class="candidate__avatar">{{ person.realName.slice(0, 1) }}</span>
             <span class="candidate__info">
               <strong>{{ person.realName }}</strong>
-              <small>{{ person.schoolName || '学校未登记' }} · {{ person.gender === 'FEMALE' ? '女' : '男' }}</small>
-            </span>
-            <span v-if="candidateCrossSchool(person)" class="candidate__flag candidate__flag--school">
-              外校
-            </span>
-            <span v-if="candidateReviewFlag(person)" class="candidate__flag candidate__flag--review">
-              {{ candidateReviewFlag(person) }}
+              <small>
+                {{ person.maskedIdNumber || '证件号未登记' }} ·
+                {{ person.schoolName || '学校未登记' }} ·
+                {{ person.gender === 'FEMALE' ? '女' : '男' }}
+              </small>
             </span>
             <span v-if="selected?.id === person.id" class="candidate__check">已选择</span>
           </button>
         </div>
         <el-empty v-else-if="searchKeyword && !searching" description="未找到匹配球员" :image-size="60" />
-        <el-alert
-          v-if="selectedCandidateWarning"
-          class="candidate-alert"
-          type="warning"
-          :closable="false"
-          show-icon
-          title="加入前请确认球员归属与审核状态"
-          :description="`${selectedCandidateWarning}。跨校或未审核通过的人员加入后，报名资格预检可能不通过。`"
-        />
 
         <div class="form-grid">
           <el-form-item label="球衣号码">
@@ -677,28 +619,6 @@ onMounted(async () => {
   font-size: 9.5px;
   font-weight: 700;
   color: var(--brand-700);
-}
-
-.candidate__flag {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 9.5px;
-  line-height: 1.4;
-}
-
-.candidate__flag--school {
-  background: var(--live-soft, #fdf0ed);
-  color: var(--danger-600, #b33a3a);
-}
-
-.candidate__flag--review {
-  background: var(--warning-soft, #fdf7e6);
-  color: var(--warning-600, #b7791f);
-}
-
-.candidate-alert {
-  margin: -6px 0 16px;
 }
 
 .edit-person {

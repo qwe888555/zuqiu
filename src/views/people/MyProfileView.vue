@@ -42,6 +42,23 @@ const kindLabel = computed(() => {
 })
 const canEdit = computed(() => !!person.value && profileState.value === 'ready')
 
+type ProfileField = 'realName' | 'gender' | 'birthDate' | 'education'
+
+/**
+ * 人员档案里已登记的值属于账号“自带”信息（由管理员建档/导入/种子数据写入），
+ * 个人端只读；只有未登记字段允许本人补填，避免修改关键字段触发重新审核。
+ */
+function isRegistered(field: ProfileField): boolean {
+  return !!String(person.value?.[field] ?? '').trim()
+}
+
+const editableFields = computed<ProfileField[]>(() =>
+  (['realName', 'gender', 'birthDate', 'education'] as ProfileField[]).filter(
+    (field) => !isRegistered(field),
+  ),
+)
+const hasEditableFields = computed(() => editableFields.value.length > 0)
+
 function fillForm(source: Person) {
   Object.assign(form, {
     realName: source.realName || '',
@@ -72,19 +89,22 @@ async function load() {
 
 async function save() {
   if (!person.value) return ElMessage.warning('账号尚未绑定人员档案，无法修改个人资料')
-  if (!form.realName.trim()) return ElMessage.warning('请填写真实姓名')
+  if (!hasEditableFields.value) return ElMessage.warning('档案信息均已登记，个人端只读，如需修改请联系管理员')
+  if (!isRegistered('realName') && !form.realName.trim()) return ElMessage.warning('请填写真实姓名')
+  const current = person.value
   saving.value = true
   try {
     // 后端 MyProfileUpdate 为严格模式：schoolName 属派生字段，提交会被 400 拒绝；
     // coachCategory 虽被接收但不持久化、不回显，故不提交，避免“保存成功但值消失”。
     person.value = await meApi.updateProfile({
-      version: person.value.version,
-      realName: form.realName,
+      version: current.version,
+      // 已登记字段始终回传档案原值，避免只读字段被表单状态意外覆盖。
+      realName: isRegistered('realName') ? current.realName : form.realName,
       // 未选择时省略，避免把“未登记”静默改成默认值。
-      gender: (form.gender || undefined) as Person['gender'],
-      birthDate: form.birthDate || undefined,
-      // 后端 education 未传＝保留原值，传空串才会清空；这里始终传当前值。
-      education: form.education.trim(),
+      gender: isRegistered('gender') ? current.gender : ((form.gender || undefined) as Person['gender']),
+      birthDate: isRegistered('birthDate') ? current.birthDate : form.birthDate || undefined,
+      // 后端 education 未传＝保留原值，传空串才会清空；已登记时回传原值，未登记时提交表单值。
+      education: isRegistered('education') ? current.education || '' : form.education.trim(),
     })
     fillForm(person.value)
     profileState.value = 'ready'
@@ -111,6 +131,10 @@ function startEdit() {
     )
     return
   }
+  if (!hasEditableFields.value) {
+    ElMessage.warning('档案信息均已登记，个人端只读，如需修改请联系管理员')
+    return
+  }
   editing.value = true
 }
 
@@ -130,7 +154,7 @@ onMounted(load)
   <div class="page">
     <PageHeader
       title="个人资料"
-      description="维护真实姓名、性别、出生日期与学历。学校、证件、手机号与教练员类别由管理员人员档案维护，本页仅展示档案中的实际数据。"
+      description="姓名、性别、出生日期与学历来自人员档案；已登记信息只读，仅未登记字段可由本人补填。"
     >
       <template #actions>
         <template v-if="editing">
@@ -139,7 +163,7 @@ onMounted(load)
         </template>
         <template v-else>
           <el-button :icon="Refresh" @click="load">刷新</el-button>
-          <el-button v-if="canEdit" type="primary" @click="startEdit">编辑资料</el-button>
+          <el-button v-if="canEdit && hasEditableFields" type="primary" @click="startEdit">编辑资料</el-button>
         </template>
       </template>
     </PageHeader>
@@ -151,7 +175,7 @@ onMounted(load)
       :closable="false"
       show-icon
       title="当前账号未绑定人员档案"
-      description="个人资料来自人员档案，账号本身不保存姓名、性别、学历等信息。请联系管理员在「参赛账号」中为当前账号关联人员档案；绑定前不开放资料修改。"
+      description="个人资料来自人员档案；请联系管理员在「参赛账号」中完成绑定，绑定前不开放资料修改。"
     />
     <el-alert
       v-else-if="profileState === 'error'"
@@ -160,7 +184,7 @@ onMounted(load)
       :closable="false"
       show-icon
       title="个人资料读取失败"
-      description="请稍后刷新重试；读取成功前不开放资料修改，避免把空表单覆盖到已有档案。"
+      description="请稍后刷新重试；读取成功前暂不开放资料修改。"
     />
 
     <div v-loading="loading" class="profile-grid">
@@ -215,25 +239,37 @@ onMounted(load)
           </div>
           <div v-if="isCoach" class="info-item">
             <span class="info-item__label">教练员类别</span>
-            <span class="info-item__value muted">由管理员在人员档案维护（正式字典待发布）</span>
+            <span class="info-item__value muted">由管理员维护</span>
           </div>
         </div>
 
         <!-- 编辑模式 -->
         <el-form v-else-if="canEdit" :model="form" label-position="top" class="profile-form">
+          <p class="form-tip form-tip--top">
+            <el-icon><Lock /></el-icon>
+            灰色字段为已登记信息，不可修改。
+          </p>
           <div class="form-grid">
-            <el-form-item label="真实姓名" required>
-              <el-input v-model="form.realName" placeholder="与身份证保持一致" />
+            <el-form-item label="真实姓名" :required="!isRegistered('realName')">
+              <div v-if="isRegistered('realName')" class="readonly-field">
+                {{ person?.realName || '未登记' }}
+              </div>
+              <el-input v-else v-model="form.realName" placeholder="与身份证保持一致" />
             </el-form-item>
             <el-form-item label="性别">
-              <el-select v-model="form.gender" clearable placeholder="未填写" style="width: 100%">
+              <div v-if="isRegistered('gender')" class="readonly-field">{{ genderLabel }}</div>
+              <el-select v-else v-model="form.gender" clearable placeholder="未填写" style="width: 100%">
                 <el-option label="男" value="MALE" />
                 <el-option label="女" value="FEMALE" />
                 <el-option label="未说明" value="UNSPECIFIED" />
               </el-select>
             </el-form-item>
             <el-form-item label="出生日期">
+              <div v-if="isRegistered('birthDate')" class="readonly-field">
+                {{ person?.birthDate || '未登记' }}
+              </div>
               <el-date-picker
+                v-else
                 v-model="form.birthDate"
                 type="date"
                 value-format="YYYY-MM-DD"
@@ -245,7 +281,8 @@ onMounted(load)
               <div class="readonly-field">{{ person?.schoolName || '未登记' }}</div>
             </el-form-item>
             <el-form-item label="学历">
-              <el-select v-model="form.education" style="width: 100%" clearable placeholder="选择学历">
+              <div v-if="isRegistered('education')" class="readonly-field">{{ educationDisplay }}</div>
+              <el-select v-else v-model="form.education" style="width: 100%" clearable placeholder="选择学历">
                 <el-option
                   v-for="(label, value) in EDUCATION_LABELS"
                   :key="value"
@@ -281,10 +318,6 @@ onMounted(load)
             </div>
           </template>
         </div>
-        <p class="form-tip">
-          <el-icon><Lock /></el-icon>
-          个人资料只展示人员档案实际登记的数据；未登记字段保持空白。学校 / 单位、身份证号、手机号、学籍号与教练员类别由管理员维护。
-        </p>
       </section>
 
       <aside class="profile-side">
@@ -294,7 +327,7 @@ onMounted(load)
             <h3>履历材料</h3>
           </div>
           <p class="side-card__text">
-            当前版本履历材料由管理员统一维护，个人端仅可查看归档状态；上传接口开放前请将材料交管理员录入。
+            履历材料由管理员维护，个人端仅可查看归档状态。
           </p>
           <el-button style="width: 100%; margin-top: 14px" @click="router.push('/console/materials')">
             查看履历材料
@@ -466,6 +499,11 @@ onMounted(load)
   margin-top: 18px;
   font-size: 11px;
   color: var(--ink-300);
+}
+
+.form-tip--top {
+  align-items: flex-start;
+  margin: 0 0 18px;
 }
 
 .profile-side {

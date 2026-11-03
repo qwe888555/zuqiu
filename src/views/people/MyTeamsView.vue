@@ -23,8 +23,8 @@ const teamsUnavailable = ref(false)
 
 const pageDescription = computed(() =>
   MOCK_ENABLED
-    ? '查看当前账号关联的球队，并维护归属关系。归属记录用于报名资格审查与履历档案。'
-    : '查看当前账号已核验的现役球队。历史归属记录的查询与维护功能将在后续版本开放。',
+    ? '查看当前账号关联的球队，并维护归属关系。'
+    : '查看当前账号的球队归属记录。',
 )
 
 const form = reactive({
@@ -192,7 +192,7 @@ onMounted(() => {
       :closable="false"
       show-icon
       title="归属关系需经球队或管理员核验"
-      description="同一人员可同时隶属于多支球队（如校队与市州代表队）。核验通过后，归属关系会体现在报名名单与遴选档案中。"
+      description="同一人员可同时隶属于多支球队；核验通过后会体现在报名名单与遴选档案中。"
     />
     <el-alert
       v-else
@@ -201,7 +201,7 @@ onMounted(() => {
       :closable="false"
       show-icon
       title="归属记录由球队端与管理员维护"
-      description="以下记录来自球队成员关系与教练任职关系（含已结束的历史归属），由球队端或管理员核验生效；如需调整请联系所属球队。"
+      description="以下记录由球队端或管理员核验生效，含已结束的历史归属；如需调整请联系所属球队。"
     />
 
     <section class="page-card">

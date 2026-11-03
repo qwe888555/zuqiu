@@ -242,7 +242,7 @@ const routes: RouteRecordRaw[] = [
         path: 'admin/people',
         name: 'admin-people',
         component: () => import('../views/admin/PeopleManageView.vue'),
-        meta: { title: '人员管理', roles: ['ADMIN', 'PROVINCE_REVIEWER'] },
+        meta: { title: '人员管理', roles: ['ADMIN', 'UNIVERSITY'] },
       },
       {
         path: 'admin/subjects',
