@@ -138,7 +138,7 @@ onMounted(async () => {
   <div class="page">
     <PageHeader
       title="教练团队"
-      description="维护主教练、助理教练与保障人员。教练资质需通过人员档案材料审核后方可关联球队。"
+      description="维护球队的主教练、助理教练与保障人员。"
     >
       <template #actions>
         <el-select

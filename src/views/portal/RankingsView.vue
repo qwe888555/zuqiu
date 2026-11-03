@@ -223,7 +223,7 @@ useVisiblePolling(refreshSilently, 30_000)
       </div>
 
       <div v-loading="loading" class="ranking-content">
-        <div v-if="podium.length" class="podium-hall">
+        <div v-if="podium.length" class="podium-hall" :class="{ 'has-list': rest.length }">
           <span class="podium-hall__pitch" aria-hidden="true">
             <i class="podium-hall__box podium-hall__box--left" />
             <i class="podium-hall__box podium-hall__box--right" />
@@ -271,7 +271,12 @@ useVisiblePolling(refreshSilently, 30_000)
           </div>
         </div>
 
-        <section v-if="rest.length" class="list-card">
+        <section v-if="rest.length" class="list-card" :class="{ 'is-attached': podium.length }">
+          <div class="list-title">
+            <span>完整榜单</span>
+            <small>共 {{ rows.length }} 名球员 · 同分并列</small>
+          </div>
+
           <div class="list-head" aria-hidden="true">
             <span>排名</span>
             <span>球员 / 所属球队</span>
@@ -925,13 +930,18 @@ useVisiblePolling(refreshSilently, 30_000)
   width: min(100%, var(--ranking-width));
   margin: 0 auto 12px;
   padding: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid #dce9df;
   border-radius: 14px;
-  background:
-    radial-gradient(ellipse at 88% -10%, rgba(200, 243, 106, 0.16), transparent 46%),
-    radial-gradient(ellipse at 50% -24%, rgba(233, 185, 84, 0.16), transparent 56%),
-    linear-gradient(145deg, #052a20 0%, var(--brand-900) 52%, #0a4a37 100%);
-  box-shadow: 0 18px 40px rgba(7, 59, 44, 0.16);
+  background: var(--brand-50);
+  box-shadow: 0 10px 28px rgba(7, 59, 44, 0.07);
+}
+
+/* 领奖台和完整榜单共用一块浅绿底板，深绿只保留在荣誉卡片上。 */
+.podium-hall.has-list {
+  margin-bottom: 0;
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 10px 28px rgba(7, 59, 44, 0.07);
 }
 
 .podium-hall__pitch {
@@ -946,7 +956,7 @@ useVisiblePolling(refreshSilently, 30_000)
   top: 0;
   bottom: 0;
   left: 50%;
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 1px solid rgba(7, 59, 44, 0.05);
 }
 
 .podium-hall__pitch::after {
@@ -956,9 +966,9 @@ useVisiblePolling(refreshSilently, 30_000)
   left: 50%;
   width: 520px;
   height: 520px;
-  border: 1px solid rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(7, 59, 44, 0.04);
   border-radius: 50%;
-  box-shadow: 0 0 0 64px rgba(255, 255, 255, 0.008);
+  box-shadow: 0 0 0 64px rgba(7, 59, 44, 0.012);
   transform: translate(-50%, -50%);
 }
 
@@ -967,7 +977,7 @@ useVisiblePolling(refreshSilently, 30_000)
   top: 50%;
   width: 100px;
   height: 210px;
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(7, 59, 44, 0.035);
   transform: translateY(-50%);
 }
 
@@ -990,7 +1000,7 @@ useVisiblePolling(refreshSilently, 30_000)
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.13);
+  background: rgba(7, 59, 44, 0.12);
   transform: translate(-50%, -50%);
 }
 
@@ -1002,9 +1012,12 @@ useVisiblePolling(refreshSilently, 30_000)
 }
 
 .podium-hall .podium-card {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
+  background:
+    radial-gradient(ellipse at 88% -10%, rgba(200, 243, 106, 0.12), transparent 46%),
+    linear-gradient(155deg, #0c4837 0%, #073b2c 58%, #052f24 100%);
   color: #fff;
+  box-shadow: 0 12px 26px rgba(7, 59, 44, 0.16);
   animation: hall-rise 0.55s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 
@@ -1030,22 +1043,27 @@ useVisiblePolling(refreshSilently, 30_000)
 
 .podium-hall .podium-card.is-rank-2 {
   border-color: rgba(211, 228, 218, 0.3);
-  background: linear-gradient(180deg, rgba(226, 238, 231, 0.1), rgba(255, 255, 255, 0.04));
+  background:
+    linear-gradient(180deg, rgba(226, 238, 231, 0.1), rgba(255, 255, 255, 0.04)),
+    linear-gradient(155deg, #0c4837 0%, #073b2c 58%, #052f24 100%);
 }
 
 .podium-hall .podium-card.is-rank-3 {
   border-color: rgba(214, 154, 98, 0.38);
-  background: linear-gradient(180deg, rgba(214, 154, 98, 0.12), rgba(255, 255, 255, 0.04));
+  background:
+    linear-gradient(180deg, rgba(214, 154, 98, 0.12), rgba(255, 255, 255, 0.04)),
+    linear-gradient(155deg, #0c4837 0%, #073b2c 58%, #052f24 100%);
 }
 
 .podium-hall .podium-card.is-leader {
   border-color: rgba(233, 185, 84, 0.58);
   background:
     radial-gradient(ellipse at 50% -18%, rgba(233, 185, 84, 0.24), transparent 62%),
-    linear-gradient(180deg, rgba(233, 185, 84, 0.14), rgba(255, 255, 255, 0.05));
+    linear-gradient(180deg, rgba(233, 185, 84, 0.14), rgba(255, 255, 255, 0.05)),
+    linear-gradient(155deg, #0c4837 0%, #073b2c 58%, #052f24 100%);
   color: #fff;
   box-shadow:
-    0 16px 32px rgba(0, 0, 0, 0.26),
+    0 16px 32px rgba(7, 59, 44, 0.24),
     inset 0 1px 0 rgba(255, 230, 170, 0.22);
 }
 
@@ -1071,7 +1089,7 @@ useVisiblePolling(refreshSilently, 30_000)
 
 .podium-hall .podium-card:not(.is-leader):hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 14px 28px rgba(7, 59, 44, 0.22);
 }
 
 .podium-hall .podium-card__rank i {
@@ -1290,6 +1308,39 @@ useVisiblePolling(refreshSilently, 30_000)
   box-shadow: var(--shadow-card);
 }
 
+.list-card.is-attached {
+  margin-top: 0;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--brand-50);
+  box-shadow: 0 14px 30px rgba(7, 59, 44, 0.06);
+}
+
+.list-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 44px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--line);
+  background: #f8faf8;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.list-title small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-400);
+}
+
+.list-card.is-attached .list-title {
+  background: transparent;
+  border-bottom-color: #d7e5da;
+}
+
 .list-head,
 .list-row {
   display: grid;
@@ -1318,6 +1369,19 @@ useVisiblePolling(refreshSilently, 30_000)
 
 .list-row:hover {
   background: #fafcf9;
+}
+
+.list-card.is-attached .list-head {
+  background: rgba(7, 59, 44, 0.035);
+  color: var(--ink-400);
+}
+
+.list-card.is-attached .list-row {
+  background: transparent;
+}
+
+.list-card.is-attached .list-row:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .list-row__rank {
@@ -1558,6 +1622,16 @@ useVisiblePolling(refreshSilently, 30_000)
 
   .list-head {
     display: none;
+  }
+
+  .list-title {
+    height: 42px;
+    padding: 0 16px;
+    font-size: 12.5px;
+  }
+
+  .list-title small {
+    font-size: 10.5px;
   }
 
   .list-row {

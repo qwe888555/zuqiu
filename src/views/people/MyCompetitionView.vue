@@ -106,8 +106,8 @@ const isCoachPerson = computed(
 const coachOnly = computed(() => isCoachPerson.value && !isAthletePerson.value)
 const pageDescription = computed(() =>
   coachOnly.value
-    ? '汇总所执教球队参与的赛事与比赛。教练账号不参与球员进球与红黄牌统计，相关球员数据请前往赛事统计或比赛记录台查看。'
-    : '汇总本人参与的赛事、比赛、进球与红黄牌。仅展示公开接口可核验的数据，缺失明细时不做补造。',
+    ? '汇总所执教球队参与的赛事与比赛；教练账号不展示球员个人数据。'
+    : '汇总本人参与的赛事、比赛、进球与红黄牌。',
 )
 /** 档案接口失败时用登录态里的 personId 兜底，避免整页无法匹配本人数据。 */
 const profileId = computed(() => profile.value?.id || auth.user?.personId || '')
@@ -479,22 +479,13 @@ onMounted(loadBase)
     </PageHeader>
 
     <el-alert
-      v-if="coachOnly"
-      class="scope-alert"
-      type="info"
-      :closable="false"
-      show-icon
-      title="教练账号数据口径"
-      description="本页按所执教球队匹配公开赛程，展示球队参赛赛事与场次；教练不参与球员进球/红黄牌统计，因此不展示球员个人 KPI 与明细。"
-    />
-    <el-alert
-      v-else
+      v-if="!coachOnly"
       class="scope-alert"
       type="info"
       :closable="false"
       show-icon
       title="数据口径说明"
-      description="公开赛程优先按主客队 ID 匹配本人参赛场次，旧接口无 ID 时回退为球队名称匹配；场次按所属球队的公开赛程统计，公开接口没有出场名单，不代表个人实际出场。公开详情未提供逐场事件时，只展示公开射手榜汇总，红黄牌显示为“—”。"
+      description="场次按所属球队的公开赛程统计，公开接口没有出场名单，不代表个人实际出场；缺少逐场事件时只展示射手榜汇总，红黄牌显示为“—”。"
     />
 
     <div v-if="coachOnly" class="stat-grid">

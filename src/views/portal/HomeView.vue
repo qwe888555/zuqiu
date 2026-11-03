@@ -4,10 +4,8 @@ import dayjs from 'dayjs'
 import {
   ArrowRight,
   Calendar,
-  Football,
   Location,
   Ticket,
-  Trophy,
   VideoPlay,
 } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
@@ -24,7 +22,7 @@ import type {
 import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 import { useConsoleEntry } from '../../composables/useConsoleEntry'
-import { goalGapToPrevious, rankGoalRows, type RankedGoalRow } from '../../utils/goalRanking'
+import { rankGoalRows } from '../../utils/goalRanking'
 import { matchDisplayStatus, policyKind, sortPublicEvents } from '../../utils/portal'
 import { publicityNoticeKey } from '../../utils/publications'
 
@@ -122,24 +120,14 @@ const tabRemaining = computed(() => Math.max(0, tabMatches.value.length - 1))
 const rankedGoals = computed(() => rankGoalRows(goals.value))
 const maxGoals = computed(() => rankedGoals.value[0]?.goals || 1)
 const totalGoals = computed(() => rankedGoals.value.reduce((sum, row) => sum + row.goals, 0))
-interface PodiumEntry {
-  row: RankedGoalRow
-  /** 组内名次索引，0 为榜首；与视觉位置分开，便于并列名次处理。 */
-  index: number
-}
-/** 领奖台按“亚军—冠军—季军”的视觉顺序排列；少于三人时按正常顺序展示。 */
-const podiumRows = computed<PodiumEntry[]>(() => {
-  const top = rankedGoals.value.slice(0, 3).map((row, index) => ({ row, index }))
-  if (top.length < 3) return top
-  return [top[1], top[0], top[2]]
-})
-const chasingRows = computed(() => rankedGoals.value.slice(3))
-/** 追赶信息只使用真实相邻名次数据；没有上一名时返回 null。 */
-function podiumDelta(index: number) {
-  if (index === 0) return '金靴领跑'
-  const gap = goalGapToPrevious(rankedGoals.value, index)
-  if (gap === null) return '追赶中'
-  return gap ? `距上一名 ${gap} 球` : '与上一名同分'
+const topScorers = computed(() => rankedGoals.value.slice(0, 3))
+/** 只展示与榜首之间的真实球差，不引入虚构的追赶进度。 */
+function scorerDelta(index: number) {
+  const row = topScorers.value[index]
+  if (!row) return ''
+  const gap = maxGoals.value - row.goals
+  if (!gap) return index === 0 ? '领跑' : '并列领跑'
+  return `距榜首 ${gap} 球`
 }
 const stripHasUpcoming = computed(() => {
   const focusId = featuredMatch.value?.id
@@ -837,7 +825,11 @@ function publicationLink(star: PublicityRecord) {
           </router-link>
         </div>
 
-        <div v-loading="loading" class="match-strip" :class="{ 'is-loading': loading }">
+        <div
+          v-loading="loading"
+          class="match-strip"
+          :class="{ 'is-loading': loading, 'is-sparse': stripMatches.length <= 2 }"
+        >
           <router-link
             v-for="match in stripMatches"
             :key="match.id"
@@ -876,97 +868,64 @@ function publicationLink(star: PublicityRecord) {
 
     <section class="container home-section bottom-section">
       <div class="bottom-grid">
-        <div class="rank-card">
-          <span class="rank-pitch" aria-hidden="true">
-            <i class="rank-pitch__box rank-pitch__box--left" />
-            <i class="rank-pitch__box rank-pitch__box--right" />
-            <i class="rank-pitch__spot" />
-          </span>
-          <div class="section-head section-head--compact rank-head">
+        <div class="scorer-card">
+          <div class="section-head section-head--compact">
             <div>
-              <span class="rank-kicker">
-                <el-icon><Trophy /></el-icon>
-                GOLDEN BOOT
-              </span>
+              <span class="scorer-kicker">TOP SCORERS</span>
               <h2>小学组射手榜</h2>
-              <p v-if="!loading" class="rank-sub">
-                已确认赛果 · {{ goals.length }} 位射手 · 共 {{ totalGoals }} 球
-              </p>
             </div>
-            <router-link to="/rankings" class="section-link section-link--light">
+            <router-link to="/rankings" class="section-link">
               完整榜单
               <el-icon><ArrowRight /></el-icon>
             </router-link>
           </div>
+          <p class="scorer-card__hint">
+            {{ loading ? '正在同步已确认赛果…' : `已确认赛果 · ${goals.length} 位射手 · 共 ${totalGoals} 球` }}
+          </p>
 
-          <div v-if="loading" class="podium podium--loading">
-            <div v-for="n in 3" :key="n" class="podium-skeleton" />
+          <div v-if="loading" class="scorer-list" aria-hidden="true">
+            <span v-for="n in 3" :key="n" class="scorer-skeleton" />
           </div>
 
-          <div
-            v-else-if="goals.length"
-            class="podium"
-            :class="{ 'is-duo': podiumRows.length === 2, 'is-solo': podiumRows.length === 1 }"
-          >
-            <article
-              v-for="entry in podiumRows"
-              :key="entry.row.athleteId"
-              class="podium-card"
-              :class="[`is-rank-${entry.row.rank}`, { 'is-leader': entry.index === 0 }]"
+          <div v-else-if="goals.length" class="scorer-list">
+            <div
+              v-for="(row, index) in topScorers"
+              :key="row.athleteId"
+              class="scorer-row"
+              :class="{ 'is-leader': row.rank === 1 }"
             >
-              <span class="podium-card__rank num">
-                {{ String(entry.row.rank).padStart(2, '0') }}
+              <span class="scorer-row__rank num" :class="`is-rank-${row.rank}`">
+                {{ row.rank }}
               </span>
-              <span v-if="entry.index === 0" class="podium-card__honor">
-                <el-icon><Trophy /></el-icon>
-                金靴
-              </span>
-              <div class="podium-card__avatar">
-                {{ entry.row.athleteName.slice(0, 1) }}
-                <span v-if="entry.index === 0" class="podium-card__medal">
-                  <el-icon><Trophy /></el-icon>
+              <span class="scorer-row__body">
+                <span class="scorer-row__line">
+                  <strong class="scorer-row__name">{{ row.athleteName }}</strong>
+                  <span class="scorer-row__team" :title="row.teamName">{{ row.teamName }}</span>
                 </span>
-              </div>
-              <strong class="podium-card__name">{{ entry.row.athleteName }}</strong>
-              <small class="podium-card__team">{{ entry.row.teamName }}</small>
-              <div class="podium-card__score">
-                <strong class="num">{{ entry.row.goals }}</strong>
-                <span>球</span>
-              </div>
-              <div class="podium-card__bar">
-                <i :style="{ width: goalBarWidth(entry.row.goals) }" />
-              </div>
-              <span class="podium-card__delta">{{ podiumDelta(entry.index) }}</span>
-            </article>
-          </div>
-
-          <div v-else class="rank-empty">
-            <el-icon><Football /></el-icon>
-            <strong>暂无进球数据</strong>
-            <span>赛果确认后将在此更新</span>
-          </div>
-
-          <div v-if="!loading && chasingRows.length" class="chasing">
-            <div class="chasing__title">更多射手</div>
-            <div v-for="row in chasingRows" :key="row.athleteId" class="chasing-row">
-              <span class="chasing-row__rank num">{{ String(row.rank).padStart(2, '0') }}</span>
-              <span class="chasing-row__avatar">{{ row.athleteName.slice(0, 1) }}</span>
-              <span class="chasing-row__body">
-                <strong>{{ row.athleteName }}</strong>
-                <small>{{ row.teamName }}</small>
+                <span class="scorer-row__bar">
+                  <i :style="{ width: goalBarWidth(row.goals) }" />
+                </span>
               </span>
-              <span class="chasing-row__goals num">{{ row.goals }}<small>球</small></span>
+              <span class="scorer-row__score">
+                <span class="scorer-row__goals">
+                  <strong class="num">{{ row.goals }}</strong>
+                  <small>球</small>
+                </span>
+                <em>{{ scorerDelta(index) }}</em>
+              </span>
             </div>
           </div>
 
-          <p v-if="!loading && goals.length" class="rank-footnote">
-            同进球数并列排名 · 赛果确认后自动更新
-          </p>
+          <div v-else class="scorer-empty">
+            <span>暂无进球数据</span>
+            <small>赛果确认后将在此更新</small>
+          </div>
         </div>
 
         <div class="publication-card">
           <div class="section-head section-head--compact">
             <div>
+              <span class="publication-kicker">PUBLIC NOTICE</span>
               <h2>最新公示</h2>
             </div>
             <router-link to="/publications" class="section-link">
@@ -1957,9 +1916,13 @@ function publicationLink(star: PublicityRecord) {
 
 .match-strip {
   display: grid;
-  /* 固定 4 列：只有 1 场时卡片保持 1/4 宽，多场时列宽一致，不会拉满整行。 */
+  /* 4 场时保持横向一排；1–2 场时用两列，避免单场卡片缩在 1/4 宽度里。 */
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.match-strip.is-sparse {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 /* 加载态还没有卡片，用占位高度承载 v-loading，避免 spinner 贴在 0 高度。 */
@@ -2083,8 +2046,9 @@ function publicationLink(star: PublicityRecord) {
 
 .bottom-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
-  align-items: start;
+  /* 与上方赛程区的两列宽度共用同一条中线，避免深色卡片和上方横幅错位。 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
   gap: 20px;
 }
 
@@ -2095,515 +2059,229 @@ function publicationLink(star: PublicityRecord) {
   background: #fff;
 }
 
-.rank-card {
-  position: relative;
-  overflow: hidden;
-  padding: 24px 24px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  background:
-    radial-gradient(ellipse at 88% -12%, rgba(200, 243, 106, 0.22), transparent 46%),
-    linear-gradient(145deg, #052a20 0%, var(--brand-900) 50%, #0a4a37 100%);
-  color: #fff;
-  box-shadow: 0 18px 40px rgba(7, 59, 44, 0.16);
+.scorer-card {
+  display: flex;
+  flex-direction: column;
+  padding: 22px 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fff 0%, #f7fbf8 100%);
 }
 
-/* 极淡的球场线，只提供运动场氛围，不抢文字和卡片。 */
-.rank-pitch {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.rank-pitch::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  border-left: 1px solid rgba(255, 255, 255, 0.055);
-}
-
-.rank-pitch::after {
-  content: '';
-  position: absolute;
-  top: 46%;
-  left: 50%;
-  width: 460px;
-  height: 460px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 50%;
-  box-shadow: 0 0 0 58px rgba(255, 255, 255, 0.009);
-  transform: translate(-50%, -50%);
-}
-
-.rank-pitch__box {
-  position: absolute;
-  top: 50%;
-  width: 86px;
-  height: 190px;
-  border: 1px solid rgba(255, 255, 255, 0.032);
-  transform: translateY(-50%);
-}
-
-.rank-pitch__box--left {
-  left: -1px;
-  border-left: 0;
-  border-radius: 0 10px 10px 0;
-}
-
-.rank-pitch__box--right {
-  right: -1px;
-  border-right: 0;
-  border-radius: 10px 0 0 10px;
-}
-
-.rank-pitch__spot {
-  position: absolute;
-  top: 46%;
-  left: 50%;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
-  transform: translate(-50%, -50%);
-}
-
-.rank-head {
-  position: relative;
-  z-index: 1;
-  align-items: flex-start;
-  margin-bottom: 18px;
-}
-
-.rank-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.scorer-kicker {
+  display: block;
   margin-bottom: 6px;
   font-family: var(--font-display);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
-  color: var(--lime);
+  color: var(--brand-500);
 }
 
-.rank-kicker .el-icon {
-  font-size: 13px;
+.scorer-card__hint {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--ink-500);
 }
 
-.rank-head h2 {
-  font-size: 23px;
-  color: #fff;
+.scorer-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
 }
 
-.rank-sub {
-  margin-top: 6px;
-  font-size: 11.5px;
-  color: var(--on-dark-3);
-}
-
-.rank-card .section-link {
-  color: var(--lime);
-}
-
-.rank-card .section-link:hover {
-  color: #fff;
-}
-
-.podium {
-  position: relative;
-  z-index: 1;
+.scorer-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: end;
-  gap: 10px;
+  flex: 1;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
 }
 
-.podium.is-duo {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-width: 540px;
+.scorer-row:last-child {
+  border-bottom: none;
 }
 
-.podium.is-solo {
-  grid-template-columns: minmax(0, 300px);
-  justify-content: center;
+.scorer-row__rank {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
-.podium-card {
-  position: relative;
+.scorer-row__rank.is-rank-1 {
+  border-color: rgba(233, 185, 84, 0.42);
+  background: #fbf1d9;
+  color: #9c6d16;
+}
+
+.scorer-row__rank.is-rank-2 {
+  background: #f1f5f3;
+  color: #52685c;
+}
+
+.scorer-row__rank.is-rank-3 {
+  background: #f7ede3;
+  color: #8c5d34;
+}
+
+.scorer-row__body {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  gap: 8px;
   min-width: 0;
-  padding: 24px 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.07);
-  text-align: center;
-  animation: podium-rise 0.55s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 
-.podium-card:nth-child(2) {
-  animation-delay: 0.06s;
+.scorer-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 
-.podium-card:nth-child(3) {
-  animation-delay: 0.12s;
-}
-
-@keyframes podium-rise {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .podium-card,
-  .podium-card.is-leader .podium-card__avatar {
-    animation: none;
-  }
-}
-
-.podium-card.is-leader {
-  padding-top: 30px;
-  border-color: rgba(233, 185, 84, 0.58);
-  background:
-    radial-gradient(ellipse at 50% -18%, rgba(233, 185, 84, 0.24), transparent 62%),
-    linear-gradient(180deg, rgba(233, 185, 84, 0.14), rgba(255, 255, 255, 0.05));
-  box-shadow:
-    0 16px 32px rgba(0, 0, 0, 0.26),
-    inset 0 1px 0 rgba(255, 230, 170, 0.22);
-}
-
-.podium-card__rank {
-  position: absolute;
-  top: 10px;
-  left: 12px;
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  color: #b9cec1;
-}
-
-.podium-card.is-leader .podium-card__rank {
-  color: #e9b954;
-}
-
-.podium-card__honor {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 7px;
-  border: 1px solid rgba(233, 185, 84, 0.45);
-  border-radius: 999px;
-  background: rgba(233, 185, 84, 0.14);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #f2cf7d;
-}
-
-.podium-card__honor .el-icon {
-  font-size: 10px;
-}
-
-.podium-card__avatar {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 54px;
-  height: 54px;
-  border: 2px solid rgba(255, 255, 255, 0.18);
-  border-radius: 50%;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04));
-  font-size: 18px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.podium-card.is-leader .podium-card__avatar {
-  width: 64px;
-  height: 64px;
-  border-color: rgba(255, 226, 154, 0.9);
-  background: linear-gradient(145deg, #fbe3a1, #e9b954 58%, #c9922f);
-  color: #4a3008;
-  box-shadow:
-    0 0 0 6px rgba(233, 185, 84, 0.16),
-    0 0 26px rgba(233, 185, 84, 0.22);
-  animation: champion-glow 3.6s ease-in-out infinite;
-}
-
-@keyframes champion-glow {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 6px rgba(233, 185, 84, 0.16),
-      0 0 26px rgba(233, 185, 84, 0.22);
-  }
-
-  50% {
-    box-shadow:
-      0 0 0 10px rgba(233, 185, 84, 0.04),
-      0 0 34px rgba(233, 185, 84, 0.12);
-  }
-}
-
-.podium-card.is-rank-2 .podium-card__avatar {
-  border-color: rgba(211, 228, 218, 0.65);
-  color: #e8f1ec;
-}
-
-.podium-card.is-rank-3 .podium-card__avatar {
-  border-color: rgba(214, 154, 98, 0.8);
-  color: #f7d8b8;
-}
-
-.podium-card__medal {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 2px solid var(--brand-900);
-  border-radius: 50%;
-  background: linear-gradient(145deg, #fbe3a1, #e9b954);
-  color: #5a3a08;
-  font-size: 11px;
-}
-
-.podium-card__name {
-  width: 100%;
-  margin-top: 10px;
-  overflow: hidden;
+.scorer-row__name {
+  flex-shrink: 0;
   font-size: 14px;
-  color: #fff;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  color: var(--ink-900);
 }
 
-.podium-card__team {
-  width: 100%;
-  margin-top: 3px;
+.scorer-row__team {
   overflow: hidden;
-  font-size: 10.5px;
-  color: #c3d6ca;
+  font-size: 11.5px;
+  color: var(--ink-500);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.podium-card__score {
+.scorer-row__bar {
+  width: min(180px, 100%);
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--brand-50);
+}
+
+.scorer-row__bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(200, 243, 106, 0.75), var(--brand-500));
+}
+
+.scorer-row.is-leader .scorer-row__bar i {
+  background: linear-gradient(90deg, #f0d18a, #d7a33b);
+}
+
+.scorer-row__score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 70px;
+}
+
+.scorer-row__goals {
   display: flex;
   align-items: baseline;
   gap: 2px;
-  margin-top: 10px;
 }
 
-.podium-card__score strong {
-  font-size: 32px;
+.scorer-row__goals strong {
+  font-size: 26px;
   font-weight: 800;
   line-height: 1;
-  color: #fff;
+  color: var(--ink-900);
 }
 
-.podium-card.is-leader .podium-card__score strong {
-  font-size: 49px;
-  color: #f2cf7d;
+.scorer-row.is-leader .scorer-row__goals strong {
+  color: #a9791c;
 }
 
-.podium-card__score span {
-  font-size: 10px;
-  color: #b9cec1;
+.scorer-row__goals small {
+  font-size: 10.5px;
+  color: var(--ink-500);
 }
 
-.podium-card__bar {
-  width: 100%;
-  height: 4px;
-  margin-top: 10px;
-  overflow: hidden;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.12);
+.scorer-row__score em {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--ink-400);
+  white-space: nowrap;
 }
 
-.podium-card__bar i {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, rgba(200, 243, 106, 0.45), var(--lime));
+.scorer-row.is-leader .scorer-row__score em {
+  color: #a9791c;
 }
 
-.podium-card.is-leader .podium-card__bar i {
-  background: linear-gradient(90deg, rgba(233, 185, 84, 0.45), #e9b954);
-}
-
-.podium-card__delta {
-  margin-top: 7px;
-  font-size: 10px;
-  color: #c3d6ca;
-}
-
-.podium-card.is-leader .podium-card__delta {
-  color: #f2cf7d;
-}
-
-.podium--loading {
-  min-height: 210px;
-}
-
-.podium-skeleton {
-  height: 210px;
-  border-radius: 12px;
-  background: linear-gradient(
-    100deg,
-    rgba(255, 255, 255, 0.04) 20%,
-    rgba(255, 255, 255, 0.1) 40%,
-    rgba(255, 255, 255, 0.04) 60%
-  );
+.scorer-skeleton {
+  flex: 1;
+  min-height: 72px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(100deg, #f4f7f4 20%, #eaf0eb 40%, #f4f7f4 60%);
   background-size: 200% 100%;
-  animation: rank-shimmer 1.3s linear infinite;
+  animation: scorer-shimmer 1.3s linear infinite;
 }
 
-.podium-skeleton:nth-child(2) {
-  height: 240px;
+.scorer-skeleton:last-child {
+  border-bottom: none;
 }
 
-@keyframes rank-shimmer {
+@keyframes scorer-shimmer {
   from {
     background-position: 200% 0;
   }
+
   to {
     background-position: -200% 0;
   }
 }
 
-.rank-empty {
-  position: relative;
-  z-index: 1;
+.scorer-empty {
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 42px 16px;
-  border: 1px dashed rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
-  color: var(--on-dark-3);
+  justify-content: center;
+  gap: 4px;
+  padding: 28px 0;
+  font-size: 13px;
+  color: var(--ink-500);
 }
 
-.rank-empty .el-icon {
-  font-size: 30px;
-  color: var(--lime);
-}
-
-.rank-empty strong {
-  font-size: 14px;
-  color: #fff;
-}
-
-.rank-empty span {
+.scorer-empty small {
   font-size: 11.5px;
+  color: var(--ink-400);
 }
 
-.chasing {
-  position: relative;
-  z-index: 1;
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.chasing__title {
-  margin-bottom: 4px;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  color: var(--on-dark-3);
-}
-
-.chasing-row {
-  display: grid;
-  grid-template-columns: 24px 30px minmax(0, 1fr) 48px;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 0;
-}
-
-.chasing-row__rank {
-  font-size: 10.5px;
-  color: var(--on-dark-3);
-}
-
-.chasing-row__avatar {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--on-dark-2);
-}
-
-.chasing-row__body {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.chasing-row__body strong,
-.chasing-row__body small {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.chasing-row__body strong {
-  font-size: 12.5px;
-  color: #fff;
-}
-
-.chasing-row__body small {
-  font-size: 10.5px;
-  color: var(--on-dark-3);
-}
-
-.chasing-row__goals {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 2px;
-  font-size: 17px;
-  font-weight: 800;
-  color: var(--lime);
-}
-
-.chasing-row__goals small {
-  font-size: 10px;
-  color: var(--on-dark-3);
-}
-
-.rank-footnote {
-  position: relative;
-  z-index: 1;
-  margin-top: 14px;
-  font-size: 10.5px;
-  color: var(--on-dark-3);
+@media (prefers-reduced-motion: reduce) {
+  .scorer-skeleton {
+    animation: none;
+  }
 }
 
 .publication-card {
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, #fff 0%, #f7fbf8 100%);
+}
+
+.publication-kicker {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--brand-500);
 }
 
 .publication-card__hint {
@@ -2614,11 +2292,13 @@ function publicationLink(star: PublicityRecord) {
 
 .publication-list {
   display: flex;
+  flex: 1;
   flex-direction: column;
 }
 
 .publication-row {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 10px;
   padding: 11px 0;
@@ -2809,7 +2489,8 @@ function publicationLink(star: PublicityRecord) {
     padding: 40px 0;
   }
 
-  .match-strip {
+  .match-strip,
+  .match-strip.is-sparse {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -2817,98 +2498,35 @@ function publicationLink(star: PublicityRecord) {
     padding-bottom: 50px;
   }
 
-  .rank-card,
+  .scorer-card,
   .publication-card {
     padding: 18px;
   }
 
-  .rank-head {
-    flex-wrap: wrap;
+  .scorer-row {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
     gap: 10px;
+    padding: 12px 0;
   }
 
-  .podium,
-  .podium.is-duo,
-  .podium.is-solo {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: none;
-    gap: 8px;
+  .scorer-row__rank {
+    width: 30px;
+    height: 30px;
+    font-size: 11px;
   }
 
-  .podium-card,
-  .podium-card.is-rank-1 {
-    display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) auto;
-    grid-template-areas:
-      'avatar name score'
-      'avatar team score'
-      'bar bar delta';
-    align-items: center;
-    gap: 2px 10px;
-    margin-bottom: 0;
-    padding: 12px 14px 12px 42px;
-    text-align: left;
+  .scorer-row__line {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
   }
 
-  .podium-card__rank {
-    top: 50%;
-    left: 12px;
-    transform: translateY(-50%);
+  .scorer-row__goals strong {
+    font-size: 23px;
   }
 
-  .podium-card__honor {
-    display: none;
-  }
-
-  .podium-card__avatar {
-    grid-area: avatar;
-    width: 40px;
-    height: 40px;
-    font-size: 14px;
-  }
-
-  .podium-card.is-rank-1 .podium-card__avatar {
-    width: 46px;
-    height: 46px;
-  }
-
-  .podium-card__medal {
-    width: 18px;
-    height: 18px;
-    font-size: 9px;
-  }
-
-  .podium-card__name {
-    grid-area: name;
-    margin-top: 0;
-    font-size: 13px;
-  }
-
-  .podium-card__team {
-    grid-area: team;
-    margin-top: 0;
-  }
-
-  .podium-card__score {
-    grid-area: score;
-    margin-top: 0;
-  }
-
-  .podium-card__score strong,
-  .podium-card.is-rank-1 .podium-card__score strong {
-    font-size: 26px;
-  }
-
-  .podium-card__bar {
-    grid-area: bar;
-    margin-top: 6px;
-  }
-
-  .podium-card__delta {
-    grid-area: delta;
-    margin-top: 6px;
-    text-align: right;
-    white-space: nowrap;
+  .scorer-row__score {
+    min-width: 62px;
   }
 }
 </style>
