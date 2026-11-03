@@ -43,17 +43,21 @@ const canReviewPerson = computed(() => auth.isUniversity)
 const ownSchoolOrgId = computed(() => auth.user?.orgId || '')
 
 const loading = ref(false)
+/** 全部已提交档案（不含草稿）；分页在前端完成，避免后端单状态筛选拼出草稿。 */
+const allRows = ref<Person[]>([])
 const rows = ref<Person[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 const filters = reactive({ keyword: '', kind: '', reviewStatus: '' })
+/** 人员管理只展示已提交档案；草稿仅在建档流程内存在。 */
+const SUBMITTED_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const
 const orgs = ref<Organization[]>([])
 /** /me 不返回 orgName；优先用列表里已有的 schoolName 补全，避免下拉显示组织 ID。 */
 const ownSchoolName = computed(
   () =>
     auth.user?.orgName ||
-    rows.value.find((row) => row.schoolName)?.schoolName ||
+    allRows.value.find((row) => row.schoolName)?.schoolName ||
     '本校',
 )
 
@@ -66,6 +70,8 @@ const avatarUrl = ref('')
 const avatarUploading = ref(false)
 /** 新建档案时人员尚不存在，头像文件先暂存本地，保存成功后再上传并回填。 */
 const pendingAvatarFile = ref<File | null>(null)
+/** 已建档但提交审核失败的档案；再次保存只重试提交，避免重复建档。 */
+const pendingSubmitPerson = ref<Person | null>(null)
 
 /**
  * 人员接口按附件安全基线只输出 avatarFileId，不输出公开直链 avatarUrl。
@@ -103,6 +109,8 @@ const batchFileErrors = ref<string[]>([])
 const batchSummary = ref<{ success: number; failure: number } | null>(null)
 /** 本次页面会话内已成功导入的身份证号；重新选择文件时跳过，避免重复建档。 */
 const batchImportedIds = ref<Set<string>>(new Set())
+/** 已创建但提交失败的档案（按身份证号）；重试失败行时只补提交，不重复建档。 */
+const batchDraftPersons = new Map<string, Person>()
 const batchReadyCount = computed(() => batchRows.value.filter((row) => row.status === 'READY').length)
 const batchErrorCount = computed(() => batchRows.value.filter((row) => row.status === 'ERROR').length)
 const batchSuccessCount = computed(() => batchRows.value.filter((row) => row.status === 'SUCCESS').length)
@@ -125,34 +133,107 @@ const form = reactive({
   coachCategory: '',
 })
 
+function comparePeople(a: Person, b: Person): number {
+  const byTime = (b.createdAt || '').localeCompare(a.createdAt || '')
+  if (byTime) return byTime
+  const idA = Number(a.id)
+  const idB = Number(b.id)
+  return (Number.isFinite(idB) ? idB : 0) - (Number.isFinite(idA) ? idA : 0)
+}
+
+/** 已提交档案在前端分页；头像只为当前页换取签名地址。 */
+async function applyPage() {
+  const maxPage = Math.max(1, Math.ceil(allRows.value.length / pageSize.value))
+  if (page.value > maxPage) page.value = maxPage
+  const start = (page.value - 1) * pageSize.value
+  rows.value = allRows.value.slice(start, start + pageSize.value)
+  // 并行换取签名地址，失败只影响该行头像占位，不阻断列表
+  await Promise.all(
+    rows.value.map(async (row) => {
+      if (!row.avatarFileId || row.avatarUrl) return
+      row.avatarUrl = await resolveAvatarUrl(row.avatarFileId)
+    }),
+  )
+}
+
 async function load() {
   if (!canUsePeople.value) {
+    allRows.value = []
     rows.value = []
     total.value = 0
     return
   }
   loading.value = true
   try {
-    const res = await personApi.list({
-      page: page.value,
-      pageSize: pageSize.value,
-      keyword: filters.keyword || undefined,
-      kind: filters.kind || undefined,
-      reviewStatus: filters.reviewStatus || undefined,
-    })
-    rows.value = res.items
-    total.value = res.total
-    // 并行换取签名地址，失败只影响该行头像占位，不阻断列表
-    await Promise.all(
-      rows.value.map(async (row) => {
-        if (!row.avatarFileId || row.avatarUrl) return
-        row.avatarUrl = await resolveAvatarUrl(row.avatarFileId)
+    // 后端只支持单状态筛选，且没有“排除草稿”参数；按已提交状态分别拉全后合并，
+    // 草稿不会进入列表，筛选计数与分页也以已提交档案为准。
+    const statuses = filters.reviewStatus
+      ? [filters.reviewStatus]
+      : [...SUBMITTED_STATUSES]
+    let truncated = false
+    const batches = await Promise.all(
+      statuses.map(async (reviewStatus) => {
+        const result = await fetchAllPages(
+          (current, size) =>
+            personApi.list({
+              page: current,
+              pageSize: size,
+              keyword: filters.keyword || undefined,
+              kind: filters.kind || undefined,
+              reviewStatus,
+            }),
+          100,
+          50,
+        )
+        if (result.truncated) truncated = true
+        return result.items
       }),
     )
+    const merged = new Map<string, Person>()
+    for (const row of batches.flat()) {
+      if (row.reviewStatus === 'DRAFT') continue
+      merged.set(row.id, row)
+    }
+    allRows.value = [...merged.values()].sort(comparePeople)
+    total.value = allRows.value.length
+    if (truncated) {
+      ElMessage.warning('人员档案较多，列表仅加载了部分记录；请用姓名或证件号缩小范围')
+    }
+    await applyPage()
   } catch {
+    allRows.value = []
     rows.value = []
+    total.value = 0
   } finally {
     loading.value = false
+  }
+}
+
+async function changePage() {
+  await applyPage()
+}
+
+async function changePageSize() {
+  page.value = 1
+  await applyPage()
+}
+
+/** 建档后立即提交；提交响应丢失时以服务端状态为准，避免误判为失败。 */
+async function ensurePersonSubmitted(person: Person, silent = false): Promise<Person> {
+  const options = silent ? { silentError: true } : undefined
+  try {
+    return await personApi.submit(person.id, person.version, options)
+  } catch (error) {
+    try {
+      const latest = await personApi.get(person.id, options)
+      if (latest.reviewStatus === 'PENDING' || latest.reviewStatus === 'APPROVED') return latest
+      if (latest.reviewStatus === 'REJECTED' && latest.version !== person.version) {
+        return await personApi.submit(latest.id, latest.version, options)
+      }
+    } catch {
+      // 读回失败时保留原始提交错误
+    }
+    throw error
   }
 }
 
@@ -227,6 +308,7 @@ function search() {
 function openCreate() {
   editingId.value = null
   editingVersion.value = 0
+  pendingSubmitPerson.value = null
   avatarFileId.value = ''
   avatarUrl.value = ''
   pendingAvatarFile.value = null
@@ -247,6 +329,7 @@ function openCreate() {
 async function openEdit(row: Person) {
   editingId.value = row.id
   editingVersion.value = row.version
+  pendingSubmitPerson.value = null
   avatarFileId.value = row.avatarFileId || ''
   avatarUrl.value = row.avatarUrl || ''
   pendingAvatarFile.value = null
@@ -273,7 +356,7 @@ async function save() {
   // 后端 PersonCreate/PersonUpdate 限 1 项（2026-10-30 一人一身份裁定），
   // 这里提前拦截，避免勾选两项后提交才报“请求参数不合法”。
   if (form.kinds.length !== 1) return ElMessage.warning('人员类型只能选择一项')
-  if (!editingId.value) {
+  if (!editingId.value && !pendingSubmitPerson.value) {
     // 后端创建链强制要求身份证号（冻结唯一约束无 NULL）；表单提前校验，
     // 避免提交后才报错。
     if (!/^\d{17}[\dXx]$/.test(form.idNumber.trim()))
@@ -284,7 +367,34 @@ async function save() {
   if (!form.education.trim()) return ElMessage.warning('请填写学历')
   saving.value = true
   try {
-    if (editingId.value) {
+    if (pendingSubmitPerson.value) {
+      // 已建档但提交失败：保存本次修改后重试提交，不能再调用创建接口。
+      if (pendingAvatarFile.value) {
+        const record = await fileApi.upload(
+          pendingAvatarFile.value,
+          'PERSON',
+          pendingSubmitPerson.value.id,
+          'AVATAR',
+        )
+        avatarFileId.value = record.id
+        pendingAvatarFile.value = null
+      }
+      const updated = await personApi.update(pendingSubmitPerson.value.id, {
+        realName: form.realName.trim(),
+        kinds: form.kinds,
+        gender: form.gender,
+        birthDate: form.birthDate || undefined,
+        schoolOrgId: form.schoolOrgId || undefined,
+        avatarFileId: avatarFileId.value || undefined,
+        education: form.education,
+        coachCategory: form.coachCategory,
+        version: pendingSubmitPerson.value.version,
+      })
+      pendingSubmitPerson.value = updated
+      await ensurePersonSubmitted(updated)
+      pendingSubmitPerson.value = null
+      ElMessage.success('人员档案已提交审核')
+    } else if (editingId.value) {
       await personApi.update(editingId.value, {
         realName: form.realName.trim(),
         kinds: form.kinds,
@@ -312,23 +422,71 @@ async function save() {
         education: form.education.trim() || undefined,
         coachCategory: form.coachCategory || undefined,
       })
+      // 列表中不再展示草稿，建档后必须立即提交，否则档案会无处可见。
+      pendingSubmitPerson.value = created
+      let latest = created
       if (pendingAvatarFile.value) {
         // 人员主档已存在才能建立 PERSON 归属；上传后立即回填头像。
         const record = await fileApi.upload(pendingAvatarFile.value, 'PERSON', created.id, 'AVATAR')
-        await personApi.update(created.id, {
-          realName: form.realName,
+        avatarFileId.value = record.id
+        pendingAvatarFile.value = null
+        latest = await personApi.update(created.id, {
+          realName: form.realName.trim(),
           avatarFileId: record.id,
           version: created.version,
         })
+        pendingSubmitPerson.value = latest
       }
-      ElMessage.success('人员档案已创建（草稿），请提交审核')
+      await ensurePersonSubmitted(latest)
+      pendingSubmitPerson.value = null
+      ElMessage.success('人员档案已创建并提交审核')
     }
     dialogVisible.value = false
     await load()
   } catch {
+    if (pendingSubmitPerson.value) {
+      // 提交可能已生效但响应丢失：读回状态，避免把已提交档案误判为草稿。
+      try {
+        const latest = await personApi.get(pendingSubmitPerson.value.id, { silentError: true })
+        if (latest.reviewStatus === 'PENDING' || latest.reviewStatus === 'APPROVED') {
+          pendingSubmitPerson.value = null
+          dialogVisible.value = false
+          await load()
+          ElMessage.success('人员档案已提交审核')
+          return
+        }
+        pendingSubmitPerson.value = latest
+      } catch {
+        // 保留本地状态，仍可按“重新提交审核”重试
+      }
+      ElMessage.warning('档案已保存，但尚未提交审核，请点击“重新提交审核”重试')
+    }
     // 拦截器提示
   } finally {
     saving.value = false
+  }
+}
+
+/** 关闭新建/编辑弹窗；未提交的草稿会在列表中不可见，必须明确确认。 */
+async function closePersonDialog(done: () => void) {
+  if (!pendingSubmitPerson.value) {
+    done()
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `「${pendingSubmitPerson.value.realName}」已保存为草稿但尚未提交审核，关闭后将无法在人员列表中找到。确定关闭？`,
+      '档案尚未提交',
+      {
+        confirmButtonText: '仍要关闭',
+        cancelButtonText: '返回提交',
+        type: 'warning',
+      },
+    )
+    pendingSubmitPerson.value = null
+    done()
+  } catch {
+    // 返回提交
   }
 }
 
@@ -474,10 +632,25 @@ async function removePerson(row: Person) {
 
 /* ---------------------------------------------------------------- 批量建档 */
 
-function closeBatch(done: () => void) {
+async function closeBatch(done: () => void) {
   if (batchParsing.value || batchImporting.value) {
     ElMessage.warning('正在处理文件，请等待完成后再关闭')
     return
+  }
+  if (batchDraftPersons.size) {
+    try {
+      await ElMessageBox.confirm(
+        `本次会话有 ${batchDraftPersons.size} 条档案已创建但尚未提交审核；关闭前建议先点击“重试失败行”。确定关闭？`,
+        '存在未提交档案',
+        {
+          confirmButtonText: '仍要关闭',
+          cancelButtonText: '返回重试',
+          type: 'warning',
+        },
+      )
+    } catch {
+      return
+    }
   }
   done()
 }
@@ -598,7 +771,7 @@ async function downloadPersonTemplate() {
       ['3. 身份证号必须把单元格设为「文本」再填写，否则 Excel 会丢失 18 位精度。'],
       ['4. 人员类型填写「运动员」或「教练员」；一个人只能选一种类型。'],
       ['5. 学校填写组织编码或学校全称；遇到同名学校时必须填写组织编码。'],
-      ['6. 同一文件内身份证号不能重复；导入后档案为草稿，需提交审核后才进入待审核。'],
+      ['6. 同一文件内身份证号不能重复；导入成功后档案自动提交审核。'],
       ['7. 性别、出生日期留空时，系统会尝试从身份证号推导。'],
       ['8. 系统只读取第一个工作表；表头可以放在标题行下方（前 20 行内自动识别）。'],
     ])
@@ -625,8 +798,8 @@ function batchStatusType(status: PersonImportStatus): 'success' | 'danger' | 'wa
 
 function batchRowMessage(row: PersonImportRow): string {
   if (row.status === 'ERROR') return row.errors.join('；') || '校验未通过'
-  if (row.status === 'FAILED') return row.serverMessage || '服务器拒绝创建'
-  if (row.status === 'SUCCESS') return row.serverMessage || '已创建人员档案'
+  if (row.status === 'FAILED') return row.serverMessage || '创建或提交审核失败'
+  if (row.status === 'SUCCESS') return row.serverMessage || '已创建并提交审核'
   return '校验通过，等待导入'
 }
 
@@ -669,14 +842,31 @@ async function importBatch(retryOnly = false) {
     // 控制并发，避免一次导入把后端写接口打满；每一行独立成功或失败。
     await mapLimit(targets, 3, async (row) => {
       row.serverMessage = undefined
+      const draftKey = row.idNumber || String(row.rowNumber)
       try {
-        await personApi.create(buildPersonImportPayload(row), { silentError: true })
+        // 上次导入已建档但提交失败的行，本次只补提交，不能重复调用创建接口。
+        let created = batchDraftPersons.get(draftKey)
+        const reused = !!created
+        if (!created) {
+          created = await personApi.create(buildPersonImportPayload(row), { silentError: true })
+          batchDraftPersons.set(draftKey, created)
+        }
+        try {
+          await ensurePersonSubmitted(created, true)
+        } catch (error) {
+          row.serverMessage = reused
+            ? `档案已创建，提交审核仍未成功：${httpMessageOf(error)}；可再次重试`
+            : `档案已创建，但提交审核失败：${httpMessageOf(error)}；可点击“重试失败行”补提交`
+          throw error
+        }
+        batchDraftPersons.delete(draftKey)
         row.status = 'SUCCESS'
+        row.serverMessage = '已创建并提交审核'
         if (row.idNumber) batchImportedIds.value.add(row.idNumber)
         summary.success += 1
       } catch (error) {
         row.status = 'FAILED'
-        row.serverMessage = httpMessageOf(error)
+        if (!row.serverMessage) row.serverMessage = httpMessageOf(error)
         summary.failure += 1
       }
     })
@@ -684,10 +874,10 @@ async function importBatch(retryOnly = false) {
     if (summary.success) await load()
     if (summary.failure) {
       ElMessage.warning(
-        `已导入 ${summary.success} 人，${summary.failure} 人失败；失败原因见问题列，可修正后重试`,
+        `已导入并提交审核 ${summary.success} 人，${summary.failure} 人失败；失败原因见问题列，可修正后重试`,
       )
     } else {
-      ElMessage.success(`已导入 ${summary.success} 人，档案为草稿，请提交审核`)
+      ElMessage.success(`已导入并提交审核 ${summary.success} 人`)
     }
   } finally {
     batchImporting.value = false
@@ -704,7 +894,7 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="人员管理"
-      description="统一管理运动员与教练员档案。学校账号仅可维护本校人员；新建档案为草稿，提交后进入待审核。"
+      description="统一管理运动员与教练员档案。学校账号仅可维护本校人员；列表仅显示已提交档案，新建或导入后自动提交审核。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -729,7 +919,6 @@ onMounted(() => {
           <el-option label="教练员" value="COACH" />
         </el-select>
         <el-select v-model="filters.reviewStatus" placeholder="全部状态" clearable @change="search">
-          <el-option label="草稿" value="DRAFT" />
           <el-option label="待审核" value="PENDING" />
           <el-option label="已通过" value="APPROVED" />
           <el-option label="已驳回" value="REJECTED" />
@@ -780,7 +969,7 @@ onMounted(() => {
             <el-button link type="primary" :icon="Document" @click="openMaterials(row)">材料</el-button>
             <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
             <el-button
-              v-if="row.reviewStatus === 'DRAFT' || row.reviewStatus === 'REJECTED'"
+              v-if="row.reviewStatus === 'REJECTED'"
               link
               type="primary"
               :icon="Promotion"
@@ -812,12 +1001,17 @@ onMounted(() => {
         v-model:page="page"
         v-model:page-size="pageSize"
         :total="total"
-        @current-change="load"
-        @size-change="search"
+        @current-change="changePage"
+        @size-change="changePageSize"
       />
     </section>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑人员档案' : '新建人员档案'" width="660px">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑人员档案' : '新建人员档案'"
+      width="660px"
+      :before-close="closePersonDialog"
+    >
       <div class="avatar-row">
         <span class="avatar-preview">
           <img v-if="avatarUrl" :src="avatarUrl" alt="头像" />
@@ -890,17 +1084,27 @@ onMounted(() => {
           </el-form-item>
         </div>
         <el-alert
-          v-if="!editingId"
+          v-if="pendingSubmitPerson"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="档案已保存，尚未提交审核"
+          description="修改后可点击“重新提交审核”；关闭弹窗后该草稿不会出现在人员列表。"
+        />
+        <el-alert
+          v-else-if="!editingId"
           type="info"
           :closable="false"
           show-icon
-          title="新建档案为草稿"
-          description="证件号与手机号仅脱敏保存。保存后需提交审核，待学校审核通过后才能进入球队候选池。"
+          title="保存后直接提交审核"
+          description="证件号与手机号仅脱敏保存。保存后档案直接进入待审核，审核通过后才能进入球队候选池。"
         />
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存档案</el-button>
+        <el-button @click="closePersonDialog(() => (dialogVisible = false))">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="save">
+          {{ pendingSubmitPerson ? '重新提交审核' : editingId ? '保存档案' : '保存并提交审核' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -917,7 +1121,7 @@ onMounted(() => {
         :closable="false"
         show-icon
         title="先用 Excel 批量建档，再在「参赛账号」发放邀请"
-        description="系统逐行校验身份证号、手机号、人员类型与学校；有问题的行不会写入。导入后档案为草稿，需提交审核。"
+        description="系统逐行校验身份证号、手机号、人员类型与学校；有问题的行不会写入。导入成功后档案自动提交审核。"
       />
 
       <div class="batch-toolbar">
@@ -972,7 +1176,7 @@ onMounted(() => {
         :description="
           batchSummary.failure
             ? '失败行已保留在下方；可修正文件后重新选择，或直接重试失败行。已成功的行不会重复创建。'
-            : '人员列表已刷新，档案为草稿，请提交审核。'
+            : '人员列表已刷新，档案已提交审核。'
         "
       />
 
@@ -1028,7 +1232,10 @@ onMounted(() => {
       </el-table>
 
       <template #footer>
-        <el-button :disabled="batchParsing || batchImporting" @click="batchVisible = false">关闭</el-button>
+        <el-button
+          :disabled="batchParsing || batchImporting"
+          @click="closeBatch(() => (batchVisible = false))"
+        >关闭</el-button>
         <el-button
           v-if="batchFailedCount"
           :loading="batchImporting"
