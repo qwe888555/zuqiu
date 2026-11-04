@@ -1156,6 +1156,46 @@ on('POST', '/people', ({ body }) => {
   return person
 })
 
+// 学校端提交档案复核：DRAFT/REJECTED → PENDING（与后端 services.submit_person 同口径）
+on('POST', '/people/:id/submit', ({ params, body }) => {
+  const person = persons.find((p) => p.id === params.id)
+  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
+  const version = Number(body.version)
+  if (Number.isFinite(version) && version !== person.version) {
+    throw new MockHttpError(409, 'VERSION_CONFLICT', '档案已被修改，请刷新后重试')
+  }
+  if (!['DRAFT', 'REJECTED'].includes(person.reviewStatus || '')) {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '仅草稿或被驳回的档案可提交复核')
+  }
+  person.reviewStatus = 'PENDING'
+  person.version += 1
+  return person
+})
+
+// 学校端档案审核（仅 UNIVERSITY）：PENDING → APPROVED/REJECTED，驳回必填原因
+on('POST', '/people/:id/review', ({ params, body }) => {
+  const person = persons.find((p) => p.id === params.id)
+  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
+  if (person.reviewStatus !== 'PENDING') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '仅待复核的档案可审核')
+  }
+  const version = Number(body.version)
+  if (Number.isFinite(version) && version !== person.version) {
+    throw new MockHttpError(409, 'VERSION_CONFLICT', '档案已被修改，请刷新后重试')
+  }
+  const decision = str(body.decision || '')
+  const reason = str(body.reason || '').trim()
+  if (decision !== 'APPROVE' && decision !== 'REJECT') {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', 'decision 仅支持 APPROVE/REJECT')
+  }
+  if (decision === 'REJECT' && !reason) {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', '驳回必须填写原因')
+  }
+  person.reviewStatus = decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
+  person.version += 1
+  return person
+})
+
 on('PUT', '/people/:id', ({ params, body }) => {
   const person = persons.find((p) => p.id === params.id)
   if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
@@ -1164,33 +1204,6 @@ on('PUT', '/people/:id', ({ params, body }) => {
   if (body.avatarFileId) {
     person.avatarUrl = `https://picsum.photos/seed/${encodeURIComponent(str(body.avatarFileId))}/300/300`
   }
-  return person
-})
-
-on('POST', '/people/:id/submit', ({ params, body }) => {
-  const person = persons.find((p) => p.id === params.id)
-  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
-  ensureVersion(person.version, body.version)
-  if (person.reviewStatus === 'APPROVED') {
-    throw new MockHttpError(409, 'STATE_CONFLICT', '档案已通过审核，无需重复提交')
-  }
-  person.reviewStatus = 'PENDING'
-  person.version += 1
-  return person
-})
-
-on('POST', '/people/:id/review', ({ params, body }) => {
-  const person = persons.find((p) => p.id === params.id)
-  if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')
-  ensureVersion(person.version, body.version)
-  if (person.reviewStatus !== 'PENDING') {
-    throw new MockHttpError(409, 'STATE_CONFLICT', '仅待审核档案可以审核')
-  }
-  if (body.decision === 'REJECT' && !str(body.reason).trim()) {
-    throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '驳回时必须填写原因')
-  }
-  person.reviewStatus = body.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'
-  person.version += 1
   return person
 })
 
@@ -1858,9 +1871,13 @@ function assertEnrollmentVisible(config: AxiosRequestConfig, enrollment: Enrollm
 }
 
 function canOperateEnrollment(account: Account, enrollment: Enrollment): boolean {
+  // 与后端 scope.ensure_enrollment_creator 同口径：created_by 为空不设限，
+  // 非空且非本人则拒绝（同校他人维护会 403）。
+  const creatorBlocked = Boolean(enrollment.createdBy) && enrollment.createdBy !== account.id
   const universityOwner =
     account.roles.includes('UNIVERSITY') &&
-    schoolOrgIdOfEnrollment(enrollment) === account.orgId
+    schoolOrgIdOfEnrollment(enrollment) === account.orgId &&
+    !creatorBlocked
   const teamOwner =
     account.roles.includes('TEAM') && Boolean(account.teamIds?.includes(enrollment.teamId))
   return universityOwner || teamOwner
@@ -2101,10 +2118,18 @@ on('GET', '/enrollments/:id', ({ params, config }) => {
   const enrollment = enrollments.find((e) => e.id === params.id)
   if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
   assertEnrollmentVisible(config, enrollment)
+  const players = rosterItems.filter((r) => r.id.startsWith(`roster_${enrollment.id}_`))
+  // 后端 to_detail 的实时人员审核状态（只读展示，终审仍由后端复验）
+  const currentAuditStatuses: Record<string, string> = {}
+  players.forEach((player) => {
+    const person = persons.find((p) => p.id === player.athleteId)
+    if (person) currentAuditStatuses[player.athleteId] = person.reviewStatus || 'PENDING'
+  })
   return {
     ...enrollment,
-    players: rosterItems.filter((r) => r.id.startsWith(`roster_${enrollment.id}_`)),
+    players,
     attachments: attachmentsOf(enrollment.id),
+    currentAuditStatuses,
   }
 })
 
@@ -2192,6 +2217,62 @@ on('PUT', '/enrollments/:id/players/:rid', ({ params, body, config }) => {
   if (!item) throw new MockHttpError(404, 'NOT_FOUND', '名单条目不存在')
   Object.assign(item, pickFields(body, ['jerseyNumber', 'position']), { version: item.version + 1 })
   return item
+})
+
+// E-2 名单资格确认（学校端/球队端）：与后端 services.qualify_roster 同口径。
+on('PUT', '/enrollments/:id/players/:rid/qualification', ({ params, body, config }) => {
+  const enrollment = enrollments.find((e) => e.id === params.id)
+  if (!enrollment) throw new MockHttpError(404, 'NOT_FOUND', '报名单不存在')
+  if (enrollment.status === 'APPROVED') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '报名单已终审通过，不允许资格操作')
+  }
+  const account = requireEnrollmentOperator(config, enrollment)
+  const item = rosterOf(enrollment.id).find((r) => r.id === params.rid)
+  if (!item) throw new MockHttpError(404, 'NOT_FOUND', '名单条目不存在')
+  const version = Number(body.version)
+  if (Number.isFinite(version) && version !== item.version) {
+    throw new MockHttpError(409, 'VERSION_CONFLICT', '名单已被修改，请刷新后重试')
+  }
+  const action = str(body.action || '')
+  const reason = str(body.reason || '').trim()
+  const current = item.qualificationStatus || 'QUALIFIED'
+  if (current === 'EXCLUDED') {
+    throw new MockHttpError(409, 'STATE_CONFLICT', '已剔除条目不可再操作')
+  }
+  if (['REJECT', 'EXCLUDE', 'REVOKE'].includes(action) && !reason) {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', '该资格操作必须填写原因')
+  }
+  if (action === 'CONFIRM') {
+    item.qualificationStatus = 'QUALIFIED'
+    item.confirmedAt = new Date().toISOString()
+    item.confirmedBy = account.id
+    item.qualificationReason = ''
+  } else if (action === 'REJECT') {
+    item.qualificationStatus = 'DISQUALIFIED'
+    item.confirmedAt = null
+    item.confirmedBy = ''
+    item.qualificationReason = reason
+  } else if (action === 'EXCLUDE') {
+    item.qualificationStatus = 'EXCLUDED'
+    item.confirmedAt = null
+    item.confirmedBy = ''
+    item.qualificationReason = reason
+  } else if (action === 'REVOKE') {
+    if (current !== 'QUALIFIED' || !item.confirmedAt) {
+      throw new MockHttpError(409, 'STATE_CONFLICT', '当前无有效资格凭证，无法撤销')
+    }
+    item.confirmedAt = null
+    item.confirmedBy = ''
+    item.qualificationReason = reason
+  } else {
+    throw new MockHttpError(400, 'INVALID_ARGUMENT', '不支持的资格操作')
+  }
+  item.version += 1
+  return {
+    qualificationStatus: item.qualificationStatus,
+    confirmedAt: item.confirmedAt || null,
+    confirmedBy: item.confirmedBy || '',
+  }
 })
 
 on('DELETE', '/enrollments/:id/players/:rid', ({ params, config }) => {

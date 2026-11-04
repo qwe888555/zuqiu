@@ -361,6 +361,8 @@ export const eventApi = {
 export interface EnrollmentDetail extends Enrollment {
   players?: RosterItem[]
   attachments?: EnrollmentAttachment[]
+  /** 详情实时返回的人员档案审核状态（只读展示，终审仍由后端实时复验）。 */
+  currentAuditStatuses?: Record<string, string>
 }
 
 /** 报名接口只返回 ID 与 teamName；名称缺失时回退到 ID，人数由名单推导。 */
@@ -391,6 +393,13 @@ export const enrollmentApi = {
   players: (id: string, params?: Query) =>
     http.get<PageResult<RosterItem>>(`/enrollments/${id}/players`, params),
   player: (id: string, rid: string) => http.get<RosterItem>(`/enrollments/${id}/players/${rid}`),
+  /** E-2 名单资格确认（学校端）：CONFIRM/REJECT/EXCLUDE/REVOKE，REJECT/EXCLUDE/REVOKE 必填 reason */
+  qualify: (
+    id: string,
+    rid: string,
+    data: { action: 'CONFIRM' | 'REJECT' | 'EXCLUDE' | 'REVOKE'; version: number; reason?: string },
+  ): Promise<{ qualificationStatus?: string; confirmedAt?: string | null; confirmedBy?: string }> =>
+    http.put(`/enrollments/${id}/players/${rid}/qualification`, data),
   addPlayer: (id: string, data: Query) => http.post<RosterItem>(`/enrollments/${id}/players`, data),
   updatePlayer: (id: string, rid: string, data: Query) =>
     http.put<RosterItem>(`/enrollments/${id}/players/${rid}`, data),

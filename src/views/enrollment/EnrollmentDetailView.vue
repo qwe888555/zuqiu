@@ -109,7 +109,10 @@ const isSchoolOwner = computed(
   () =>
     auth.roles.includes('UNIVERSITY') &&
     Boolean(detail.value) &&
-    detail.value?.schoolOrgId === auth.user?.orgId,
+    detail.value?.schoolOrgId === auth.user?.orgId &&
+    // 后端 scope.ensure_enrollment_creator：created_by 为空不设限，非空且非
+    // 本人则 403，此处同口径（同校他人看到按钮点击必 403）。
+    (!detail.value?.createdBy || detail.value?.createdBy === auth.user?.accountId),
 )
 /** 球队端的归属按 /me 返回的 teamIds 判断；后端对球队端只校验报名所属球队在数据范围内。 */
 const isTeamOwner = computed(
@@ -138,6 +141,42 @@ const canReview = computed(() => {
   if (auth.roles.includes('CITY')) return status === 'PENDING_CITY_REVIEW'
   return status === 'PENDING_PROVINCE_REVIEW'
 })
+
+/** 名单资格确认（E-2）：后端 rosterQualify 放行 TEAM+UNIVERSITY，本页仅学校端展示。 */
+const canQualify = computed(
+  () =>
+    auth.roles.includes('UNIVERSITY') &&
+    Boolean(detail.value) &&
+    detail.value?.schoolOrgId === auth.user?.orgId &&
+    // D-2：报名终审通过后资格操作全部 409，按钮同步隐藏
+    detail.value?.status !== 'APPROVED',
+)
+
+/** 名单资格展示态：QUALIFIED 无凭证仍需人工确认（终审硬门槛看凭证不看状态值）。 */
+function qualificationMeta(row: RosterItem) {
+  const status = row.qualificationStatus || 'QUALIFIED'
+  if (status === 'EXCLUDED') return { label: '已剔除', type: 'info' as const }
+  if (status === 'DISQUALIFIED') return { label: '资格不符', type: 'danger' as const }
+  if (status === 'PENDING_VERIFICATION') return { label: '待核实', type: 'warning' as const }
+  return row.confirmedAt
+    ? { label: '已确认', type: 'success' as const }
+    : { label: '待确认', type: 'warning' as const }
+}
+
+function auditMeta(row: RosterItem) {
+  const status = detail.value?.currentAuditStatuses?.[row.athleteId]
+  if (!status) return { label: '—', type: 'info' as const }
+  if (status === 'APPROVED') return { label: '已通过', type: 'success' as const }
+  if (status === 'REJECTED') return { label: '已驳回', type: 'danger' as const }
+  return { label: '待审核', type: 'warning' as const }
+}
+
+function personStatusOf(row: RosterItem): string {
+  return detail.value?.currentAuditStatuses?.[row.athleteId] || ''
+}
+
+/** 人员档案审核操作仅学校端（后端 personSubmit/personReview 只放行 UNIVERSITY）。 */
+const canReviewPerson = computed(() => auth.roles.includes('UNIVERSITY'))
 
 const rosterAthleteIds = computed(
   () => new Set((detail.value?.players || []).map((player) => player.athleteId)),
@@ -672,6 +711,95 @@ async function removePlayer(rid: string, name: string, version: number) {
   }
 }
 
+type QualifyAction = 'CONFIRM' | 'REJECT' | 'EXCLUDE' | 'REVOKE'
+
+/**
+ * E-2 名单资格确认（学校端）：CONFIRM 写入确认凭证（终审双轨硬门槛看凭证）；
+ * REJECT/EXCLUDE/REVOKE 必填原因，EXCLUDE 不可逆。
+ */
+async function qualifyPlayer(row: RosterItem, action: QualifyAction) {
+  const titles: Record<QualifyAction, string> = {
+    CONFIRM: '确认资格',
+    REJECT: '驳回资格',
+    EXCLUDE: '剔除名单',
+    REVOKE: '撤销凭证',
+  }
+  try {
+    let reason = ''
+    if (action === 'CONFIRM') {
+      await ElMessageBox.confirm(
+        `确认「${row.athleteName}」的参赛资格属实？确认后写入凭证，作为终审依据。`,
+        titles[action],
+        { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' },
+      )
+    } else {
+      const tips: Record<Exclude<QualifyAction, 'CONFIRM'>, string> = {
+        REJECT: '请填写驳回原因（该球员保留名单但标记资格不符）',
+        EXCLUDE: '请填写剔除原因（剔除后不可恢复，仅影响本次报名）',
+        REVOKE: '请填写撤销原因（撤销后需重新确认方可终审通过）',
+      }
+      const { value } = await ElMessageBox.prompt(
+        tips[action],
+        titles[action],
+        {
+          confirmButtonText: '提交',
+          cancelButtonText: '取消',
+          inputValidator: (input: string) => (input.trim() ? true : '必须填写原因'),
+        },
+      )
+      reason = value.trim()
+    }
+    await enrollmentApi.qualify(enrollmentId.value, row.id, { action, version: row.version, reason })
+    ElMessage.success(`${titles[action]}已完成`)
+    await load()
+  } catch {
+    // 取消或拦截器已提示
+  }
+}
+
+/** 提交人员档案复核：DRAFT/REJECTED → PENDING。 */
+async function submitPersonArchive(row: RosterItem) {
+  try {
+    const person = await personApi.get(row.athleteId)
+    await personApi.submit(person.id, person.version)
+    ElMessage.success('已提交复核')
+    await load()
+  } catch {
+    // 拦截器提示
+  }
+}
+
+/** 学校端档案终审：PENDING → APPROVED / REJECTED（驳回必填原因）。 */
+async function reviewPersonArchive(row: RosterItem, decision: 'APPROVE' | 'REJECT') {
+  try {
+    const person = await personApi.get(row.athleteId)
+    let reason = ''
+    if (decision === 'REJECT') {
+      const { value } = await ElMessageBox.prompt(
+        '请填写驳回原因（运动员档案将退回学校修正）',
+        '驳回档案',
+        {
+          confirmButtonText: '提交',
+          cancelButtonText: '取消',
+          inputValidator: (input: string) => (input.trim() ? true : '必须填写原因'),
+        },
+      )
+      reason = value.trim()
+    } else {
+      await ElMessageBox.confirm(
+        `确认通过「${person.realName || row.athleteName}」的人员档案？通过后方可用于报名终审。`,
+        '审核通过',
+        { confirmButtonText: '通过', cancelButtonText: '取消', type: 'warning' },
+      )
+    }
+    await personApi.review(person.id, { decision, reason, version: person.version })
+    ElMessage.success(decision === 'APPROVE' ? '档案已通过' : '档案已驳回')
+    await load()
+  } catch {
+    // 取消或拦截器已提示
+  }
+}
+
 async function removeEnrollment() {
   if (!detail.value) return
   try {
@@ -1091,6 +1219,79 @@ onMounted(load)
                 <template #default="{ row }">{{ positionLabel(row.position) }}</template>
               </el-table-column>
               <el-table-column prop="schoolName" label="所在学校" min-width="160" />
+              <el-table-column label="名单资格" width="100" align="center">
+                <template #default="{ row }">
+                  <el-tooltip
+                    :content="row.qualificationReason || '尚无人工确认凭证'"
+                    :disabled="!row.qualificationReason && !!row.confirmedAt"
+                    placement="top"
+                  >
+                    <el-tag :type="qualificationMeta(row).type" size="small">
+                      {{ qualificationMeta(row).label }}
+                    </el-tag>
+                  </el-tooltip>
+                </template>
+              </el-table-column>
+              <el-table-column label="档案审核" width="200" align="center">
+                <template #default="{ row }">
+                  <el-tag :type="auditMeta(row).type" size="small" effect="plain">
+                    {{ auditMeta(row).label }}
+                  </el-tag>
+                  <template v-if="canReviewPerson">
+                    <el-button
+                      v-if="['DRAFT', 'REJECTED'].includes(personStatusOf(row))"
+                      link
+                      type="primary"
+                      size="small"
+                      @click="submitPersonArchive(row)"
+                    >
+                      提交复核
+                    </el-button>
+                    <template v-if="personStatusOf(row) === 'PENDING'">
+                      <el-button link type="success" size="small" @click="reviewPersonArchive(row, 'APPROVE')">
+                        通过
+                      </el-button>
+                      <el-button link type="danger" size="small" @click="reviewPersonArchive(row, 'REJECT')">
+                        驳回
+                      </el-button>
+                    </template>
+                  </template>
+                </template>
+              </el-table-column>
+              <el-table-column v-if="canQualify" label="资格操作" width="190" align="right">
+                <template #default="{ row }">
+                  <template v-if="row.qualificationStatus !== 'EXCLUDED'">
+                    <el-button
+                      v-if="!row.confirmedAt || row.qualificationStatus !== 'QUALIFIED'"
+                      link
+                      type="primary"
+                      @click="qualifyPlayer(row, 'CONFIRM')"
+                    >
+                      确认
+                    </el-button>
+                    <el-button
+                      v-if="row.qualificationStatus === 'QUALIFIED' && row.confirmedAt"
+                      link
+                      type="warning"
+                      @click="qualifyPlayer(row, 'REVOKE')"
+                    >
+                      撤销
+                    </el-button>
+                    <el-button
+                      v-if="row.qualificationStatus !== 'DISQUALIFIED'"
+                      link
+                      type="danger"
+                      @click="qualifyPlayer(row, 'REJECT')"
+                    >
+                      驳回
+                    </el-button>
+                    <el-button link type="danger" @click="qualifyPlayer(row, 'EXCLUDE')">
+                      剔除
+                    </el-button>
+                  </template>
+                  <span v-else class="muted">不可逆</span>
+                </template>
+              </el-table-column>
               <el-table-column v-if="canEdit" label="操作" width="140" align="right">
                 <template #default="{ row }">
                   <el-button link type="primary" :icon="Edit" @click="openEditPlayer(row)">编辑</el-button>
