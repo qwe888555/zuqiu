@@ -325,6 +325,7 @@ export const teamApi = {
     http.delete<{ success: boolean }>(`/teams/${id}/members/${memberId}`, { version }),
   coaches: (id: string, params: Query, options?: { silentError?: boolean }) =>
     http.get<PageResult<TeamCoach>>(`/teams/${id}/coaches`, params, options),
+  /** 候选教练（学校端/球队端共用）：仅本校已审核通过且未在本队现役的教练。 */
   searchCoaches: (id: string, keyword: string) =>
     http.post<Person[]>(`/teams/${id}/coaches/search`, { keyword }),
   addCoach: (id: string, data: Query) => http.post<TeamCoach>(`/teams/${id}/coaches`, data),

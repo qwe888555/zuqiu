@@ -85,6 +85,8 @@ async function searchPeople() {
   if (!teamId.value || !searchKeyword.value.trim()) return
   searching.value = true
   try {
+    // 教练候选走球队域接口：通用 /people/search 对 TEAM 账号只返回本队现役
+    // 成员（均为运动员），按 COACH 过滤后恒为空，添加教练按钮实际不可用。
     candidates.value = await teamApi.searchCoaches(teamId.value, searchKeyword.value.trim())
   } catch {
     candidates.value = []

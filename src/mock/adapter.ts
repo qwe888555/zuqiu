@@ -1477,6 +1477,20 @@ on('DELETE', '/teams/:id/members/:memberId', ({ params, query }) => {
   return { success: true }
 })
 
+on('POST', '/teams/:id/coaches/search', ({ params, body }) => {
+  const keyword = str(body.keyword)
+  const team = teams.find((t) => t.id === params.id)
+  if (!team) throw new MockHttpError(404, 'NOT_FOUND', '球队不存在')
+  // 与后端一致：仅本校、档案已审核通过、具备 COACH 身份且未在本队现役。
+  return persons
+    .filter((p) => p.kinds.includes('COACH'))
+    .filter((p) => p.reviewStatus === 'APPROVED')
+    .filter((p) => p.schoolOrgId === team.orgId)
+    .filter((p) => contains(p.realName, keyword) || contains(p.maskedIdNumber, keyword))
+    .filter((p) => !teamCoaches.some((c) => c.teamId === params.id && c.coachId === p.id))
+    .slice(0, 20)
+})
+
 on('GET', '/teams/:id/coaches', ({ params, query }) => {
   let items = teamCoaches.filter((c) => c.teamId === params.id)
   if (query.reviewStatus) items = items.filter((c) => c.reviewStatus === query.reviewStatus)
