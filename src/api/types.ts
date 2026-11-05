@@ -403,6 +403,8 @@ export interface Enrollment {
   submissionNo: number
   contactName: string
   maskedContactPhone?: string
+  /** 创建者账号 id：学校端编辑/提交仅创建者可操作（与后端 scope 同口径）。 */
+  createdBy?: string
   remarks?: string
   editable: boolean
   snapshotId?: string
@@ -425,6 +427,11 @@ export interface RosterItem {
   photoUrl?: string
   gender?: 'MALE' | 'FEMALE' | 'UNSPECIFIED'
   schoolName?: string
+  /** E-2 名单资格：QUALIFIED/DISQUALIFIED/EXCLUDED/PENDING_VERIFICATION */
+  qualificationStatus?: 'QUALIFIED' | 'DISQUALIFIED' | 'EXCLUDED' | 'PENDING_VERIFICATION'
+  qualificationReason?: string
+  confirmedAt?: string | null
+  confirmedBy?: string
   version: number
 }
 

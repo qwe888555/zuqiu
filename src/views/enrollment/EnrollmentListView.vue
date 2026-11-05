@@ -163,8 +163,15 @@ function goDetail(row: Enrollment) {
   router.push(`/console/enrollments/${row.id}`)
 }
 
+/** 与后端 scope.ensure_enrollment_creator 同口径：学校端仅创建者本人可操作。 */
+function isCreator(row: Enrollment) {
+  return !auth.roles.includes('UNIVERSITY') || !row.createdBy || row.createdBy === auth.user?.accountId
+}
+
 function canEdit(row: Enrollment) {
-  return canReport.value && (row.status === 'DRAFT' || row.status === 'REJECTED' || row.status === 'WITHDRAWN')
+  if (!canReport.value) return false
+  if (!isCreator(row)) return false
+  return row.status === 'DRAFT' || row.status === 'REJECTED' || row.status === 'WITHDRAWN'
 }
 
 function schoolLine(row: Enrollment): string {
@@ -323,7 +330,7 @@ onMounted(async () => {
               提交
             </el-button>
             <el-button
-              v-if="canReport && (row.status === 'PENDING_CITY_REVIEW' || row.status === 'PENDING_PROVINCE_REVIEW')"
+              v-if="canReport && isCreator(row) && (row.status === 'PENDING_CITY_REVIEW' || row.status === 'PENDING_PROVINCE_REVIEW')"
               link
               type="warning"
               @click="handleWithdraw(row)"

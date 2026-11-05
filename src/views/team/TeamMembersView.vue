@@ -6,6 +6,7 @@ import { fileApi, personApi, teamApi } from '../../api'
 import type { Person, TeamMember } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import { usePermission } from '../../composables/usePermission'
+import { useAuthStore } from '../../stores/auth'
 import { POSITION_LABELS, positionLabel } from '../../config/labels'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
@@ -16,6 +17,7 @@ import SafeImage from '../../components/common/SafeImage.vue'
 
 const { teams, teamId, loadTeams } = useTeamScope()
 const { can } = usePermission()
+const auth = useAuthStore()
 /**
  * 成员照片实际写回人员主档（PUT /people/{id}），后端 personUpdate 仅放开 ADMIN；
  * 球队/学校账号只维护成员关系，展示上传入口会必然 403 并留下孤立文件。
@@ -125,6 +127,151 @@ function openAdd() {
   selected.value = null
   memberForm.jerseyNumber = rows.value.length + 1
   memberForm.position = 'MF'
+}
+
+// ---------------------------------------------------------------- 本校人员档案（学校端）
+/** 后端 personCreate/personSubmit/personReview 均只放行 UNIVERSITY（P0-2）。 */
+const canManagePerson = computed(() => auth.roles.includes('UNIVERSITY'))
+const personDialogVisible = ref(false)
+const personLoading = ref(false)
+const personRows = ref<Person[]>([])
+const personTotal = ref(0)
+const personPage = ref(1)
+const personPageSize = ref(20)
+const personFilter = ref('')
+const personKeyword = ref('')
+
+const PERSON_STATUS_LABELS: Record<string, string> = {
+  DRAFT: '草稿',
+  PENDING: '待复核',
+  APPROVED: '已通过',
+  REJECTED: '已驳回',
+}
+
+function personStatusType(status?: string) {
+  if (status === 'APPROVED') return 'success'
+  if (status === 'REJECTED') return 'danger'
+  if (status === 'PENDING') return 'warning'
+  return 'info'
+}
+
+async function loadPersons() {
+  personLoading.value = true
+  try {
+    const res = await personApi.list({
+      page: personPage.value,
+      pageSize: personPageSize.value,
+      keyword: personKeyword.value || undefined,
+      reviewStatus: personFilter.value || undefined,
+    })
+    personRows.value = res.items
+    personTotal.value = res.total
+  } catch {
+    // 拦截器提示
+  } finally {
+    personLoading.value = false
+  }
+}
+
+function openPersonDialog() {
+  personDialogVisible.value = true
+  personPage.value = 1
+  personKeyword.value = ''
+  personFilter.value = ''
+  void loadPersons()
+}
+
+/** DRAFT/REJECTED → PENDING：学校把档案提交复核（否则终审必挂）。 */
+async function submitPersonArchive(row: Person) {
+  try {
+    await personApi.submit(row.id, row.version)
+    ElMessage.success('已提交复核')
+    await loadPersons()
+  } catch {
+    // 拦截器提示
+  }
+}
+
+/** 学校端档案终审：PENDING → APPROVED/REJECTED（驳回必填原因）。 */
+async function reviewPersonArchive(row: Person, decision: 'APPROVE' | 'REJECT') {
+  try {
+    let reason = ''
+    if (decision === 'REJECT') {
+      const { value } = await ElMessageBox.prompt('请填写驳回原因', '驳回档案', {
+        confirmButtonText: '提交',
+        cancelButtonText: '取消',
+        inputValidator: (input: string) => (input.trim() ? true : '必须填写原因'),
+      })
+      reason = value.trim()
+    } else {
+      await ElMessageBox.confirm(`确认通过「${row.realName}」的人员档案？`, '审核通过', {
+        confirmButtonText: '通过',
+        cancelButtonText: '取消',
+        type: 'warning',
+      })
+    }
+    await personApi.review(row.id, { decision, reason, version: row.version })
+    ElMessage.success(decision === 'APPROVE' ? '档案已通过' : '档案已驳回')
+    await loadPersons()
+  } catch {
+    // 取消或拦截器提示
+  }
+}
+
+// ---------------------------------------------------------------- 学校端新建人员
+const createVisible = ref(false)
+const creating = ref(false)
+const createForm = reactive({
+  realName: '',
+  gender: 'MALE',
+  birthDate: '',
+  idNumber: '',
+  phone: '',
+  kinds: ['ATHLETE'] as string[],
+  education: '',
+})
+
+function openCreate() {
+  Object.assign(createForm, {
+    realName: '',
+    gender: 'MALE',
+    birthDate: '',
+    idNumber: '',
+    phone: '',
+    kinds: ['ATHLETE'],
+    education: '',
+  })
+  createVisible.value = true
+}
+
+async function savePerson() {
+  if (!createForm.realName.trim()) return ElMessage.warning('请填写姓名')
+  if (!createForm.birthDate) return ElMessage.warning('请选择出生日期（报名按出生日期预检年龄）')
+  // 后端创建链强制 18 位身份证号与 11 位手机号（schema pattern），提前校验避免 400。
+  if (!/^\d{17}[\dXx]$/.test(createForm.idNumber.trim())) return ElMessage.warning('请填写 18 位身份证号')
+  if (!/^1\d{10}$/.test(createForm.phone.trim())) return ElMessage.warning('请填写 11 位手机号')
+  if (createForm.kinds.length !== 1) return ElMessage.warning('人员类型只能选择一项')
+  if (!createForm.education.trim()) return ElMessage.warning('请填写学历')
+  creating.value = true
+  try {
+    await personApi.create({
+      realName: createForm.realName.trim(),
+      kinds: createForm.kinds,
+      gender: createForm.gender,
+      birthDate: createForm.birthDate,
+      idNumber: createForm.idNumber.trim(),
+      phone: createForm.phone.trim(),
+      schoolOrgId: auth.user?.orgId || undefined,
+      education: createForm.education.trim(),
+    })
+    ElMessage.success('档案已创建，请提交复核并审核通过后加入球队')
+    createVisible.value = false
+    await loadPersons()
+  } catch {
+    // 拦截器提示
+  } finally {
+    creating.value = false
+  }
 }
 
 async function searchPeople() {
@@ -261,6 +408,7 @@ onMounted(async () => {
           <el-option v-for="item in teams" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button v-if="canManagePerson" @click="openPersonDialog">本校人员档案</el-button>
         <el-button type="primary" :icon="Plus" @click="openAdd">添加球员</el-button>
       </template>
     </PageHeader>
@@ -468,6 +616,140 @@ onMounted(async () => {
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
         <el-button type="primary" :loading="savingEdit" @click="saveMemberEdit">保存修改</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 本校人员档案（学校端）：建档 → 提交复核 → 学校终审，打通报名终审的人员门槛 -->
+    <el-dialog v-model="personDialogVisible" title="本校人员档案" width="860px">
+      <FilterBar>
+        <el-input
+          v-model="personKeyword"
+          placeholder="搜索姓名"
+          :prefix-icon="Search"
+          clearable
+          style="width: 220px"
+          @keyup.enter="(personPage = 1), loadPersons()"
+          @clear="(personPage = 1), loadPersons()"
+        />
+        <el-select
+          v-model="personFilter"
+          placeholder="审核状态"
+          clearable
+          style="width: 160px"
+          @change="(personPage = 1), loadPersons()"
+        >
+          <el-option label="草稿" value="DRAFT" />
+          <el-option label="待复核" value="PENDING" />
+          <el-option label="已通过" value="APPROVED" />
+          <el-option label="已驳回" value="REJECTED" />
+        </el-select>
+        <el-button type="primary" plain @click="(personPage = 1), loadPersons()">查询</el-button>
+        <span class="filter-bar__spacer" />
+        <el-button type="primary" :icon="Plus" @click="openCreate">新建人员</el-button>
+      </FilterBar>
+
+      <el-table v-loading="personLoading" :data="personRows" style="width: 100%">
+        <el-table-column label="姓名" min-width="120">
+          <template #default="{ row }">
+            <strong>{{ row.realName }}</strong>
+          </template>
+        </el-table-column>
+        <el-table-column label="学校" min-width="160">
+          <template #default="{ row }">{{ row.schoolName || '未登记' }}</template>
+        </el-table-column>
+        <el-table-column label="身份" width="100">
+          <template #default="{ row }">{{ (row.kinds || []).join(' / ') || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="审核状态" width="110">
+          <template #default="{ row }">
+            <el-tag :type="personStatusType(row.reviewStatus)" size="small">
+              {{ PERSON_STATUS_LABELS[row.reviewStatus || 'DRAFT'] || '草稿' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="240" align="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="['DRAFT', 'REJECTED'].includes(row.reviewStatus || 'DRAFT')"
+              link
+              type="primary"
+              @click="submitPersonArchive(row)"
+            >
+              提交复核
+            </el-button>
+            <template v-if="row.reviewStatus === 'PENDING'">
+              <el-button link type="success" @click="reviewPersonArchive(row, 'APPROVE')">
+                通过
+              </el-button>
+              <el-button link type="danger" @click="reviewPersonArchive(row, 'REJECT')">
+                驳回
+              </el-button>
+            </template>
+            <span v-if="row.reviewStatus === 'APPROVED'" class="muted">已生效</span>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <PaginationBar
+        v-model:page="personPage"
+        v-model:page-size="personPageSize"
+        :total="personTotal"
+        :page-sizes="[20, 50, 100]"
+        @current-change="loadPersons"
+        @size-change="(personPage = 1), loadPersons()"
+      />
+      <template #footer>
+        <el-button @click="personDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="createVisible" title="新建人员档案" width="560px">
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="一人一身份，且身份证号 / 手机号必填"
+        description="保存后档案为草稿，需在列表中「提交复核」并审核通过，方可加入球队与报名。"
+      />
+      <el-form :model="createForm" label-position="top">
+        <div class="form-grid">
+          <el-form-item label="姓名" required>
+            <el-input v-model="createForm.realName" placeholder="真实姓名" maxlength="100" />
+          </el-form-item>
+          <el-form-item label="身份" required>
+            <el-select v-model="createForm.kinds" disabled style="width: 100%">
+              <el-option label="运动员" value="ATHLETE" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="性别">
+            <el-select v-model="createForm.gender" style="width: 100%">
+              <el-option label="男" value="MALE" />
+              <el-option label="女" value="FEMALE" />
+              <el-option label="未说明" value="UNSPECIFIED" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="出生日期" required>
+            <el-date-picker
+              v-model="createForm.birthDate"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+          <el-form-item label="身份证号" required>
+            <el-input v-model="createForm.idNumber" placeholder="18 位身份证号" maxlength="18" />
+          </el-form-item>
+          <el-form-item label="手机号" required>
+            <el-input v-model="createForm.phone" placeholder="11 位手机号" maxlength="11" />
+          </el-form-item>
+          <el-form-item label="学历" required>
+            <el-input v-model="createForm.education" placeholder="如：小学 / 初中 / 高中" maxlength="100" />
+          </el-form-item>
+        </div>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="savePerson">保存</el-button>
       </template>
     </el-dialog>
   </div>
