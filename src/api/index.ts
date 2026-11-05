@@ -325,6 +325,8 @@ export const teamApi = {
     http.delete<{ success: boolean }>(`/teams/${id}/members/${memberId}`, { version }),
   coaches: (id: string, params: Query, options?: { silentError?: boolean }) =>
     http.get<PageResult<TeamCoach>>(`/teams/${id}/coaches`, params, options),
+  searchCoaches: (id: string, keyword: string) =>
+    http.post<Person[]>(`/teams/${id}/coaches/search`, { keyword }),
   addCoach: (id: string, data: Query) => http.post<TeamCoach>(`/teams/${id}/coaches`, data),
   removeCoach: (id: string, coachId: string, version?: number) =>
     http.delete<{ success: boolean }>(`/teams/${id}/coaches/${coachId}`, { version }),

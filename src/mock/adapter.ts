@@ -124,6 +124,9 @@ function requireAccount(config: AxiosRequestConfig): Account {
  */
 const messageReadAt = new Map<string, Map<string, string>>()
 
+/** 上传成功后按文件 ID 记住展示地址，供球队资料保存媒体文件 ID 时回填 URL。 */
+const mockUploadedFileUrls = new Map<string, string>()
+
 function messageForAccount(accountId: string, message: Message): Message {
   const readAt = messageReadAt.get(accountId)?.get(message.id)
   // 始终返回副本：前端标记已读时会原地修改 item，不能改到共享的 mock 数据。
@@ -1021,7 +1024,7 @@ function makeFileRecord(file: any, config: AxiosRequestConfig) {
   const name = file?.name || file?.originalName || 'uploaded-file.jpg'
   const isImage = /\.(jpg|jpeg|png|webp)$/i.test(name) || str(file?.type).startsWith('image/')
   const body = parseBody<Record<string, unknown>>(config)
-  return {
+  const record = {
     id: nextId('file'),
     ownerType: str(body.ownerType) || 'PERSON',
     ownerId: str(body.ownerId) || 'unknown',
@@ -1035,6 +1038,8 @@ function makeFileRecord(file: any, config: AxiosRequestConfig) {
       : undefined,
     version: 1,
   }
+  if (record.url) mockUploadedFileUrls.set(record.id, record.url)
+  return record
 }
 
 on('GET', '/files/:id', ({ params }) => ({
@@ -1351,12 +1356,25 @@ on('PUT', '/teams/:id', ({ params, body, config }) => {
   if (!team) throw new MockHttpError(404, 'NOT_FOUND', '球队不存在')
   ensureVersion(team.version, body.version)
   if (!account.roles.includes('ADMIN')) {
-    if (!account.roles.includes('UNIVERSITY') || team.orgId !== account.orgId) {
+    const ownUniversityTeam = account.roles.includes('UNIVERSITY') && team.orgId === account.orgId
+    const ownTeam = account.roles.includes('TEAM') && Boolean(account.teamIds?.includes(team.id))
+    if (!ownUniversityTeam && !ownTeam) {
       throw new MockHttpError(403, 'FORBIDDEN', '仅可维护本校球队')
     }
   }
   const patch = pickFields(body, ['name', 'shortName', 'category', 'campusName', 'gender', 'coachName', 'intro', 'flagUrl', 'emblemUrl', 'groupPhotoUrl'])
   if (patch.gender && !['MALE', 'FEMALE', 'MIXED'].includes(str(patch.gender))) delete patch.gender
+  // 与真实后端对齐：前端保存的是媒体文件 ID，mock 侧按 ID 回填可展示 URL。
+  const mediaIdFields = [
+    ['flagFileId', 'flagUrl'],
+    ['emblemFileId', 'emblemUrl'],
+    ['groupPhotoFileId', 'groupPhotoUrl'],
+  ] as const
+  for (const [idField, urlField] of mediaIdFields) {
+    const fileId = str(body[idField])
+    const url = fileId ? mockUploadedFileUrls.get(fileId) : undefined
+    if (url) patch[urlField] = url
+  }
   Object.assign(team, patch, { version: team.version + 1 })
   return team
 })
@@ -1451,6 +1469,20 @@ on('GET', '/teams/:id/coaches', ({ params, query }) => {
   if (query.reviewStatus) items = items.filter((c) => c.reviewStatus === query.reviewStatus)
   if (query.category) items = items.filter((c) => c.category === query.category)
   return pageOf(items, query)
+})
+
+on('POST', '/teams/:id/coaches/search', ({ params, body }) => {
+  const keyword = str(body.keyword)
+  const team = teams.find((t) => t.id === params.id)
+  if (!team) throw new MockHttpError(404, 'NOT_FOUND', '球队不存在')
+  // 与后端一致：仅本校、档案已审核通过、具备教练身份且未在本队现役的教练；姓名或身份证后四位。
+  return persons
+    .filter((p) => p.kinds.includes('COACH'))
+    .filter((p) => p.reviewStatus === 'APPROVED')
+    .filter((p) => p.schoolOrgId === team.orgId)
+    .filter((p) => contains(p.realName, keyword) || contains(p.maskedIdNumber, keyword))
+    .filter((p) => !teamCoaches.some((c) => c.teamId === params.id && c.coachId === p.id))
+    .slice(0, 20)
 })
 
 on('POST', '/teams/:id/coaches', ({ params, body }) => {

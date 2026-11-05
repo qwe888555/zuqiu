@@ -96,6 +96,35 @@ const media = reactive({
 
 const uploadingMedia = ref('')
 
+/**
+ * 后端 team_out 只回传队徽/队旗/合影的文件 ID，不回传展示 URL；
+ * 页面需要先用 fileApi.signedUrl 换取短期地址，否则保存后刷新图片就会消失。
+ */
+const mediaUrlCache = new Map<string, string>()
+
+async function resolveMediaUrl(fileId?: string): Promise<string> {
+  if (!fileId) return ''
+  const cached = mediaUrlCache.get(fileId)
+  if (cached) return cached
+  try {
+    const { url } = await fileApi.signedUrl(fileId)
+    if (url) mediaUrlCache.set(fileId, url)
+    return url || ''
+  } catch {
+    // 文件不可读时保留占位，不阻断资料页加载。
+    return ''
+  }
+}
+
+async function withMediaUrls(detail: Team): Promise<Team> {
+  const [flagUrl, emblemUrl, groupPhotoUrl] = await Promise.all([
+    detail.flagUrl || resolveMediaUrl(detail.flagFileId),
+    detail.emblemUrl || resolveMediaUrl(detail.emblemFileId),
+    detail.groupPhotoUrl || resolveMediaUrl(detail.groupPhotoFileId),
+  ])
+  return { ...detail, flagUrl, emblemUrl, groupPhotoUrl }
+}
+
 const canEdit = computed(() => can('team.manage'))
 const isSchool = computed(() => auth.roles.includes('UNIVERSITY'))
 // 球队端只维护所属球队；新建、删除球队属于学校端的下级管理能力。
@@ -127,7 +156,7 @@ async function loadTeam(options?: { silentError?: boolean }) {
   detailLoading.value = true
   try {
     const detail = await teamApi.get(teamId.value, options)
-    team.value = detail
+    team.value = await withMediaUrls(detail)
     supportedFields.shortName = 'shortName' in detail
     supportedFields.campusName = 'campusName' in detail
     supportedFields.gender = 'gender' in detail
@@ -208,7 +237,9 @@ async function uploadMedia(
   if (!team.value) return
   uploadingMedia.value = kind
   try {
-    const record = await fileApi.upload(options.file, 'TEAM', team.value.id, 'TEAM_MEDIA')
+    // 后端文件类别白名单没有 TEAM_MEDIA；队徽/队旗/合影都是门户展示图片，
+    // 复用通用图片类别 CMS_IMAGE（仅 jpg/jpeg/png，与上传控件 accept 一致）。
+    const record = await fileApi.upload(options.file, 'TEAM', team.value.id, 'CMS_IMAGE')
     const idKey = `${kind}FileId` as const
     const urlKey = `${kind}Url` as const
     media[idKey] = record.id

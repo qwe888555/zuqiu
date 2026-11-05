@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Plus, Refresh, Search } from '@element-plus/icons-vue'
-import { personApi, teamApi } from '../../api'
+import { teamApi } from '../../api'
 import { isNotFound } from '../../api/http'
 import type { CoachCategory, Person, TeamCoach } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
@@ -82,12 +82,10 @@ function openAdd() {
 }
 
 async function searchPeople() {
-  if (!searchKeyword.value.trim()) return
+  if (!teamId.value || !searchKeyword.value.trim()) return
   searching.value = true
   try {
-    const res = await personApi.search({ keyword: searchKeyword.value.trim() })
-    const existing = new Set(rows.value.map((row) => row.coachId))
-    candidates.value = res.filter((person) => person.kinds.includes('COACH') && !existing.has(person.id))
+    candidates.value = await teamApi.searchCoaches(teamId.value, searchKeyword.value.trim())
   } catch {
     candidates.value = []
   } finally {

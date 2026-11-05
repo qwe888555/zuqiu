@@ -281,6 +281,10 @@ export interface Team {
   flagUrl?: string
   emblemUrl?: string
   groupPhotoUrl?: string
+  /** 后端只回传文件 ID，展示地址需经 fileApi.signedUrl 换取。 */
+  flagFileId?: string
+  emblemFileId?: string
+  groupPhotoFileId?: string
   memberCount?: number
   status?: 'PENDING' | 'APPROVED'
   version: number
