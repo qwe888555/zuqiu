@@ -117,7 +117,7 @@ const roleText = computed(() => {
   if (auth.roles.includes('PROVINCE_REVIEWER')) return '处理省级终审、赛事配置、成绩发布与内容运营。'
   if (auth.roles.includes('CITY')) return '审核本市学校报名，完成初审、统计与导出，不代学校填报。'
   if (auth.roles.includes('MATCH_RECORDER')) return '负责比赛现场记录、比分与图文直播。'
-  if (isPlayer.value) return '维护个人档案，关注公示与所属球队动态；履历材料当前由管理员统一维护。'
+  if (isPlayer.value) return '维护个人档案与履历材料，关注公示与所属球队动态；材料提交后由学校端审核。'
   if (isSchool.value) return '以学校为报送主体，统筹本校及分校区球队、名额与材料报送。'
   if (isTeam.value) return '维护所属球队资料、名单与材料；可直接为本队创建、提交报名并跟踪审核进度。'
   return '查看报名进度，维护球队资料与名单。'
@@ -183,7 +183,7 @@ const quickActions = computed(() => {
   if (isPlayer.value) {
     return [
       { label: '完善个人资料', desc: '姓名、性别与学历', path: '/console/profile', icon: User },
-      { label: '查看履历材料', desc: '当前由管理员维护', path: '/console/materials', icon: Collection },
+      { label: '维护履历材料', desc: '上传证书与证明，查看审核状态', path: '/console/materials', icon: Collection },
       { label: '我的球队', desc: '查看归属与球队资料', path: '/console/my-teams', icon: Tickets },
       { label: '我的公示', desc: '公示记录与状态', path: '/console/my-publications', icon: Trophy },
     ]

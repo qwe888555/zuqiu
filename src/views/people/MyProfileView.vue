@@ -327,10 +327,10 @@ onMounted(load)
             <h3>履历材料</h3>
           </div>
           <p class="side-card__text">
-            履历材料由管理员维护，个人端仅可查看归档状态。
+            本人可上传教练资质、运动员证书、学籍证明等材料，提交后由学校端或管理员审核。
           </p>
           <el-button style="width: 100%; margin-top: 14px" @click="router.push('/console/materials')">
-            查看履历材料
+            维护履历材料
           </el-button>
         </div>
       </aside>

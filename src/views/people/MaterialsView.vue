@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
-import { Document, Refresh } from '@element-plus/icons-vue'
-import { materialApi, meApi } from '../../api'
+import { ElMessage, type UploadRequestOptions } from 'element-plus'
+import { Document, Plus, Refresh, UploadFilled } from '@element-plus/icons-vue'
+import { fileApi, materialApi, meApi } from '../../api'
 import type { Material, Person } from '../../api/types'
 import { httpStatusOf } from '../../utils/httpError'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -20,7 +21,46 @@ const restricted = ref(false)
 /** 账号未绑定人员档案（404）。 */
 const profileMissing = ref(false)
 
-const pageDescription = '查看本人已归档的履历材料，用于资格审查与遴选。'
+const dialogVisible = ref(false)
+const uploading = ref(false)
+const saving = ref(false)
+const uploadedFileName = ref('')
+const uploadedFileIds = ref<string[]>([])
+
+const form = ref({
+  materialType: '',
+  title: '',
+  description: '',
+})
+
+/** 教练与运动员可维护的材料类型不同；身兼两种身份时合并展示。 */
+const COACH_MATERIAL_TYPES = [
+  { value: 'COACH_LICENSE', label: '教练员证书' },
+  { value: 'TEACHER_LICENSE', label: '教师资格证' },
+  { value: 'COACHING_RECORD', label: '执教记录' },
+  { value: 'AWARD', label: '获奖证书' },
+  { value: 'OTHER', label: '其他材料' },
+]
+
+const ATHLETE_MATERIAL_TYPES = [
+  { value: 'STUDENT_STATUS', label: '学籍证明' },
+  { value: 'ATHLETE_CERTIFICATE', label: '运动员证书' },
+  { value: 'COMPETITION', label: '参赛经历' },
+  { value: 'AWARD', label: '获奖证书' },
+  { value: 'OTHER', label: '其他材料' },
+]
+
+const materialTypes = computed(() => {
+  const kinds = person.value?.kinds ?? []
+  const options = [
+    ...(kinds.includes('COACH') ? COACH_MATERIAL_TYPES : []),
+    ...(kinds.includes('ATHLETE') ? ATHLETE_MATERIAL_TYPES : []),
+  ]
+  // 兼有两种身份时 AWARD / OTHER 会重复，按类型去重。
+  return options.filter((item, index) => options.findIndex((other) => other.value === item.value) === index)
+})
+
+const pageDescription = '维护本人履历材料，用于资格审查与遴选；提交后由学校端或管理员审核。'
 
 const filteredRows = computed(() =>
   filterStatus.value ? rows.value.filter((row) => row.reviewStatus === filterStatus.value) : rows.value,
@@ -66,6 +106,62 @@ async function load() {
   }
 }
 
+function openCreate() {
+  form.value = {
+    materialType: materialTypes.value[0]?.value ?? 'OTHER',
+    title: '',
+    description: '',
+  }
+  uploadedFileName.value = ''
+  uploadedFileIds.value = []
+  dialogVisible.value = true
+}
+
+async function doUpload(options: UploadRequestOptions) {
+  if (!person.value) return
+  if (options.file.size > 20 * 1024 * 1024) {
+    ElMessage.warning('单个文件不能超过 20MB')
+    return
+  }
+  uploading.value = true
+  try {
+    const record = await fileApi.upload(options.file, 'PERSON', person.value.id, 'MATERIAL')
+    uploadedFileName.value = record.originalName
+    uploadedFileIds.value = [record.id]
+    ElMessage.success('文件上传成功')
+  } catch {
+    // 拦截器提示
+  } finally {
+    uploading.value = false
+  }
+}
+
+async function create() {
+  if (!person.value) return
+  if (!form.value.materialType) return ElMessage.warning('请选择材料类型')
+  if (!form.value.title.trim()) return ElMessage.warning('请填写材料名称')
+  if (!uploadedFileName.value) return ElMessage.warning('请先上传材料文件')
+  saving.value = true
+  try {
+    await materialApi.create({
+      ownerType: 'PERSON',
+      ownerId: person.value.id,
+      materialType: form.value.materialType,
+      title: form.value.title.trim(),
+      description: form.value.description,
+      fileName: uploadedFileName.value,
+      fileIds: uploadedFileIds.value,
+    })
+    ElMessage.success('材料已提交审核，请等待学校端处理')
+    dialogVisible.value = false
+    await load()
+  } catch {
+    // 拦截器提示
+  } finally {
+    saving.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -77,6 +173,14 @@ onMounted(load)
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
+        <el-button
+          v-if="person && !profileMissing && !restricted"
+          type="primary"
+          :icon="Plus"
+          @click="openCreate"
+        >
+          上传材料
+        </el-button>
       </template>
     </PageHeader>
 
@@ -95,8 +199,8 @@ onMounted(load)
       type="info"
       :closable="false"
       show-icon
-      title="履历材料由学校或管理员维护"
-      description="材料上传与审核由学校端或管理员操作，本人仅可查看已归档的材料；如有材料缺失请联系所在学校。"
+      title="履历材料数据范围未开放"
+      description="当前账号暂无法读取本人履历材料，请联系组委会管理员核对人员档案绑定与数据范围。"
     />
 
     <div class="stat-grid">
@@ -153,6 +257,51 @@ onMounted(load)
         :image-size="80"
       />
     </section>
+
+    <el-dialog v-model="dialogVisible" title="上传履历材料" width="560px">
+      <el-form :model="form" label-position="top">
+        <el-form-item label="材料类型" required>
+          <el-select v-model="form.materialType" style="width: 100%">
+            <el-option v-for="item in materialTypes" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="材料名称" required>
+          <el-input v-model="form.title" placeholder="如：亚足联 C 级教练员证书" />
+        </el-form-item>
+        <el-form-item label="材料说明">
+          <el-input v-model="form.description" type="textarea" :rows="3" placeholder="选填，可说明材料用途或备注" />
+        </el-form-item>
+        <el-form-item label="材料文件" required>
+          <el-upload
+            class="uploader"
+            drag
+            :show-file-list="false"
+            :http-request="doUpload"
+            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+          >
+            <el-icon class="uploader__icon"><UploadFilled /></el-icon>
+            <div v-if="uploadedFileName" class="uploader__file">
+              已上传：<strong>{{ uploadedFileName }}</strong>（点击可重新上传）
+            </div>
+            <template v-else>
+              <div class="uploader__text">将文件拖到此处，或<em>点击上传</em></div>
+              <div class="uploader__hint">支持 PDF、JPG、PNG、DOC，单个文件不超过 20MB</div>
+            </template>
+          </el-upload>
+          <span v-if="uploading" class="muted">文件上传中…</span>
+        </el-form-item>
+      </el-form>
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="提交后由所在学校审核员或管理员审核，审核通过后才可用于资格审查与遴选。"
+      />
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="create">提交审核</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -199,6 +348,49 @@ onMounted(load)
 
 .muted {
   color: var(--ink-300);
+}
+
+.uploader {
+  width: 100%;
+}
+
+.uploader :deep(.el-upload-dragger) {
+  padding: 26px 16px;
+  border-color: var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.uploader__icon {
+  font-size: 30px;
+  color: var(--brand-500);
+}
+
+.uploader__text {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.uploader__text em {
+  font-style: normal;
+  color: var(--brand-700);
+}
+
+.uploader__hint {
+  margin-top: 6px;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.uploader__file {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+
+.uploader__file strong {
+  color: var(--brand-700);
 }
 
 @media (max-width: 768px) {
