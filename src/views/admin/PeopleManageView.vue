@@ -373,7 +373,9 @@ async function save() {
     // 避免提交后才报错。
     if (!/^\d{17}[\dXx]$/.test(form.idNumber.trim()))
       return ElMessage.warning('请填写 18 位身份证号')
-    if (!form.phone.trim()) return ElMessage.warning('请填写手机号')
+    // 后端 PersonCreate 的 phone 为 ^1\d{10}$ + 11 位长度约束，提前校验格式，
+    // 避免填了非手机号内容后提交才报“请求参数不合法”。
+    if (!/^1\d{10}$/.test(form.phone.trim())) return ElMessage.warning('请填写 11 位手机号')
   }
   if (!form.schoolOrgId) return ElMessage.warning('请选择学校 / 单位')
   if (!form.education.trim()) return ElMessage.warning('请填写学历')
@@ -1120,7 +1122,7 @@ onMounted(() => {
               <el-input v-model="form.idNumber" maxlength="18" placeholder="18 位，仅用于脱敏存储" />
             </el-form-item>
             <el-form-item label="手机号" required>
-              <el-input v-model="form.phone" maxlength="11" placeholder="仅用于脱敏存储" />
+              <el-input v-model="form.phone" maxlength="11" placeholder="11 位手机号，仅用于脱敏存储" />
             </el-form-item>
           </template>
           <el-form-item label="学校 / 单位" required>
