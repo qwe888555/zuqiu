@@ -286,6 +286,8 @@ async function reviewMaterial(material: Material, decision: 'APPROVE' | 'REJECT'
       decision,
       reason: reason || undefined,
       version: material.version,
+      // 人员/球队材料主键独立自增可能同 id，管理端明确按球队材料审核。
+      ownerType: 'TEAM',
     })
     ElMessage.success(decision === 'APPROVE' ? '材料已通过' : '材料已驳回')
     if (detail.value) await loadMaterials(detail.value.id)

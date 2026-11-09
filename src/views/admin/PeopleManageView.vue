@@ -102,14 +102,25 @@ const reviewingPersonId = ref('')
 const materialUploadVisible = ref(false)
 const materialUploading = ref(false)
 const materialSaving = ref(false)
-const materialForm = reactive({ materialType: 'ID_CARD', title: '', fileName: '', fileId: '' })
-/** 个人履历材料类型（与初始化脚本 material_type 种子一致，PERSON 归属）。 */
-const MATERIAL_TYPE_OPTIONS = [
-  { value: 'ID_CARD', label: '身份证复印件' },
-  { value: 'STUDENT_CARD', label: '学籍证明' },
-  { value: 'MEDICAL', label: '体检证明' },
-  { value: 'COACH_CERT', label: '教练员证书' },
+const materialForm = reactive({ materialType: 'ATHLETE_CERTIFICATE', title: '', fileName: '', fileId: '' })
+/** 个人履历材料类型：必须与 docs/csv/material_types.csv 种子 code 一致（PERSON 归属）。 */
+const MATERIAL_TYPE_OPTIONS: Array<{ value: string; label: string; kinds: PersonKind[] }> = [
+  { value: 'STUDENT_STATUS', label: '学籍证明', kinds: ['ATHLETE'] },
+  { value: 'EDUCATION', label: '学历证明', kinds: ['ATHLETE'] },
+  { value: 'ATHLETE_CERTIFICATE', label: '运动员证书', kinds: ['ATHLETE'] },
+  { value: 'COMPETITION', label: '参赛记录', kinds: ['ATHLETE'] },
+  { value: 'COACH_LICENSE', label: '教练员证书', kinds: ['COACH'] },
+  { value: 'TEACHER_LICENSE', label: '教师资格证', kinds: ['COACH'] },
+  { value: 'COACHING_RECORD', label: '执教记录', kinds: ['COACH'] },
+  { value: 'TRAINING_RECORD', label: '培训记录', kinds: ['ATHLETE', 'COACH'] },
+  { value: 'AWARD', label: '获奖证书', kinds: ['ATHLETE', 'COACH'] },
+  { value: 'OTHER', label: '其他材料', kinds: ['ATHLETE', 'COACH'] },
 ]
+const materialTypeOptions = computed(() => {
+  const kinds = materialOwner.value?.kinds || []
+  const options = MATERIAL_TYPE_OPTIONS.filter((item) => item.kinds.some((kind) => kinds.includes(kind)))
+  return options.length ? options : MATERIAL_TYPE_OPTIONS
+})
 
 const batchVisible = ref(false)
 const batchFileInput = ref<HTMLInputElement>()
@@ -549,7 +560,7 @@ async function loadMaterials(personId?: string) {
 
 function openMaterialUpload() {
   if (!materialOwner.value) return
-  materialForm.materialType = materialOwner.value.kinds?.includes('COACH') ? 'COACH_CERT' : 'ID_CARD'
+  materialForm.materialType = materialOwner.value.kinds?.includes('COACH') ? 'COACH_LICENSE' : 'ATHLETE_CERTIFICATE'
   materialForm.title = ''
   materialForm.fileName = ''
   materialForm.fileId = ''
@@ -625,7 +636,13 @@ async function reviewMaterial(material: Material, decision: 'APPROVE' | 'REJECT'
   }
   reviewingMaterialId.value = material.id
   try {
-    await materialApi.review(material.id, { decision, reason: reason || undefined, version: material.version })
+    await materialApi.review(material.id, {
+      decision,
+      reason: reason || undefined,
+      version: material.version,
+      // 人员/球队材料主键独立自增可能同 id，管理端明确按人员材料审核。
+      ownerType: 'PERSON',
+    })
     ElMessage.success(decision === 'APPROVE' ? '材料已通过审核' : '材料已驳回')
     await loadMaterials()
   } catch {
@@ -1378,7 +1395,7 @@ onMounted(() => {
         <el-form-item label="材料类型" required>
           <el-select v-model="materialForm.materialType" style="width: 100%">
             <el-option
-              v-for="item in MATERIAL_TYPE_OPTIONS"
+              v-for="item in materialTypeOptions"
               :key="item.value"
               :label="item.label"
               :value="item.value"

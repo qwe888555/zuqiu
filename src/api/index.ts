@@ -302,8 +302,15 @@ export const materialApi = {
     http.get<PageResult<Material>>('/materials', params, options),
   create: (data: Query) => http.post<Material>('/materials', data),
   update: (id: string, data: Query) => http.put<Material>(`/materials/${id}`, data),
-  remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/materials/${id}`, { version }),
-  review: (id: string, data: { decision: 'APPROVE' | 'REJECT'; reason?: string; version: number }) =>
+  remove: (id: string, version?: number, ownerType?: 'PERSON' | 'TEAM') =>
+    http.delete<{ success: boolean }>(`/materials/${id}`, { version, ownerType }),
+  review: (id: string, data: {
+    decision: 'APPROVE' | 'REJECT'
+    reason?: string
+    version: number
+    /** 人员/球队材料主键独立自增，可能同 id；传归属类型消除歧义。 */
+    ownerType?: 'PERSON' | 'TEAM'
+  }) =>
     http.post<Material>(`/materials/${id}/review`, data),
 }
 
