@@ -98,6 +98,18 @@ const materialOwner = ref<Person | null>(null)
 const reviewingMaterialId = ref('')
 const submittingPersonId = ref('')
 const reviewingPersonId = ref('')
+/** 管理员/学校端代传履历材料：人员管理 → 材料抽屉 → 上传材料。 */
+const materialUploadVisible = ref(false)
+const materialUploading = ref(false)
+const materialSaving = ref(false)
+const materialForm = reactive({ materialType: 'ID_CARD', title: '', fileName: '', fileId: '' })
+/** 个人履历材料类型（与初始化脚本 material_type 种子一致，PERSON 归属）。 */
+const MATERIAL_TYPE_OPTIONS = [
+  { value: 'ID_CARD', label: '身份证复印件' },
+  { value: 'STUDENT_CARD', label: '学籍证明' },
+  { value: 'MEDICAL', label: '体检证明' },
+  { value: 'COACH_CERT', label: '教练员证书' },
+]
 
 const batchVisible = ref(false)
 const batchFileInput = ref<HTMLInputElement>()
@@ -530,6 +542,57 @@ async function loadMaterials(personId?: string) {
     materials.value = []
   } finally {
     materialsLoading.value = false
+  }
+}
+
+function openMaterialUpload() {
+  if (!materialOwner.value) return
+  materialForm.materialType = materialOwner.value.kinds?.includes('COACH') ? 'COACH_CERT' : 'ID_CARD'
+  materialForm.title = ''
+  materialForm.fileName = ''
+  materialForm.fileId = ''
+  materialUploadVisible.value = true
+}
+
+async function uploadMaterialFile(options: UploadRequestOptions) {
+  if (!materialOwner.value) return
+  materialUploading.value = true
+  try {
+    const record = await fileApi.upload(options.file, 'PERSON', materialOwner.value.id, 'MATERIAL')
+    materialForm.fileId = record.id
+    materialForm.fileName = record.originalName
+    if (!materialForm.title.trim()) {
+      materialForm.title = record.originalName.replace(/\.[^.]+$/, '')
+    }
+    ElMessage.success('文件上传成功')
+  } catch {
+    // 拦截器提示
+  } finally {
+    materialUploading.value = false
+  }
+}
+
+async function submitMaterialUpload() {
+  if (!materialOwner.value) return
+  if (!materialForm.title.trim()) return ElMessage.warning('请填写材料名称')
+  if (!materialForm.fileId) return ElMessage.warning('请先上传材料文件')
+  materialSaving.value = true
+  try {
+    await materialApi.create({
+      ownerType: 'PERSON',
+      ownerId: materialOwner.value.id,
+      materialType: materialForm.materialType,
+      title: materialForm.title.trim(),
+      fileName: materialForm.fileName,
+      fileIds: [materialForm.fileId],
+    })
+    ElMessage.success('材料已提交审核')
+    materialUploadVisible.value = false
+    await loadMaterials(materialOwner.value.id)
+  } catch {
+    // 拦截器提示
+  } finally {
+    materialSaving.value = false
   }
 }
 
@@ -1259,9 +1322,14 @@ onMounted(() => {
 
     <el-drawer v-model="materialsVisible" size="620px" :with-header="false">
       <div class="material-head">
-        <span class="material-head__eyebrow">个人材料</span>
-        <h2>{{ materialOwner?.realName || '人员' }} · 履历材料</h2>
-        <p>{{ materialOwner?.schoolName || '学校未登记' }} · 待审核材料需逐份给出结论。</p>
+        <div class="material-head__row">
+          <div>
+            <span class="material-head__eyebrow">个人材料</span>
+            <h2>{{ materialOwner?.realName || '人员' }} · 履历材料</h2>
+            <p>{{ materialOwner?.schoolName || '学校未登记' }} · 待审核材料需逐份给出结论。</p>
+          </div>
+          <el-button type="primary" :icon="Plus" @click="openMaterialUpload">上传材料</el-button>
+        </div>
       </div>
       <div v-loading="materialsLoading" class="material-list">
         <div v-for="item in materials" :key="item.id" class="material-item">
@@ -1302,6 +1370,56 @@ onMounted(() => {
         <el-empty v-if="!materialsLoading && !materials.length" description="该人员暂无履历材料" :image-size="80" />
       </div>
     </el-drawer>
+
+    <el-dialog v-model="materialUploadVisible" title="上传履历材料" width="480px">
+      <el-form label-width="88px">
+        <el-form-item label="材料类型" required>
+          <el-select v-model="materialForm.materialType" style="width: 100%">
+            <el-option
+              v-for="item in MATERIAL_TYPE_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="材料名称" required>
+          <el-input
+            v-model="materialForm.title"
+            maxlength="60"
+            show-word-limit
+            placeholder="如：2026 年体检证明"
+          />
+        </el-form-item>
+        <el-form-item label="材料文件" required>
+          <div class="material-upload">
+            <el-upload
+              :show-file-list="false"
+              :http-request="uploadMaterialFile"
+              accept=".pdf,.jpg,.jpeg,.png"
+            >
+              <el-button :icon="UploadFilled" :loading="materialUploading">选择文件</el-button>
+            </el-upload>
+            <div v-if="materialForm.fileName" class="material-upload__file">
+              <el-icon><Document /></el-icon>
+              <span>{{ materialForm.fileName }}</span>
+            </div>
+            <small class="muted">
+              支持 PDF / JPG / PNG，不超过 10 MB。同类型材料只能保留一份，重复上传会被拒绝。
+            </small>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="materialUploadVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="materialSaving"
+          :disabled="!materialForm.fileId"
+          @click="submitMaterialUpload"
+        >提交审核</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1541,6 +1659,29 @@ onMounted(() => {
   margin-top: 5px;
   font-size: 10.5px;
   color: var(--ink-500);
+}
+
+.material-head__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.material-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.material-upload__file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-600, var(--ink-500));
+  word-break: break-all;
 }
 
 .material-list {
