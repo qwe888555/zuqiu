@@ -25,6 +25,9 @@ const eventId = ref('')
 // 新后端统计维度为 CITY / SCHOOL / GROUP；旧后端没有 SCHOOL，前端用报名列表兜底。
 const dimension = ref<'CITY' | 'SCHOOL' | 'GROUP'>('CITY')
 const selectedCity = ref('')
+// 按组别查看时，点击组别卡片筛选明细；搜索框按组别名称直接过滤。
+const selectedGroup = ref('')
+const groupKeyword = ref('')
 const athleteCountComplete = ref(true)
 
 function cityKey(label: string) {
@@ -35,11 +38,31 @@ function cityKey(label: string) {
     .trim()
 }
 
-const displayRows = computed(() =>
-  selectedCity.value
-    ? rows.value.filter((row) => cityKey(row.label) === selectedCity.value)
-    : rows.value,
+const displayRows = computed(() => {
+  let list = rows.value
+  if (selectedCity.value) {
+    list = list.filter((row) => cityKey(row.label) === selectedCity.value)
+  }
+  if (dimension.value === 'GROUP') {
+    if (selectedGroup.value) list = list.filter((row) => row.key === selectedGroup.value)
+    const keyword = groupKeyword.value.trim().toLowerCase()
+    if (keyword) list = list.filter((row) => row.label.toLowerCase().includes(keyword))
+  }
+  return list
+})
+
+const selectedGroupLabel = computed(
+  () => rows.value.find((row) => row.key === selectedGroup.value)?.label || '',
 )
+
+function toggleGroup(row: StatRow) {
+  selectedGroup.value = selectedGroup.value === row.key ? '' : row.key
+}
+
+// 输入搜索词时取消组别选中，避免“搜索 A 组但被选中的 B 组过滤掉”造成空结果。
+watch(groupKeyword, (value) => {
+  if (value.trim()) selectedGroup.value = ''
+})
 
 const topCity = computed(() =>
   [...rows.value].filter((row) => row.teamCount > 0).sort((a, b) => b.teamCount - a.teamCount)[0],
@@ -78,6 +101,8 @@ function selectCity(city: string) {
 
 function changeDimension() {
   selectedCity.value = ''
+  selectedGroup.value = ''
+  groupKeyword.value = ''
   load()
 }
 
@@ -393,6 +418,39 @@ onMounted(refresh)
           <el-tag v-if="selectedCity" size="small" closable @close="selectedCity = ''">
             {{ selectedCity }}
           </el-tag>
+          <el-tag v-if="selectedGroupLabel" size="small" closable @close="selectedGroup = ''">
+            {{ selectedGroupLabel }}
+          </el-tag>
+        </div>
+        <div v-if="dimension === 'GROUP'" class="group-filter">
+          <div class="group-filter__chips">
+            <button
+              type="button"
+              class="group-chip"
+              :class="{ 'is-active': !selectedGroup }"
+              @click="selectedGroup = ''"
+            >
+              <span>全部组别</span>
+              <small>{{ rows.length }} 组</small>
+            </button>
+            <button
+              v-for="row in rows"
+              :key="row.key"
+              type="button"
+              class="group-chip"
+              :class="{ 'is-active': selectedGroup === row.key }"
+              @click="toggleGroup(row)"
+            >
+              <span>{{ row.label }}</span>
+              <small>{{ row.teamCount }} 支</small>
+            </button>
+          </div>
+          <el-input
+            v-model="groupKeyword"
+            placeholder="搜索组别"
+            clearable
+            style="width: 200px"
+          />
         </div>
         <el-table v-loading="loading" :data="displayRows" style="width: 100%">
           <el-table-column prop="label" :label="dimensionLabel" min-width="160">
@@ -550,6 +608,61 @@ onMounted(refresh)
 
 .label-cell strong {
   font-size: 12.5px;
+}
+
+/* 按组别查看时提供与市州热力图一致的“点击筛选”，并支持名称搜索。 */
+.group-filter {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafcfb;
+}
+
+.group-filter__chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.group-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-700);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+}
+
+.group-chip small {
+  font-size: 10px;
+  color: var(--ink-400);
+}
+
+.group-chip:hover {
+  border-color: var(--brand-500);
+}
+
+.group-chip.is-active {
+  border-color: var(--brand-900);
+  background: var(--brand-900);
+  color: #fff;
+}
+
+.group-chip.is-active small {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .bar-cell {
