@@ -381,12 +381,12 @@ async function exportDocument(kind: 'registration' | 'players') {
  * 学籍证明模板：学校教务部门出具，须填写并加盖公章后扫描上传。
  * 作为前端静态资源分发（与邀请函模板同款 BASE_URL 前缀），不依赖后端接口。
  */
-const studentStatusTemplateUrl = `${import.meta.env.BASE_URL}templates/student-status-certificate-v1.1.docx`
+const studentStatusTemplateUrl = `${import.meta.env.BASE_URL}templates/student-status-certificate-v1.2.docx`
 
 function downloadStudentStatusTemplate() {
   const link = document.createElement('a')
   link.href = studentStatusTemplateUrl
-  link.download = '学籍证明模板-v1.1.docx'
+  link.download = '学籍证明模板-v1.2.docx'
   document.body.appendChild(link)
   link.click()
   link.remove()
@@ -1329,9 +1329,6 @@ onMounted(load)
             <div class="page-toolbar">
               <div class="section-title">报名材料 <small>盖章文件与学籍证明</small></div>
               <div class="materials-actions">
-                <el-button size="small" :icon="Download" @click="downloadStudentStatusTemplate">
-                  下载学籍证明模板
-                </el-button>
                 <el-button
                   v-if="canEdit"
                   size="small"
@@ -1347,7 +1344,7 @@ onMounted(load)
             <p class="materials-hint">
               报名表 PDF 由系统按当前名单生成，打印并加盖公章后，作为「盖章报名表」上传；
               名单如有变更，请重新下载并盖章。
-              学籍证明须由学校教务部门出具：可下载空白模板，填写学生学籍信息并加盖学校公章，
+              学籍证明须由学校教务部门出具：可在右侧「材料模板」下载空白模板，填写学生学籍信息并加盖学校公章，
               扫描后作为「学籍证明」上传。
             </p>
 
@@ -1425,6 +1422,30 @@ onMounted(load)
                   <strong>市州初审 / 省级终审</strong>
                   <small>{{ detail.status === 'PENDING_CITY_REVIEW' ? '等待市州审核' : detail.status === 'PENDING_PROVINCE_REVIEW' ? '等待省级终审' : detail.status === 'APPROVED' ? '已通过' : '未开始' }}</small>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="page-card template-card">
+            <div class="section-title">材料模板 <small>统一下载</small></div>
+            <div class="template-list">
+              <div class="template-item">
+                <div class="template-item__meta">
+                  <strong>学籍证明模板</strong>
+                  <small>DOCX · 填写后加盖学校公章</small>
+                </div>
+                <el-button link type="primary" :icon="Download" @click="downloadStudentStatusTemplate">
+                  下载
+                </el-button>
+              </div>
+              <div class="template-item">
+                <div class="template-item__meta">
+                  <strong>球员名单导入模板</strong>
+                  <small>XLSX · 批量导入球员名单</small>
+                </div>
+                <el-button link type="primary" :icon="Download" @click="downloadTemplate">
+                  下载
+                </el-button>
               </div>
             </div>
           </section>
@@ -2376,6 +2397,40 @@ onMounted(load)
   margin-top: 2px;
   font-size: 9.5px;
   color: var(--ink-300);
+}
+
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.template-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.template-item__meta {
+  min-width: 0;
+}
+
+.template-item__meta strong {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-900);
+}
+
+.template-item__meta small {
+  display: block;
+  margin-top: 3px;
+  font-size: 9.5px;
+  color: var(--ink-400);
 }
 
 .tip-card {
