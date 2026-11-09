@@ -381,13 +381,15 @@ async function exportDocument(kind: 'registration' | 'players') {
  * 学籍证明模板：学校教务部门出具，须填写并加盖公章后扫描上传。
  * 作为前端静态资源分发（与邀请函模板同款 BASE_URL 前缀），不依赖后端接口。
  */
-const studentStatusTemplateUrl = `${import.meta.env.BASE_URL}templates/student-status-certificate-v1.0.docx`
+const studentStatusTemplateUrl = `${import.meta.env.BASE_URL}templates/student-status-certificate-v1.1.docx`
 
 function downloadStudentStatusTemplate() {
   const link = document.createElement('a')
   link.href = studentStatusTemplateUrl
-  link.download = '学籍证明模板-v1.0.docx'
+  link.download = '学籍证明模板-v1.1.docx'
+  document.body.appendChild(link)
   link.click()
+  link.remove()
 }
 
 async function approve() {
@@ -1670,6 +1672,7 @@ onMounted(load)
 
     <el-dialog v-model="attachmentVisible" title="上传报名材料" width="540px">
       <el-alert
+        v-if="attachmentType === 'STAMPED_FORM'"
         type="info"
         :closable="false"
         show-icon
