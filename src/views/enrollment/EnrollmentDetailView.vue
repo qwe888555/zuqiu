@@ -377,6 +377,19 @@ async function exportDocument(kind: 'registration' | 'players') {
   }
 }
 
+/**
+ * 学籍证明模板：学校教务部门出具，须填写并加盖公章后扫描上传。
+ * 作为前端静态资源分发（与邀请函模板同款 BASE_URL 前缀），不依赖后端接口。
+ */
+const studentStatusTemplateUrl = `${import.meta.env.BASE_URL}templates/student-status-certificate-v1.0.docx`
+
+function downloadStudentStatusTemplate() {
+  const link = document.createElement('a')
+  link.href = studentStatusTemplateUrl
+  link.download = '学籍证明模板-v1.0.docx'
+  link.click()
+}
+
 async function approve() {
   try {
     await ElMessageBox.confirm('确认该报名信息真实完整，并同意通过当前审核？', '审核通过', {
@@ -1313,20 +1326,27 @@ onMounted(load)
           <section class="page-card">
             <div class="page-toolbar">
               <div class="section-title">报名材料 <small>盖章文件与学籍证明</small></div>
-              <el-button
-                v-if="canEdit"
-                size="small"
-                type="primary"
-                plain
-                :icon="UploadFilled"
-                @click="openAttachmentUpload"
-              >
-                上传材料
-              </el-button>
+              <div class="materials-actions">
+                <el-button size="small" :icon="Download" @click="downloadStudentStatusTemplate">
+                  下载学籍证明模板
+                </el-button>
+                <el-button
+                  v-if="canEdit"
+                  size="small"
+                  type="primary"
+                  plain
+                  :icon="UploadFilled"
+                  @click="openAttachmentUpload"
+                >
+                  上传材料
+                </el-button>
+              </div>
             </div>
             <p class="materials-hint">
               报名表 PDF 由系统按当前名单生成，打印并加盖公章后，作为「盖章报名表」上传；
               名单如有变更，请重新下载并盖章。
+              学籍证明须由学校教务部门出具：可下载空白模板，填写学生学籍信息并加盖学校公章，
+              扫描后作为「学籍证明」上传。
             </p>
 
             <div class="attachment-list">
@@ -1657,6 +1677,18 @@ onMounted(load)
         description="请在报名详情页下载「报名表 PDF」，打印并加盖公章后，以「盖章报名表」类型上传。系统生成的 PDF 无需手工填写。"
         class="attachment-tip"
       />
+      <el-alert
+        v-if="attachmentType === 'STUDENT_STATUS'"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="学籍证明需由学校教务部门出具"
+        class="attachment-tip"
+      >
+        可先
+        <el-button link type="primary" @click="downloadStudentStatusTemplate">下载学籍证明模板</el-button>
+        ，填写学生学籍信息并加盖学校公章，扫描为 PDF/JPG/PNG 后上传。
+      </el-alert>
       <el-form label-position="top">
         <el-form-item label="材料类型">
           <el-radio-group v-model="attachmentType">
@@ -2055,6 +2087,12 @@ onMounted(load)
 
 .attachment-tip {
   margin-bottom: 16px;
+}
+
+.materials-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .materials-hint {
