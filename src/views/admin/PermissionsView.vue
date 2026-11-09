@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Check, CircleClose, Key, Lock, Setting, UserFilled } from '@element-plus/icons-vue'
+import { Check, CircleClose, Key, Lock, UserFilled } from '@element-plus/icons-vue'
 import { ROLE_MENU_LABELS, visibleSections } from '../../config/menus'
 import {
   PERMISSION_GROUPS,
@@ -80,9 +80,6 @@ const roleInitial = computed(() => ROLE_MENU_LABELS[selectedRole.value].slice(0,
     >
       <template #actions>
         <el-button :icon="UserFilled" @click="router.push('/console/admin/accounts')">账号与角色</el-button>
-        <el-button type="primary" :icon="Setting" @click="router.push('/console/admin/menus')">
-          菜单配置
-        </el-button>
       </template>
     </PageHeader>
 

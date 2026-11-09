@@ -73,7 +73,7 @@ const routes: RouteRecordRaw[] = [
         path: 'enrollments',
         name: 'enrollments',
         component: () => import('../views/enrollment/EnrollmentListView.vue'),
-        meta: { title: '报名单', roles: ['TEAM', 'UNIVERSITY', 'CITY', 'ADMIN'] },
+        meta: { title: '报名单', roles: ['TEAM', 'UNIVERSITY', 'CITY', 'PROVINCE_REVIEWER', 'ADMIN'] },
       },
       {
         path: 'enrollments/create',
@@ -242,7 +242,10 @@ const routes: RouteRecordRaw[] = [
         path: 'admin/people',
         name: 'admin-people',
         component: () => import('../views/admin/PeopleManageView.vue'),
-        meta: { title: '人员管理', roles: ['ADMIN', 'UNIVERSITY'] },
+        meta: {
+          title: '人员管理',
+          roles: ['ADMIN', 'UNIVERSITY', 'CITY', 'PROVINCE_REVIEWER'],
+        },
       },
       {
         path: 'admin/subjects',

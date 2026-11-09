@@ -292,7 +292,7 @@ export const personApi = {
   /** 学校/管理员把 DRAFT / REJECTED 档案提交复核，version 必填。 */
   submit: (id: string, version: number, options?: RequestOptions) =>
     http.post<Person>(`/people/${id}/submit`, { version }, options),
-  /** 学校端审核；仅 UNIVERSITY 可调用，REJECT 时必须提供 reason。 */
+  /** 人员档案审核；市州/省级/管理员可调用，REJECT 时必须提供 reason。 */
   review: (id: string, data: { decision: 'APPROVE' | 'REJECT'; reason?: string; version: number }) =>
     http.post<Person>(`/people/${id}/review`, data),
 }

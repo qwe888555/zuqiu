@@ -155,6 +155,10 @@ const schoolReporterPermissions: PermissionCode[] = [
   'enrollment.export',
   'match.view',
   'team.manage',
+  // 学校端有「人员管理」「参赛账号」菜单，后端 personCreate/Update 与
+  // accountList/Create/Update 同样对 UNIVERSITY 开放（2026-11-09 对齐）。
+  'system.people',
+  'system.accounts',
   'message.view',
   'portal.view',
   'data.team',
@@ -186,6 +190,8 @@ const reviewerPermissions: PermissionCode[] = [
   'publication.manage',
   'content.manage',
   'resource.manage',
+  // 省级有「人员管理」菜单，用于审核全省人员档案（personReview）；
+  // 建档/修改仍仅 ADMIN/UNIVERSITY（2026-11-09 职责分离对齐）。
   'system.people',
   'system.accounts',
   'system.logs',
@@ -201,6 +207,12 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     'enrollment.export',
     'enrollment.review.city',
     'enrollment.stats',
+    // 市州有「赛事与组别」「参赛账号」「人员管理」菜单，后端 eventCreate、
+    // accountList/Create/Update 与 personReview 同样对 CITY 开放
+    // （2026-11-09 对齐）。
+    'event.manage',
+    'system.people',
+    'system.accounts',
     'match.view',
     'message.view',
     'portal.view',

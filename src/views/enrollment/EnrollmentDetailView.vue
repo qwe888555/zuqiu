@@ -175,8 +175,17 @@ function personStatusOf(row: RosterItem): string {
   return detail.value?.currentAuditStatuses?.[row.athleteId] || ''
 }
 
-/** 人员档案审核操作仅学校端（后端 personSubmit/personReview 只放行 UNIVERSITY）。 */
-const canReviewPerson = computed(() => auth.roles.includes('UNIVERSITY'))
+/** 人员档案提交：学校端建档后提交复核（管理员亦可，后端 personSubmit 同口径）。 */
+const canSubmitPerson = computed(
+  () => auth.isAdmin || auth.roles.includes('UNIVERSITY'),
+)
+/** 人员档案审核：市州/省级/管理员；学校端只提交、不审核（2026-11-09 职责分离）。 */
+const canReviewPerson = computed(
+  () =>
+    auth.isAdmin ||
+    auth.roles.includes('CITY') ||
+    auth.roles.includes('PROVINCE_REVIEWER'),
+)
 
 const rosterAthleteIds = computed(
   () => new Set((detail.value?.players || []).map((player) => player.athleteId)),
@@ -1252,24 +1261,22 @@ onMounted(load)
                   <el-tag :type="auditMeta(row).type" size="small" effect="plain">
                     {{ auditMeta(row).label }}
                   </el-tag>
-                  <template v-if="canReviewPerson">
-                    <el-button
-                      v-if="['DRAFT', 'REJECTED'].includes(personStatusOf(row))"
-                      link
-                      type="primary"
-                      size="small"
-                      @click="submitPersonArchive(row)"
-                    >
-                      提交复核
+                  <el-button
+                    v-if="canSubmitPerson && ['DRAFT', 'REJECTED'].includes(personStatusOf(row))"
+                    link
+                    type="primary"
+                    size="small"
+                    @click="submitPersonArchive(row)"
+                  >
+                    提交复核
+                  </el-button>
+                  <template v-if="canReviewPerson && personStatusOf(row) === 'PENDING'">
+                    <el-button link type="success" size="small" @click="reviewPersonArchive(row, 'APPROVE')">
+                      通过
                     </el-button>
-                    <template v-if="personStatusOf(row) === 'PENDING'">
-                      <el-button link type="success" size="small" @click="reviewPersonArchive(row, 'APPROVE')">
-                        通过
-                      </el-button>
-                      <el-button link type="danger" size="small" @click="reviewPersonArchive(row, 'REJECT')">
-                        驳回
-                      </el-button>
-                    </template>
+                    <el-button link type="danger" size="small" @click="reviewPersonArchive(row, 'REJECT')">
+                      驳回
+                    </el-button>
                   </template>
                 </template>
               </el-table-column>

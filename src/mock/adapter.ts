@@ -1177,7 +1177,7 @@ on('POST', '/people/:id/submit', ({ params, body }) => {
   return person
 })
 
-// 学校端档案审核（仅 UNIVERSITY）：PENDING → APPROVED/REJECTED，驳回必填原因
+// 人员档案审核（市州/省级/管理员）：PENDING → APPROVED/REJECTED，驳回必填原因
 on('POST', '/people/:id/review', ({ params, body }) => {
   const person = persons.find((p) => p.id === params.id)
   if (!person) throw new MockHttpError(404, 'NOT_FOUND', '人员档案不存在')

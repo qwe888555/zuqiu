@@ -154,9 +154,11 @@ async function removeTeam(team: Team) {
   }
 }
 
+const canReadAll = computed(() => auth.isAdmin || auth.roles.includes('PROVINCE_REVIEWER'))
+
 async function load() {
-  if (!MOCK_ENABLED && !auth.isAdmin) {
-    // 球队数据范围一期仅 ADMIN；省审核员可进入页面，但不发必然 403 的请求。
+  if (!MOCK_ENABLED && !canReadAll.value) {
+    // 路由只放行 ADMIN / PROVINCE_REVIEWER；其余角色不在这里发必然 403 的请求。
     rows.value = []
     total.value = 0
     return
@@ -315,7 +317,12 @@ function goMatches() {
 }
 
 onMounted(async () => {
-  if (!MOCK_ENABLED && !auth.isAdmin) return
+  if (!MOCK_ENABLED && !canReadAll.value) return
+  // 组织下拉只对管理员开放（/organizations 仅 ADMIN）；省审核员只拉球队列表。
+  if (!MOCK_ENABLED && !auth.isAdmin) {
+    await load()
+    return
+  }
   await Promise.all([loadCities(), loadSchools(), load()])
 })
 </script>
@@ -339,8 +346,8 @@ onMounted(async () => {
       type="info"
       :closable="false"
       show-icon
-      title="参赛队伍数据当前仅管理员可查看"
-      description="球队数据范围一期仅对管理员全量开放；省审核员可继续使用赛事与审核功能。"
+      title="当前为只读视图"
+      description="省级账号可查看本省参赛队伍；新建、删除与材料审核由管理员或学校端完成。"
     />
 
     <div class="stat-grid">
@@ -566,7 +573,9 @@ onMounted(async () => {
                   >
                     下载
                   </el-button>
-                  <template v-if="row.reviewStatus === 'PENDING'">
+                  <!-- 材料审核仅 ADMIN/UNIVERSITY；本页只放行 ADMIN/PROVINCE，
+                       省级为只读，避免点击后必然 403。 -->
+                  <template v-if="row.reviewStatus === 'PENDING' && auth.isAdmin">
                     <el-button
                       link
                       type="success"

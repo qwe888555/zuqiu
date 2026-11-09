@@ -130,7 +130,7 @@ function openAdd() {
 }
 
 // ---------------------------------------------------------------- 本校人员档案（学校端）
-/** 后端 personCreate/personSubmit/personReview 均只放行 UNIVERSITY（P0-2）。 */
+/** 学校端可建档并提交复核；审核由市州/省级完成（2026-11-09 职责分离）。 */
 const canManagePerson = computed(() => auth.roles.includes('UNIVERSITY'))
 const personDialogVisible = ref(false)
 const personLoading = ref(false)
@@ -189,32 +189,6 @@ async function submitPersonArchive(row: Person) {
     await loadPersons()
   } catch {
     // 拦截器提示
-  }
-}
-
-/** 学校端档案终审：PENDING → APPROVED/REJECTED（驳回必填原因）。 */
-async function reviewPersonArchive(row: Person, decision: 'APPROVE' | 'REJECT') {
-  try {
-    let reason = ''
-    if (decision === 'REJECT') {
-      const { value } = await ElMessageBox.prompt('请填写驳回原因', '驳回档案', {
-        confirmButtonText: '提交',
-        cancelButtonText: '取消',
-        inputValidator: (input: string) => (input.trim() ? true : '必须填写原因'),
-      })
-      reason = value.trim()
-    } else {
-      await ElMessageBox.confirm(`确认通过「${row.realName}」的人员档案？`, '审核通过', {
-        confirmButtonText: '通过',
-        cancelButtonText: '取消',
-        type: 'warning',
-      })
-    }
-    await personApi.review(row.id, { decision, reason, version: row.version })
-    ElMessage.success(decision === 'APPROVE' ? '档案已通过' : '档案已驳回')
-    await loadPersons()
-  } catch {
-    // 取消或拦截器提示
   }
 }
 
@@ -619,7 +593,7 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- 本校人员档案（学校端）：建档 → 提交复核 → 学校终审，打通报名终审的人员门槛 -->
+    <!-- 本校人员档案（学校端）：建档 → 提交复核 → 市州/省审核，打通报名终审的人员门槛 -->
     <el-dialog v-model="personDialogVisible" title="本校人员档案" width="860px">
       <FilterBar>
         <el-input
@@ -677,14 +651,7 @@ onMounted(async () => {
             >
               提交复核
             </el-button>
-            <template v-if="row.reviewStatus === 'PENDING'">
-              <el-button link type="success" @click="reviewPersonArchive(row, 'APPROVE')">
-                通过
-              </el-button>
-              <el-button link type="danger" @click="reviewPersonArchive(row, 'REJECT')">
-                驳回
-              </el-button>
-            </template>
+            <span v-if="row.reviewStatus === 'PENDING'" class="muted">待市州/省审核</span>
             <span v-if="row.reviewStatus === 'APPROVED'" class="muted">已生效</span>
           </template>
         </el-table-column>
@@ -709,7 +676,7 @@ onMounted(async () => {
         :closable="false"
         show-icon
         title="一人一身份，且身份证号 / 手机号必填"
-        description="保存后档案为草稿，需在列表中「提交复核」并审核通过，方可加入球队与报名。"
+        description="保存后档案为草稿，需在列表中「提交复核」，待市州/省级审核通过后方可加入球队与报名。"
       />
       <el-form :model="createForm" label-position="top">
         <div class="form-grid">

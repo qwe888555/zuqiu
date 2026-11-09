@@ -76,7 +76,9 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: '报名单',
         path: '/console/enrollments',
         icon: Tickets,
-        roles: SUBMITTERS,
+        // 与路由白名单/后端 enrollmentList 对齐：市州初审、省级终审、管理员
+        // 也需要查看报名清单（报送入口仍由 submitterOnly 限制）。
+        roles: [...SUBMITTERS, 'PROVINCE_REVIEWER', 'ADMIN'],
       },
       {
         key: 'enrollment-stats',
@@ -301,7 +303,8 @@ export const MENU_SECTIONS: MenuSection[] = [
         title: '人员管理',
         path: '/console/admin/people',
         icon: User,
-        roles: ['ADMIN', 'UNIVERSITY'],
+        // 学校端建档/维护/提交；市州与省级审核（2026-11-09 职责分离）。
+        roles: ['ADMIN', 'UNIVERSITY', 'CITY', 'PROVINCE_REVIEWER'],
       },
       {
         key: 'subjects',

@@ -35,11 +35,28 @@ import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 
 const auth = useAuthStore()
-/** 人员管理仅管理员（全局）与学校账号（本校范围）可进入，路由已按角色拦截。 */
-const canUsePeople = computed(() => auth.isAdmin || auth.isUniversity)
+/** 管理员、学校端（建档/提交）与市州/省级（审核）可进入，路由已按角色拦截。 */
+const canUsePeople = computed(
+  () =>
+    auth.isAdmin ||
+    auth.isUniversity ||
+    auth.roles.includes('CITY') ||
+    auth.roles.includes('PROVINCE_REVIEWER'),
+)
+/** 建档、编辑、导入、提交与代传材料：仅管理员与学校端（2026-11-09 职责分离）。 */
+const canManagePeople = computed(() => auth.isAdmin || auth.isUniversity)
 const canDeletePerson = computed(() => auth.isAdmin)
-/** 后端 personReview 仅 UNIVERSITY；ADMIN 可建档/提交但不能审核。 */
-const canReviewPerson = computed(() => auth.isUniversity)
+/** 档案审核：市州/省级/管理员；学校端只提交、不审核（后端 personReview 同口径）。 */
+const canReviewPerson = computed(
+  () =>
+    auth.isAdmin ||
+    auth.roles.includes('CITY') ||
+    auth.roles.includes('PROVINCE_REVIEWER'),
+)
+/** 履历材料审核仍归学校端/管理员（材料域口径，与人员档案审核分离）。 */
+const canReviewMaterial = computed(() => auth.isAdmin || auth.isUniversity)
+/** 审核端只读：不显示建档/导入/编辑等写操作入口。 */
+const isReviewerOnly = computed(() => !canManagePeople.value)
 const ownSchoolOrgId = computed(() => auth.user?.orgId || '')
 
 const loading = ref(false)
@@ -261,6 +278,11 @@ async function ensurePersonSubmitted(person: Person, silent = false): Promise<Pe
 }
 
 async function loadOrgs() {
+  // 审核端（市州/省级）只读列表与审核，不需要组织树/学校下拉。
+  if (!canManagePeople.value) {
+    orgs.value = []
+    return
+  }
   // 组织树接口仅 ADMIN；学校端只能使用本人所属学校节点，不请求必然 403 的接口。
   if (auth.isAdmin) {
     try {
@@ -657,7 +679,7 @@ async function submitPerson(row: Person) {
   submittingPersonId.value = row.id
   try {
     await personApi.submit(row.id, row.version)
-    ElMessage.success('档案已提交审核，等待学校审核')
+    ElMessage.success('档案已提交审核，等待市州/省级审核')
     await load()
   } catch {
     // 拦截器提示
@@ -666,7 +688,7 @@ async function submitPerson(row: Person) {
   }
 }
 
-/** PENDING → APPROVED / REJECTED；仅 UNIVERSITY 可操作，后端另有防自审。 */
+/** PENDING → APPROVED / REJECTED；市州/省级/管理员可操作，后端另有防自审。 */
 async function reviewPerson(row: Person, decision: 'APPROVE' | 'REJECT') {
   let reason = ''
   if (decision === 'REJECT') {
@@ -976,12 +998,18 @@ onMounted(() => {
   <div class="page">
     <PageHeader
       title="人员管理"
-      description="统一管理运动员与教练员档案。学校账号仅可维护本校人员；列表仅显示已提交档案，新建或导入后自动提交审核。"
+      :description="
+        isReviewerOnly
+          ? '审核辖区内已提交的运动员与教练员档案，核实学籍与资格材料。审核通过后方可在报名时选用。'
+          : '统一管理运动员与教练员档案。学校账号仅可维护本校人员；列表仅显示已提交档案，新建或导入后自动提交审核。'
+      "
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
-        <el-button :icon="UploadFilled" @click="openBatch">批量导入</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate">新建人员</el-button>
+        <template v-if="canManagePeople">
+          <el-button :icon="UploadFilled" @click="openBatch">批量导入</el-button>
+          <el-button type="primary" :icon="Plus" @click="openCreate">新建人员</el-button>
+        </template>
       </template>
     </PageHeader>
 
@@ -1049,15 +1077,17 @@ onMounted(() => {
         <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" :icon="Document" @click="openMaterials(row)">材料</el-button>
-            <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button
-              v-if="row.reviewStatus === 'REJECTED'"
-              link
-              type="primary"
-              :icon="Promotion"
-              :loading="submittingPersonId === row.id"
-              @click="submitPerson(row)"
-            >提交审核</el-button>
+            <template v-if="canManagePeople">
+              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <el-button
+                v-if="row.reviewStatus === 'REJECTED'"
+                link
+                type="primary"
+                :icon="Promotion"
+                :loading="submittingPersonId === row.id"
+                @click="submitPerson(row)"
+              >提交审核</el-button>
+            </template>
             <template
               v-if="row.reviewStatus === 'PENDING' && (row.canReview ?? canReviewPerson)"
             >
@@ -1347,7 +1377,7 @@ onMounted(() => {
             <h2>{{ materialOwner?.realName || '人员' }} · 履历材料</h2>
             <p>{{ materialOwner?.schoolName || '学校未登记' }} · 待审核材料需逐份给出结论。</p>
           </div>
-          <el-button type="primary" :icon="Plus" @click="openMaterialUpload">上传材料</el-button>
+          <el-button v-if="canManagePeople" type="primary" :icon="Plus" @click="openMaterialUpload">上传材料</el-button>
         </div>
       </div>
       <div v-loading="materialsLoading" class="material-list">
@@ -1364,7 +1394,7 @@ onMounted(() => {
               <el-button v-if="item.fileName" size="small" link type="primary" @click="downloadMaterial(item)">
                 下载
               </el-button>
-              <template v-if="item.reviewStatus === 'PENDING'">
+              <template v-if="item.reviewStatus === 'PENDING' && canReviewMaterial">
               <el-button
                 size="small"
                 type="danger"
