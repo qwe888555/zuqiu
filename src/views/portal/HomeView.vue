@@ -177,8 +177,20 @@ const HERO_LOOP_GAP_MS = 30_000
 const heroResting = ref(false)
 let heroRestTimer: ReturnType<typeof setTimeout> | undefined
 
-const heroMediaVisible = computed(
-  () => (showHeroVideo.value && !heroResting.value) || showHeroFrame.value,
+/**
+ * 只有“正在直播”的画面才铺满首屏并隐藏文案。
+ * 轮播视频只是背景素材，文案与比分卡必须保留，否则首屏会只剩一段无上下文的画面。
+ */
+const heroLiveVisible = computed(() => {
+  const live = heroLive.value
+  if (!live) return false
+  if (live.mode === 'iframe') return true
+  return (live.mode === 'video' || live.mode === 'hls') && !heroResting.value
+})
+
+/** 轮播视频作为背景时用更浅的遮罩，避免整块画面被压暗；朗读性交给文字阴影兜底。 */
+const heroBannerVideoVisible = computed(
+  () => Boolean(bannerVideoUrl.value) && !heroResting.value && !heroLiveVisible.value,
 )
 
 function stopHeroRestTimer() {
@@ -524,7 +536,7 @@ function publicationLink(star: PublicityRecord) {
 
 <template>
   <div class="home">
-    <section class="hero">
+    <section class="hero" :class="{ 'hero--video': heroBannerVideoVisible }">
       <div class="hero__bg">
         <SafeImage v-if="heroImage" :src="heroImage" alt="青少年足球联赛" />
         <video
@@ -550,12 +562,18 @@ function publicationLink(star: PublicityRecord) {
           allowfullscreen
           @error="handleHeroMediaError"
         />
-        <div class="hero__shade" :class="{ 'hero__shade--media': heroMediaVisible }" />
+        <div
+          class="hero__shade"
+          :class="{
+            'hero__shade--media': heroLiveVisible,
+            'hero__shade--video': heroBannerVideoVisible,
+          }"
+        />
       </div>
 
       <!-- 直播画面铺满首屏时保留一个悬浮角标，说明画面来源并提供跳转入口。 -->
       <a
-        v-if="heroLive && heroMediaVisible"
+        v-if="heroLive && heroLiveVisible"
         class="hero__live hero__live--float"
         :href="heroLive.url"
         target="_blank"
@@ -568,8 +586,8 @@ function publicationLink(star: PublicityRecord) {
         <el-icon><VideoPlay /></el-icon>
       </a>
 
-      <!-- 直播画面播放时首屏只留视频；轮播间隙再回到文案 + 轮播图。 -->
-      <div v-show="!heroMediaVisible" class="container hero__inner">
+      <!-- 只有直播画面播放时才首屏只留视频；轮播视频作为背景时文案与比分卡始终保留。 -->
+      <div v-show="!heroLiveVisible" class="container hero__inner">
         <div class="hero__copy">
           <a
             v-if="heroLive"
@@ -1011,6 +1029,20 @@ function publicationLink(star: PublicityRecord) {
 /* 直播态不再压文案，只保留底部一点点过渡，画面尽量原色呈现。 */
 .hero__shade--media {
   background: linear-gradient(0deg, rgba(5, 40, 30, 0.42) 0%, transparent 26%);
+}
+
+/* 轮播视频只是背景素材：遮罩比图片态更轻，保留画面明暗层次，只在文字区域压暗。 */
+.hero__shade--video {
+  background:
+    linear-gradient(90deg, rgba(5, 40, 30, 0.6) 0%, rgba(5, 40, 30, 0.38) 42%, rgba(5, 40, 30, 0.04) 74%, rgba(5, 40, 30, 0.12) 100%),
+    linear-gradient(0deg, rgba(5, 40, 30, 0.36) 0%, transparent 42%);
+}
+
+/* 遮罩变浅后用文字阴影补对比度，避免视频亮帧把标题吃掉。 */
+.hero--video .hero__eyebrow,
+.hero--video .hero__copy h1,
+.hero--video .hero__copy p {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.38), 0 8px 28px rgba(0, 0, 0, 0.42);
 }
 
 .hero__live {

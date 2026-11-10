@@ -3163,6 +3163,7 @@ on('POST', '/portal-resources', ({ body }) => {
       ? `https://picsum.photos/seed/${encodeURIComponent(str(body.imageFileId))}/1200/600`
       : body.imageUrl || `https://picsum.photos/seed/${Date.now()}/1200/600`,
     imageFileId: body.imageFileId,
+    videoUrl: str(body.videoUrl),
     targetContentId: body.targetContentId,
     targetUrl: body.targetUrl,
     sortOrder: Number(body.sortOrder) || 0,
@@ -3312,6 +3313,8 @@ on('GET', '/public/resources', ({ query }) => {
       resourceType: r.resourceType,
       title: r.title,
       imageUrl: r.imageUrl,
+      // 首页首屏据此播放轮播视频；漏掉这个字段会让 Mock 模式下管理员配置的视频失效。
+      videoUrl: r.videoUrl,
       targetContentId: r.targetContentId,
       targetUrl: r.targetUrl,
       sortOrder: r.sortOrder,
