@@ -406,9 +406,9 @@ async function save() {
     // 避免提交后才报错。
     if (!/^\d{17}[\dXx]$/.test(form.idNumber.trim()))
       return ElMessage.warning('请填写 18 位身份证号')
-    // 后端 PersonCreate 的 phone 为 ^1\d{10}$ + 11 位长度约束，提前校验格式，
+    // 后端 PersonCreate 的 phone 为 ^1[3-9]\d{9}$ + 11 位长度约束，提前校验格式，
     // 避免填了非手机号内容后提交才报“请求参数不合法”。
-    if (!/^1\d{10}$/.test(form.phone.trim())) return ElMessage.warning('请填写 11 位手机号')
+    if (!/^1[3-9]\d{9}$/.test(form.phone.trim())) return ElMessage.warning('请填写正确的 11 位手机号')
   }
   if (!form.schoolOrgId) return ElMessage.warning('请选择学校 / 单位')
   if (!form.education.trim()) return ElMessage.warning('请填写学历')

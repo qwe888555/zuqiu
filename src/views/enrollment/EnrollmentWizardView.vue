@@ -40,7 +40,7 @@ const rules: FormRules = {
   contactName: [{ required: true, message: '请填写领队/联系人', trigger: 'blur' }],
   contactPhone: [
     { required: true, message: '请填写联系电话', trigger: 'blur' },
-    { pattern: /^1\d{10}$/, message: '请输入 11 位手机号', trigger: 'blur' },
+    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的 11 位手机号', trigger: 'blur' },
   ],
 }
 
@@ -197,7 +197,7 @@ function next() {
   }
   if (step.value === 1) {
     if (!form.contactName.trim()) return ElMessage.warning('请填写领队/联系人')
-    if (!/^1\d{10}$/.test(form.contactPhone)) return ElMessage.warning('请填写正确的 11 位手机号')
+    if (!/^1[3-9]\d{9}$/.test(form.contactPhone)) return ElMessage.warning('请填写正确的 11 位手机号')
     step.value = 2
   }
 }

@@ -467,7 +467,7 @@ function resetInfoForm() {
 async function saveInfo() {
   if (!detail.value) return
   if (!infoForm.contactName.trim()) return ElMessage.warning('请填写领队/联系人')
-  if (!/^1\d{10}$/.test(infoForm.contactPhone)) return ElMessage.warning('请重新输入完整的 11 位手机号')
+  if (!/^1[3-9]\d{9}$/.test(infoForm.contactPhone)) return ElMessage.warning('请重新输入正确的 11 位手机号')
   savingInfo.value = true
   try {
     await enrollmentApi.update(detail.value.id, {
