@@ -75,9 +75,22 @@ const tabs = computed(() => [
   { value: 'REJECTED', label: '已驳回' },
 ])
 
-const currentStageLabel = computed(() =>
-  detail.value?.status === 'PENDING_CITY_REVIEW' ? '市州初审' : '省级终审',
-)
+const currentStageLabel = computed(() => {
+  switch (detail.value?.status) {
+    case 'PENDING_CITY_REVIEW':
+      return '市州初审'
+    case 'PENDING_PROVINCE_REVIEW':
+      return '省级终审'
+    case 'APPROVED':
+      return '已完成终审'
+    case 'REJECTED':
+      return '已驳回'
+    case 'WITHDRAWN':
+      return '已撤回'
+    default:
+      return '报名审核'
+  }
+})
 
 // 首屏、切换页签与刷新可能并发；只允许最后一次请求落表。
 let loadSeq = 0
@@ -104,14 +117,25 @@ async function load() {
   }
 }
 
+let countsSeq = 0
+
 async function loadCounts() {
+  const seq = ++countsSeq
+  // 统计口径与列表筛选保持一致，否则选中赛事后列表变了、顶部数字却还是全量。
+  const scope = {
+    eventId: filters.eventId || undefined,
+    groupId: filters.groupId || undefined,
+    teamName: keyword.value || undefined,
+  }
   // 四个统计相互独立：任一失败不能把其余三项一起清零（Promise.all 会让整组作废）。
   const [city, province, approved, rejected] = await Promise.allSettled([
-    enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_CITY_REVIEW' }),
-    enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_PROVINCE_REVIEW' }),
-    enrollmentApi.list({ page: 1, pageSize: 1, status: 'APPROVED' }),
-    enrollmentApi.list({ page: 1, pageSize: 1, status: 'REJECTED' }),
+    enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_CITY_REVIEW', ...scope }),
+    enrollmentApi.list({ page: 1, pageSize: 1, status: 'PENDING_PROVINCE_REVIEW', ...scope }),
+    enrollmentApi.list({ page: 1, pageSize: 1, status: 'APPROVED', ...scope }),
+    enrollmentApi.list({ page: 1, pageSize: 1, status: 'REJECTED', ...scope }),
   ])
+  // 快速切换筛选时只认最后一次请求，避免旧口径的数字后到覆盖新口径。
+  if (seq !== countsSeq) return
   if (city.status === 'fulfilled') counts.city = city.value.total
   if (province.status === 'fulfilled') counts.province = province.value.total
   if (approved.status === 'fulfilled') counts.approved = approved.value.total
@@ -346,6 +370,7 @@ async function batchReject() {
 function search() {
   page.value = 1
   load()
+  loadCounts()
 }
 
 // 登录态恢复或切换账号后，按新角色重置默认页签并重新拉取，避免沿用上个账号的筛选。

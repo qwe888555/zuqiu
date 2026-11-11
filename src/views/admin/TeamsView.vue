@@ -84,6 +84,9 @@ const playerCount = computed(() =>
   rows.value.reduce((sum, team) => sum + (team.memberCount || 0), 0),
 )
 const approvedCount = computed(() => rows.value.filter((team) => team.status === 'APPROVED').length)
+const teamTotalHint = computed(() =>
+  filters.cityOrgId || filters.category || filters.keyword ? '当前筛选范围' : '全省已建档球队',
+)
 
 async function loadCities() {
   try {
@@ -351,7 +354,7 @@ onMounted(async () => {
     />
 
     <div class="stat-grid">
-      <StatCard label="参赛队伍" :value="total" hint="全省已建档球队" :icon="Trophy" tone="green" />
+      <StatCard label="参赛队伍" :value="total" :hint="teamTotalHint" :icon="Trophy" tone="green" />
       <StatCard label="覆盖市州" :value="citiesCovered" hint="当前页统计" :icon="OfficeBuilding" tone="blue" />
       <StatCard label="在册球员" :value="playerCount" hint="当前页球员合计" :icon="User" tone="lime" />
       <StatCard label="已认证" :value="approvedCount" hint="当前页已通过队伍" :icon="User" tone="amber" />

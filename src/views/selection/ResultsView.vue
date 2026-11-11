@@ -234,7 +234,13 @@ onMounted(async () => {
 
     <div class="stat-grid">
       <StatCard label="结果批次" :value="batches.length" hint="历次生成记录" :icon="Medal" tone="green" />
-      <StatCard label="现行入围" :value="activeBatch?.items.length ?? 0" hint="已生效名单人数" :icon="Stamp" tone="lime" />
+      <StatCard
+        label="现行入围"
+        :value="activeBatch?.itemCount ?? activeBatch?.items.length ?? 0"
+        hint="已生效名单人数"
+        :icon="Stamp"
+        tone="lime"
+      />
       <StatCard label="待重算" :value="staleCount" hint="评分已变更批次" :icon="Refresh" tone="amber" />
     </div>
 
@@ -252,7 +258,9 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <el-table-column label="入围人数" width="100" align="center">
-          <template #default="{ row }"><span class="num">{{ row.quota }}</span></template>
+          <template #default="{ row }">
+            <span class="num">{{ row.itemCount ?? row.items.length }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="权重口径" width="150">
           <template #default="{ row }">
@@ -357,7 +365,7 @@ onMounted(async () => {
           </header>
 
           <div class="detail-meta">
-            <div><span>入围人数</span><strong class="num">{{ detail.items.length }}</strong></div>
+            <div><span>入围人数</span><strong class="num">{{ detail.itemCount ?? detail.items.length }}</strong></div>
             <div><span>权重口径</span><strong>初 {{ Math.round(detail.initialWeight * 100) }}% / 复 {{ Math.round(detail.finalWeight * 100) }}%</strong></div>
             <div><span>批次编号</span><strong>{{ detail.id }}</strong></div>
           </div>
@@ -377,12 +385,17 @@ onMounted(async () => {
               <template #default="{ row }"><span class="num">{{ row.initialScore ?? '—' }}</span></template>
             </el-table-column>
             <el-table-column label="复选" width="72" align="center">
-              <template #default="{ row }"><span class="num">{{ row.finalScore || '—' }}</span></template>
+              <template #default="{ row }"><span class="num">{{ row.finalScore ?? '—' }}</span></template>
             </el-table-column>
             <el-table-column label="综合分" width="84" align="center">
               <template #default="{ row }"><strong class="num">{{ row.compositeScore }}</strong></template>
             </el-table-column>
           </el-table>
+          <el-empty
+            v-if="!detail.items.length"
+            description="历史批次不返回完整名单，可导出后查看"
+            :image-size="60"
+          />
 
           <el-alert
             class="detail-alert"

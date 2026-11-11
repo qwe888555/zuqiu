@@ -1427,7 +1427,19 @@ onMounted(load)
                 <span>3</span>
                 <div>
                   <strong>市州初审 / 省级终审</strong>
-                  <small>{{ detail.status === 'PENDING_CITY_REVIEW' ? '等待市州审核' : detail.status === 'PENDING_PROVINCE_REVIEW' ? '等待省级终审' : detail.status === 'APPROVED' ? '已通过' : '未开始' }}</small>
+                  <small>{{
+                    detail.status === 'PENDING_CITY_REVIEW'
+                      ? '等待市州审核'
+                      : detail.status === 'PENDING_PROVINCE_REVIEW'
+                        ? '等待省级终审'
+                        : detail.status === 'APPROVED'
+                          ? '已通过'
+                          : detail.status === 'REJECTED'
+                            ? '已驳回'
+                            : detail.status === 'WITHDRAWN'
+                              ? '已撤回'
+                              : '未开始'
+                  }}</small>
                 </div>
               </div>
             </div>

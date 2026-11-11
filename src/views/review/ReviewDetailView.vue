@@ -25,9 +25,22 @@ const enrollmentId = computed(() => String(route.params.id || ''))
 const isCity = computed(() => auth.roles.includes('CITY'))
 const isAdmin = computed(() => auth.roles.includes('ADMIN'))
 
-const currentStageLabel = computed(() =>
-  detail.value?.status === 'PENDING_CITY_REVIEW' ? '市州初审' : '省级终审',
-)
+const currentStageLabel = computed(() => {
+  switch (detail.value?.status) {
+    case 'PENDING_CITY_REVIEW':
+      return '市州初审'
+    case 'PENDING_PROVINCE_REVIEW':
+      return '省级终审'
+    case 'APPROVED':
+      return '已完成终审'
+    case 'REJECTED':
+      return '已驳回'
+    case 'WITHDRAWN':
+      return '已撤回'
+    default:
+      return '报名审核'
+  }
+})
 
 const canActOnDetail = computed(() => {
   if (!detail.value) return false

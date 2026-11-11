@@ -274,7 +274,7 @@ const statCards = computed(() => {
     {
       label: isReviewer.value ? '报名总数' : '我的报名',
       value: counts.value.all,
-      hint: '当前赛事范围内',
+      hint: '当前数据范围内',
       icon: Tickets,
       tone: 'green' as const,
     },

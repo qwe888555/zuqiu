@@ -126,14 +126,24 @@ const totalRejected = computed(() => rows.value.reduce((sum, row) => sum + (row.
  */
 const totalEnrollments = computed(() => {
   const declared = rows.value.reduce((sum, row) => sum + (row.enrollmentCount || 0), 0)
-  return declared || totalApproved.value + totalPending.value + totalRejected.value
+  const statusSum = totalApproved.value + totalPending.value + totalRejected.value
+  // 接口或历史数据口径不一致时，分母至少覆盖三种审核状态，避免通过率超过 100%。
+  return Math.max(declared, statusSum)
 })
 const approvalRate = computed(() =>
-  totalEnrollments.value ? Math.round((totalApproved.value / totalEnrollments.value) * 100) : 0,
+  totalEnrollments.value
+    ? Math.max(0, Math.min(100, Math.round((totalApproved.value / totalEnrollments.value) * 100)))
+    : 0,
 )
 const reviewedEnd = computed(() =>
   totalEnrollments.value
-    ? ((totalApproved.value + totalPending.value) / totalEnrollments.value) * 100
+    ? Math.max(
+        approvalRate.value,
+        Math.min(
+          100,
+          Math.round(((totalApproved.value + totalPending.value) / totalEnrollments.value) * 100),
+        ),
+      )
     : 0,
 )
 

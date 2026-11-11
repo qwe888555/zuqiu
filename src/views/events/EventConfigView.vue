@@ -59,6 +59,17 @@ const groupForm = reactive({
 const categoryLabel = CATEGORY_LABELS
 const genderLabel: Record<string, string> = { MALE: '男子', FEMALE: '女子', MIXED: '混合' }
 
+/** 老数据可能没有年龄/人数配置，避免页面出现「- 岁」「最多 0 人」这类异常值。 */
+function ageRangeText(group: EventGroup): string {
+  const { minAge, maxAge } = group
+  if ((minAge == null && maxAge == null) || (minAge === 0 && maxAge === 0)) return '未设置'
+  return `${minAge == null ? '不限' : minAge}-${maxAge == null ? '不限' : maxAge} 岁`
+}
+
+function maxPlayersText(value: number): string {
+  return value > 0 ? `最多 ${value} 人` : '未设置'
+}
+
 async function load() {
   loading.value = true
   try {
@@ -492,8 +503,8 @@ onMounted(load)
             </div>
           </div>
           <dl class="group-card__meta">
-            <div><dt>年龄要求</dt><dd>{{ group.minAge }}-{{ group.maxAge }} 岁</dd></div>
-            <div><dt>每队人数</dt><dd>最多 {{ group.maxPlayers }} 人</dd></div>
+            <div><dt>年龄要求</dt><dd>{{ ageRangeText(group) }}</dd></div>
+            <div><dt>每队人数</dt><dd>{{ maxPlayersText(group.maxPlayers) }}</dd></div>
             <div><dt>组别总名额</dt><dd>{{ (group.quota ?? 0) > 0 ? group.quota : '不限' }}</dd></div>
             <div>
               <dt>已报名</dt>
