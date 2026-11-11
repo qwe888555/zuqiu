@@ -3,9 +3,9 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Camera, Check, Close, Plus, Refresh, UploadFilled, VideoCamera } from '@element-plus/icons-vue'
-import { accountApi, enrollmentApi, eventApi, fileApi, identityApi, matchApi } from '../../api'
+import { enrollmentApi, eventApi, fileApi, identityApi, matchApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
-import type { Account, Enrollment, IdentityCheck, Match, RosterItem } from '../../api/types'
+import type { Enrollment, IdentityCheck, Match, RosterItem } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
@@ -24,7 +24,6 @@ const filters = reactive({ manualStatus: '' })
 /** 列表投影只有 ID，展示用信息按 ID 缓存补齐，避免同一条比赛/报名重复请求。 */
 const matchCache = new Map<string, Promise<Match | null>>()
 const enrollmentCache = new Map<string, Promise<EnrollmentDetail | null>>()
-const accountCache = new Map<string, Promise<Account | null>>()
 const photoUrlCache = new Map<string, string>()
 const groupNames = ref<Record<string, string>>({})
 
@@ -46,24 +45,15 @@ function fetchEnrollment(id: string) {
   return pending
 }
 
-function fetchAccount(id: string) {
-  let pending = accountCache.get(id)
-  if (!pending) {
-    pending = accountApi.get(id).catch(() => null)
-    accountCache.set(id, pending)
-  }
-  return pending
-}
-
 function shortId(id?: string) {
   return id ? id.slice(-6) : '—'
 }
 
+/** 复核人姓名由核验接口直接返回（reviewerName）；账号详情接口对赛事记录员等角色不开放，不能再按 ID 额外拉取。 */
 async function enrichCheck(check: IdentityCheck): Promise<IdentityCheck> {
-  const [match, enrollment, reviewer] = await Promise.all([
+  const [match, enrollment] = await Promise.all([
     check.matchId ? fetchMatch(check.matchId) : Promise.resolve(null),
     check.enrollmentId ? fetchEnrollment(check.enrollmentId) : Promise.resolve(null),
-    check.reviewerAccountId ? fetchAccount(check.reviewerAccountId) : Promise.resolve(null),
   ])
   const athlete = enrollment?.players?.find((item) => item.athleteId === check.athleteId)
   const groupName =
@@ -75,8 +65,6 @@ async function enrichCheck(check: IdentityCheck): Promise<IdentityCheck> {
     teamName: enrollment?.teamName,
     groupName,
     matchLabel: match ? `${match.homeTeamName || '主队'} vs ${match.awayTeamName || '客队'}` : undefined,
-    reviewerName:
-      reviewer?.displayName || reviewer?.username || check.reviewerName,
   }
 }
 
