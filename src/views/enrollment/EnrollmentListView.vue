@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { Plus, Promotion, Refresh, RefreshLeft, Search, View } from '@element-plus/icons-vue'
 import { enrollmentApi, eventApi } from '../../api'
 import type { Enrollment, Event, EventGroup, PrecheckIssue } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
@@ -317,26 +317,31 @@ onMounted(async () => {
             <span class="muted">{{ dayjs(row.updatedAt).format('MM-DD HH:mm') }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <el-button link type="primary" @click="goDetail(row)">详情</el-button>
-            <el-button
-              v-if="canEdit(row)"
-              link
-              type="primary"
-              :loading="submitting === row.id"
-              @click="handleSubmit(row)"
-            >
-              提交
-            </el-button>
-            <el-button
-              v-if="canReport && isCreator(row) && (row.status === 'PENDING_CITY_REVIEW' || row.status === 'PENDING_PROVINCE_REVIEW')"
-              link
-              type="warning"
-              @click="handleWithdraw(row)"
-            >
-              撤回
-            </el-button>
+            <div class="table-actions">
+              <el-button size="small" type="primary" plain :icon="View" @click="goDetail(row)">
+                详情
+              </el-button>
+              <el-button
+                v-if="canEdit(row)"
+                link
+                type="primary"
+                :icon="Promotion"
+                :loading="submitting === row.id"
+                @click="handleSubmit(row)"
+              >
+                提交
+              </el-button>
+              <template
+                v-if="canReport && isCreator(row) && (row.status === 'PENDING_CITY_REVIEW' || row.status === 'PENDING_PROVINCE_REVIEW')"
+              >
+                <span class="table-actions__divider" aria-hidden="true" />
+                <el-button link type="warning" :icon="RefreshLeft" @click="handleWithdraw(row)">
+                  撤回
+                </el-button>
+              </template>
+            </div>
           </template>
         </el-table-column>
         <template #empty>

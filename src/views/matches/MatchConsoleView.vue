@@ -1081,6 +1081,7 @@ onMounted(loadAll)
 <style scoped>
 .console-page {
   max-width: 1180px;
+  margin: 0 auto;
 }
 
 .scoreboard {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { Delete, Edit, Plus, Refresh, Search, Switch } from '@element-plus/icons-vue'
 import { orgApi, teamApi } from '../../api'
 import type { Organization, Team } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -257,13 +257,23 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" align="right">
+        <el-table-column label="操作" width="300" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button link :type="row.enabled ? 'warning' : 'success'" @click="toggleEnabled(row)">
-              {{ row.enabled ? '停用' : '启用' }}
-            </el-button>
-            <el-button link type="danger" @click="removeOrg(row)">删除</el-button>
+            <div class="table-actions">
+              <el-button size="small" type="primary" plain :icon="Edit" @click="openEdit(row)">
+                编辑
+              </el-button>
+              <span class="table-actions__divider" aria-hidden="true" />
+              <el-button
+                link
+                :type="row.enabled ? 'warning' : 'success'"
+                :icon="Switch"
+                @click="toggleEnabled(row)"
+              >
+                {{ row.enabled ? '停用' : '启用' }}
+              </el-button>
+              <el-button link type="danger" :icon="Delete" @click="removeOrg(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

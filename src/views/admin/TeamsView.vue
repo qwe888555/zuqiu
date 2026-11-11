@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  CircleCheck,
+  CircleClose,
   Delete,
   Download,
   OfficeBuilding,
@@ -565,37 +567,43 @@ onMounted(async () => {
               <el-table-column label="提交时间" width="110">
                 <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
               </el-table-column>
-              <el-table-column label="操作" width="150" align="right">
+              <el-table-column label="操作" width="240" align="right" class-name="table-actions-cell">
                 <template #default="{ row }">
-                  <el-button
-                    v-if="row.fileName"
-                    link
-                    type="primary"
-                    :icon="Download"
-                    @click="downloadMaterial(row)"
-                  >
-                    下载
-                  </el-button>
-                  <!-- 材料审核仅 ADMIN/UNIVERSITY；本页只放行 ADMIN/PROVINCE，
-                       省级为只读，避免点击后必然 403。 -->
-                  <template v-if="row.reviewStatus === 'PENDING' && auth.isAdmin">
+                  <div class="table-actions">
                     <el-button
-                      link
-                      type="success"
-                      :loading="reviewingMaterialId === row.id"
-                      @click="reviewMaterial(row, 'APPROVE')"
+                      v-if="row.fileName"
+                      size="small"
+                      type="primary"
+                      plain
+                      :icon="Download"
+                      @click="downloadMaterial(row)"
                     >
-                      通过
+                      下载
                     </el-button>
-                    <el-button
-                      link
-                      type="danger"
-                      :loading="reviewingMaterialId === row.id"
-                      @click="reviewMaterial(row, 'REJECT')"
-                    >
-                      驳回
-                    </el-button>
-                  </template>
+                    <!-- 材料审核仅 ADMIN/UNIVERSITY；本页只放行 ADMIN/PROVINCE，
+                         省级为只读，避免点击后必然 403。 -->
+                    <template v-if="row.reviewStatus === 'PENDING' && auth.isAdmin">
+                      <span v-if="row.fileName" class="table-actions__divider" aria-hidden="true" />
+                      <el-button
+                        link
+                        type="success"
+                        :icon="CircleCheck"
+                        :loading="reviewingMaterialId === row.id"
+                        @click="reviewMaterial(row, 'APPROVE')"
+                      >
+                        通过
+                      </el-button>
+                      <el-button
+                        link
+                        type="danger"
+                        :icon="CircleClose"
+                        :loading="reviewingMaterialId === row.id"
+                        @click="reviewMaterial(row, 'REJECT')"
+                      >
+                        驳回
+                      </el-button>
+                    </template>
+                  </div>
                 </template>
               </el-table-column>
               <template #empty>

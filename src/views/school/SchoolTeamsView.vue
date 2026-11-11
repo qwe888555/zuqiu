@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { ArrowRight, CircleCheck, Clock, Plus, Refresh, Trophy, User } from '@element-plus/icons-vue'
+import { ArrowRight, CircleCheck, Clock, Folder, OfficeBuilding, Plus, Refresh, Trophy, User } from '@element-plus/icons-vue'
 import { enrollmentApi, teamApi } from '../../api'
 import type { Enrollment, GroupCategory, Team } from '../../api/types'
 import { useAuthStore } from '../../stores/auth'
@@ -247,12 +247,14 @@ onMounted(load)
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="212" fixed="right" align="right" class-name="col-actions">
+        <el-table-column label="操作" width="320" fixed="right" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <div class="row-actions">
-              <el-button link type="primary" @click="goTeam(row)">球队资料</el-button>
-              <el-button link type="primary" @click="goMembers(row)">球员名单</el-button>
-              <el-button link type="primary" @click="goMaterials(row)">球队材料</el-button>
+            <div class="table-actions">
+              <el-button size="small" type="primary" plain :icon="OfficeBuilding" @click="goTeam(row)">
+                球队资料
+              </el-button>
+              <el-button link type="primary" :icon="User" @click="goMembers(row)">球员名单</el-button>
+              <el-button link type="primary" :icon="Folder" @click="goMaterials(row)">球队材料</el-button>
             </div>
           </template>
         </el-table-column>
@@ -438,26 +440,6 @@ onMounted(load)
 }
 
 /* 操作列：三个入口固定单行右对齐，避免链接换行后错位 */
-.row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  white-space: nowrap;
-}
-
-.row-actions :deep(.el-button) {
-  margin-left: 0;
-  padding: 0;
-  font-size: 12.5px;
-  font-weight: 500;
-}
-
-:deep(.col-actions .cell) {
-  overflow: visible;
-  white-space: nowrap;
-}
-
 @media (max-width: 900px) {
   .school-scope {
     align-items: flex-start;

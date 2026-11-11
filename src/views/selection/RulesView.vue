@@ -1,7 +1,7 @@
 ﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit, Plus, Refresh, Setting } from '@element-plus/icons-vue'
+import { Delete, Edit, Plus, Refresh, Setting, Switch } from '@element-plus/icons-vue'
 import {
   GROUP_TYPE_LABEL,
   ROUND_LABEL,
@@ -211,27 +211,34 @@ onMounted(load)
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button
-              v-if="row.status === 1"
-              link
-              type="warning"
-              :loading="togglingId === row.id"
-              @click="toggleStatus(row, 0)"
-            >
-              停用
-            </el-button>
-            <el-button
-              v-else
-              link
-              type="success"
-              :loading="togglingId === row.id"
-              @click="toggleStatus(row, 1)"
-            >
-              启用
-            </el-button>
+            <div class="table-actions">
+              <el-button size="small" type="primary" plain :icon="Edit" @click="openEdit(row)">
+                编辑
+              </el-button>
+              <span class="table-actions__divider" aria-hidden="true" />
+              <el-button
+                v-if="row.status === 1"
+                link
+                type="warning"
+                :icon="Switch"
+                :loading="togglingId === row.id"
+                @click="toggleStatus(row, 0)"
+              >
+                停用
+              </el-button>
+              <el-button
+                v-else
+                link
+                type="success"
+                :icon="Switch"
+                :loading="togglingId === row.id"
+                @click="toggleStatus(row, 1)"
+              >
+                启用
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

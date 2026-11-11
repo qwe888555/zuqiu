@@ -446,9 +446,12 @@ onMounted(async () => {
         <el-table-column label="资格状态" width="120">
           <template #default="{ row }"><StatusTag :status="row.status" kind="member" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="250" align="right">
+        <el-table-column label="操作" width="280" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <template v-if="row.status === 'CURRENT'">
+            <div v-if="row.status === 'CURRENT'" class="table-actions">
+              <el-button size="small" type="primary" plain :icon="Edit" @click="openEdit(row)">
+                编辑
+              </el-button>
               <el-upload
                 v-if="canUploadPhoto"
                 :show-file-list="false"
@@ -459,9 +462,9 @@ onMounted(async () => {
                   照片
                 </el-button>
               </el-upload>
-              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <span class="table-actions__divider" aria-hidden="true" />
               <el-button link type="danger" :icon="Delete" @click="removeMember(row)">移出</el-button>
-            </template>
+            </div>
             <span v-else class="muted">已离队</span>
           </template>
         </el-table-column>

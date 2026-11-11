@@ -3,7 +3,18 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Delete, Edit, Monitor, Plus, Refresh, Search, VideoCamera } from '@element-plus/icons-vue'
+import {
+  CircleCheck,
+  CircleClose,
+  Delete,
+  Edit,
+  Monitor,
+  Plus,
+  Refresh,
+  Search,
+  VideoCamera,
+  View,
+} from '@element-plus/icons-vue'
 import { eventApi, matchApi, teamApi } from '../../api'
 import type { Event, EventGroup, Match, Team } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
@@ -334,29 +345,56 @@ onMounted(() => {
             <span v-else class="muted">未发布</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="320" fixed="right">
+        <el-table-column label="操作" width="380" fixed="right" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <el-button
-              v-if="canRecord"
-              link
-              type="primary"
-              :icon="Monitor"
-              @click="router.push(`/console/matches/${row.id}/console`)"
-            >
-              记录台
-            </el-button>
-            <el-button v-if="canManage" link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button
-              link
-              type="primary"
-              @click="router.push({ name: 'portal-match-detail', params: { id: row.id }, query: { preview: '1' } })"
-            >
-              门户预览
-            </el-button>
-            <el-button v-if="canPublish" link :type="row.published ? 'warning' : 'success'" @click="togglePublish(row)">
-              {{ row.published ? '取消发布' : '发布' }}
-            </el-button>
-            <el-button v-if="canManage" link type="danger" @click="removeMatch(row)">删除</el-button>
+            <div class="table-actions">
+              <el-button
+                v-if="canRecord"
+                size="small"
+                type="primary"
+                plain
+                :icon="Monitor"
+                @click="router.push(`/console/matches/${row.id}/console`)"
+              >
+                记录台
+              </el-button>
+              <el-button
+                v-if="canManage"
+                link
+                type="primary"
+                :icon="Edit"
+                @click="openEdit(row)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                link
+                type="primary"
+                :icon="View"
+                @click="router.push({ name: 'portal-match-detail', params: { id: row.id }, query: { preview: '1' } })"
+              >
+                门户预览
+              </el-button>
+              <span class="table-actions__divider" aria-hidden="true" />
+              <el-button
+                v-if="canPublish"
+                link
+                :type="row.published ? 'warning' : 'success'"
+                :icon="row.published ? CircleClose : CircleCheck"
+                @click="togglePublish(row)"
+              >
+                {{ row.published ? '取消发布' : '发布' }}
+              </el-button>
+              <el-button
+                v-if="canManage"
+                link
+                type="danger"
+                :icon="Delete"
+                @click="removeMatch(row)"
+              >
+                删除
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -470,6 +508,7 @@ onMounted(() => {
 .team-scope-alert {
   margin-bottom: 14px;
 }
+
 
 .match-cell__teams {
   display: grid;

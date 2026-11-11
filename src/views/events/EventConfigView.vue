@@ -3,7 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Plus, Refresh, Setting, Delete } from '@element-plus/icons-vue'
+import { Delete, Edit, Link, Plus, Refresh, Setting, Switch } from '@element-plus/icons-vue'
 import { eventApi } from '../../api'
 import type { Event, EventGroup, GroupCategory } from '../../api/types'
 import { CATEGORY_LABELS, EVENT_CATEGORIES, eventCategoryLabel } from '../../config/labels'
@@ -447,21 +447,25 @@ onMounted(load)
         <el-table-column label="状态" width="120">
           <template #default="{ row }"><StatusTag :status="row.status" kind="event" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="400" fixed="right" align="right" class-name="col-actions">
+        <el-table-column label="操作" width="440" fixed="right" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <div class="row-actions">
-              <el-button link type="primary" :icon="Setting" @click="openGroups(row)">组别配置</el-button>
+            <div class="table-actions">
+              <el-button size="small" type="primary" plain :icon="Setting" @click="openGroups(row)">
+                组别配置
+              </el-button>
+              <el-button link type="primary" :icon="Link" @click="openRegistration(row)">报名页</el-button>
+              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <span class="table-actions__divider" aria-hidden="true" />
               <el-button
                 v-if="statusActionOf(row)"
                 link
                 :type="statusActionOf(row)!.type"
+                :icon="Switch"
                 :loading="changingStatusId === row.id"
                 @click="changeStatus(row, statusActionOf(row)!)"
               >
                 {{ statusActionOf(row)!.label }}
               </el-button>
-              <el-button link type="primary" @click="openRegistration(row)">报名页</el-button>
-              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
               <el-button link type="danger" :icon="Delete" @click="removeEvent(row)">删除</el-button>
             </div>
           </template>
@@ -654,26 +658,6 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 11px;
-}
-
-.row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  white-space: nowrap;
-}
-
-.row-actions :deep(.el-button) {
-  margin-left: 0;
-  padding: 0;
-  font-size: 12.5px;
-  font-weight: 500;
-}
-
-:deep(.col-actions .cell) {
-  overflow: visible;
-  white-space: nowrap;
 }
 
 .event-cell__mark {

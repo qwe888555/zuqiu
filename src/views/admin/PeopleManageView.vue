@@ -1074,39 +1074,45 @@ onMounted(() => {
             <span class="muted">{{ dayjs(row.createdAt).format('YYYY-MM-DD') }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="330" fixed="right">
+        <el-table-column label="操作" width="470" fixed="right" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="Document" @click="openMaterials(row)">材料</el-button>
-            <template v-if="canManagePeople">
-              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-              <el-button
-                v-if="row.reviewStatus === 'REJECTED'"
-                link
-                type="primary"
-                :icon="Promotion"
-                :loading="submittingPersonId === row.id"
-                @click="submitPerson(row)"
-              >提交审核</el-button>
-            </template>
-            <template
-              v-if="row.reviewStatus === 'PENDING' && (row.canReview ?? canReviewPerson)"
-            >
-              <el-button
-                link
-                type="success"
-                :icon="CircleCheck"
-                :loading="reviewingPersonId === row.id"
-                @click="reviewPerson(row, 'APPROVE')"
-              >通过</el-button>
-              <el-button
-                link
-                type="danger"
-                :icon="CircleClose"
-                :loading="reviewingPersonId === row.id"
-                @click="reviewPerson(row, 'REJECT')"
-              >驳回</el-button>
-            </template>
-            <el-button v-if="canDeletePerson" link type="danger" :icon="Delete" @click="removePerson(row)">删除</el-button>
+            <div class="table-actions">
+              <el-button size="small" type="primary" plain :icon="Document" @click="openMaterials(row)">
+                材料
+              </el-button>
+              <template v-if="canManagePeople">
+                <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+                <el-button
+                  v-if="row.reviewStatus === 'REJECTED'"
+                  link
+                  type="primary"
+                  :icon="Promotion"
+                  :loading="submittingPersonId === row.id"
+                  @click="submitPerson(row)"
+                >提交审核</el-button>
+              </template>
+              <template
+                v-if="row.reviewStatus === 'PENDING' && (row.canReview ?? canReviewPerson)"
+              >
+                <span class="table-actions__divider" aria-hidden="true" />
+                <el-button
+                  link
+                  type="success"
+                  :icon="CircleCheck"
+                  :loading="reviewingPersonId === row.id"
+                  @click="reviewPerson(row, 'APPROVE')"
+                >通过</el-button>
+                <el-button
+                  link
+                  type="danger"
+                  :icon="CircleClose"
+                  :loading="reviewingPersonId === row.id"
+                  @click="reviewPerson(row, 'REJECT')"
+                >驳回</el-button>
+              </template>
+              <span v-if="canDeletePerson" class="table-actions__divider" aria-hidden="true" />
+              <el-button v-if="canDeletePerson" link type="danger" :icon="Delete" @click="removePerson(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>

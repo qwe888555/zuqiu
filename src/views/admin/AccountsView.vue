@@ -11,6 +11,7 @@ import {
   Plus,
   Refresh,
   Search,
+  Switch,
   UploadFilled,
 } from '@element-plus/icons-vue'
 import { accountApi, orgApi, personApi, teamApi } from '../../api'
@@ -853,20 +854,28 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right" align="right">
+        <el-table-column label="操作" width="340" fixed="right" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <template v-if="canManageRow(row)">
-              <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <div v-if="canManageRow(row)" class="table-actions">
+              <el-button size="small" type="primary" plain :icon="Edit" @click="openEdit(row)">
+                编辑
+              </el-button>
+              <span class="table-actions__divider" aria-hidden="true" />
               <el-button v-if="canReset" link type="warning" :icon="Key" @click="resetPassword(row)">
                 重置
               </el-button>
-              <el-button link :type="row.enabled ? 'info' : 'success'" @click="toggleEnabled(row)">
+              <el-button
+                link
+                :type="row.enabled ? 'info' : 'success'"
+                :icon="Switch"
+                @click="toggleEnabled(row)"
+              >
                 {{ row.enabled ? '停用' : '启用' }}
               </el-button>
               <el-button v-if="canDelete" link type="danger" :icon="Delete" @click="removeAccount(row)">
                 删除
               </el-button>
-            </template>
+            </div>
             <span v-else class="muted">{{ manageDeniedReason(row) || '无权操作' }}</span>
           </template>
         </el-table-column>

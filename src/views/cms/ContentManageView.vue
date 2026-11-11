@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
-import { Delete, Edit, Plus, Refresh, Search, UploadFilled, View } from '@element-plus/icons-vue'
+import { CircleCheck, CircleClose, Delete, Edit, Plus, Refresh, Search, UploadFilled, View } from '@element-plus/icons-vue'
 import { contentApi, dictApi, eventApi, fileApi } from '../../api'
 import type { Content, ContentType, Event, EventGroup, OptionItem } from '../../api/types'
 import { EVENT_CATEGORIES } from '../../config/labels'
@@ -453,18 +453,22 @@ onMounted(() => {
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="270" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="View" @click="openPreview(row)">预览</el-button>
-            <el-button link type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-            <el-button
-              link
-              :type="row.status === 'PUBLISHED' ? 'warning' : 'success'"
-              @click="togglePublish(row)"
-            >
-              {{ row.status === 'PUBLISHED' ? '下线' : '发布' }}
-            </el-button>
-            <el-button link type="danger" :icon="Delete" @click="removeContent(row)">删除</el-button>
+            <div class="table-actions">
+              <el-button size="small" type="primary" plain :icon="Edit" @click="openEdit(row)">编辑</el-button>
+              <el-button link type="primary" :icon="View" @click="openPreview(row)">预览</el-button>
+              <span class="table-actions__divider" aria-hidden="true" />
+              <el-button
+                link
+                :type="row.status === 'PUBLISHED' ? 'warning' : 'success'"
+                :icon="row.status === 'PUBLISHED' ? CircleClose : CircleCheck"
+                @click="togglePublish(row)"
+              >
+                {{ row.status === 'PUBLISHED' ? '下线' : '发布' }}
+              </el-button>
+              <el-button link type="danger" :icon="Delete" @click="removeContent(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
