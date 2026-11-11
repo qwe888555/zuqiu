@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { DataAnalysis, Download, Refresh, Setting, Trophy, User, Warning } from '@element-plus/icons-vue'
+import { DataAnalysis, Download, Refresh, Search, Setting, Trophy, User, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { enrollmentApi, eventApi } from '../../api'
 import type { Enrollment, Event, StatRow } from '../../api/types'
@@ -28,6 +28,8 @@ const selectedCity = ref('')
 // 按组别查看时，点击组别卡片筛选明细；搜索框按组别名称直接过滤。
 const selectedGroup = ref('')
 const groupKeyword = ref('')
+// 按学校查看时按校名过滤，避免学校较多时只能翻表。
+const schoolKeyword = ref('')
 const athleteCountComplete = ref(true)
 
 function cityKey(label: string) {
@@ -42,6 +44,10 @@ const displayRows = computed(() => {
   let list = rows.value
   if (selectedCity.value) {
     list = list.filter((row) => cityKey(row.label) === selectedCity.value)
+  }
+  if (dimension.value === 'SCHOOL') {
+    const keyword = schoolKeyword.value.trim().toLowerCase()
+    if (keyword) list = list.filter((row) => row.label.toLowerCase().includes(keyword))
   }
   if (dimension.value === 'GROUP') {
     if (selectedGroup.value) list = list.filter((row) => row.key === selectedGroup.value)
@@ -103,6 +109,7 @@ function changeDimension() {
   selectedCity.value = ''
   selectedGroup.value = ''
   groupKeyword.value = ''
+  schoolKeyword.value = ''
   load()
 }
 
@@ -110,6 +117,25 @@ const totalTeams = computed(() => rows.value.reduce((sum, row) => sum + row.team
 const totalAthletes = computed(() => rows.value.reduce((sum, row) => sum + row.athleteCount, 0))
 const totalPending = computed(() => rows.value.reduce((sum, row) => sum + (row.pendingCount || 0), 0))
 const totalApproved = computed(() => rows.value.reduce((sum, row) => sum + (row.approvedCount || 0), 0))
+const totalRejected = computed(() => rows.value.reduce((sum, row) => sum + (row.rejectedCount || 0), 0))
+
+/**
+ * 审核进度按报名单统计，而不是按球队：同校同队可报多个组别，
+ * 用 teamCount 做分母会出现「已通过 6 / 球队 5 = 120%」。
+ * 旧接口没有 enrollmentCount 时，用三种审核状态之和兜底。
+ */
+const totalEnrollments = computed(() => {
+  const declared = rows.value.reduce((sum, row) => sum + (row.enrollmentCount || 0), 0)
+  return declared || totalApproved.value + totalPending.value + totalRejected.value
+})
+const approvalRate = computed(() =>
+  totalEnrollments.value ? Math.round((totalApproved.value / totalEnrollments.value) * 100) : 0,
+)
+const reviewedEnd = computed(() =>
+  totalEnrollments.value
+    ? ((totalApproved.value + totalPending.value) / totalEnrollments.value) * 100
+    : 0,
+)
 
 const maxTeamCount = computed(() => Math.max(1, ...rows.value.map((row) => row.teamCount)))
 
@@ -329,6 +355,14 @@ onMounted(refresh)
         <el-radio-button value="SCHOOL">按学校</el-radio-button>
         <el-radio-button value="GROUP">按组别</el-radio-button>
       </el-radio-group>
+      <el-input
+        v-if="dimension === 'SCHOOL'"
+        v-model="schoolKeyword"
+        class="school-search"
+        placeholder="搜索学校"
+        clearable
+        :prefix-icon="Search"
+      />
       <span class="filter-card__spacer" />
       <span class="muted">{{ scopeText }}</span>
     </section>
@@ -365,8 +399,8 @@ onMounted(refresh)
     <div class="stat-grid">
       <StatCard label="报名球队" :value="totalTeams" hint="学校报送的参赛球队" :icon="Trophy" tone="green" />
       <StatCard label="报名球员" :value="athleteKpiValue" :hint="athleteKpiHint" :icon="User" tone="lime" />
-      <StatCard label="待审核" :value="totalPending" hint="需尽快处理" :icon="Warning" tone="amber" />
-      <StatCard label="已通过" :value="totalApproved" hint="完成终审" :icon="DataAnalysis" tone="blue" />
+      <StatCard label="待审核" :value="totalPending" hint="报名单待审核" :icon="Warning" tone="amber" />
+      <StatCard label="已通过" :value="totalApproved" hint="报名单已终审" :icon="DataAnalysis" tone="blue" />
     </div>
 
     <section v-if="dimension === 'CITY'" class="page-card heat-card">
@@ -518,16 +552,16 @@ onMounted(refresh)
       </section>
 
       <aside class="page-card progress-card">
-        <div class="section-title">审核进度</div>
+        <div class="section-title">审核进度 <small>按报名单统计</small></div>
         <div class="donut-wrap">
           <div
             class="donut"
             :style="{
-              background: `conic-gradient(var(--brand-700) 0 ${totalTeams ? (totalApproved / totalTeams) * 100 : 0}%, #f0b95b ${totalTeams ? (totalApproved / totalTeams) * 100 : 0}% ${totalTeams ? ((totalApproved + totalPending) / totalTeams) * 100 : 0}%, #f1e6e6 0)`,
+              background: `conic-gradient(var(--brand-700) 0 ${approvalRate}%, #f0b95b ${approvalRate}% ${reviewedEnd}%, #f1e6e6 0)`,
             }"
           >
             <div class="donut__inner">
-              <strong class="num">{{ totalTeams ? Math.round((totalApproved / totalTeams) * 100) : 0 }}%</strong>
+              <strong class="num">{{ approvalRate }}%</strong>
               <span>终审通过率</span>
             </div>
           </div>
@@ -535,7 +569,7 @@ onMounted(refresh)
         <div class="legend">
           <div><span class="dot dot--green" />已通过 <strong class="num">{{ totalApproved }}</strong></div>
           <div><span class="dot dot--amber" />审核中 <strong class="num">{{ totalPending }}</strong></div>
-          <div><span class="dot dot--gray" />草稿/驳回 <strong class="num">{{ Math.max(0, totalTeams - totalApproved - totalPending) }}</strong></div>
+          <div><span class="dot dot--gray" />已驳回 <strong class="num">{{ totalRejected }}</strong></div>
         </div>
         <el-alert
           class="progress-tip"
@@ -570,6 +604,10 @@ onMounted(refresh)
 .filter-card__label {
   font-size: 12px;
   color: var(--ink-500);
+}
+
+.school-search {
+  width: 220px;
 }
 
 .event-empty {
