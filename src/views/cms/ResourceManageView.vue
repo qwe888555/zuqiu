@@ -427,7 +427,7 @@ onMounted(() => {
         <el-form-item v-if="form.resourceType === 'CAROUSEL'" label="轮播视频">
           <el-input v-model="form.videoUrl" placeholder="https://.../banner.mp4（选填）" />
           <span class="form-hint">
-            支持 mp4 / webm 直链，静音自动播放；首页无直播时用它代替轮播图，每播放一轮停 30 秒。
+            支持 mp4 / webm 直链，静音自动播放；首页无直播时用它代替轮播图，作为背景无缝循环。
           </span>
         </el-form-item>
         <el-form-item label="资源图片">

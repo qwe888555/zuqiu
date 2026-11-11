@@ -172,7 +172,7 @@ const heroIsHls = computed(() => HLS_URL_RE.test(heroVideoUrl.value))
 const showHeroVideo = computed(() => Boolean(heroVideoUrl.value))
 const showHeroFrame = computed(() => !showHeroVideo.value && heroLive.value?.mode === 'iframe')
 
-// 轮播视频每播完一轮停 30 秒再重播；停留期间显示轮播图。
+// 轮播视频作为背景素材时无缝循环；只有直播直链视频播完后停 30 秒再重播，停留期间显示轮播图。
 const HERO_LOOP_GAP_MS = 30_000
 const heroResting = ref(false)
 let heroRestTimer: ReturnType<typeof setTimeout> | undefined
@@ -548,6 +548,7 @@ function publicationLink(star: PublicityRecord) {
           autoplay
           muted
           playsinline
+          :loop="!heroLive"
           :preload="heroIsHls ? 'auto' : 'metadata'"
           aria-hidden="true"
           @ended="handleHeroVideoEnded"
