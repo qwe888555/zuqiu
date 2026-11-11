@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
@@ -75,6 +75,77 @@ const kickoffShort = computed(() => formatBeijing(match.value?.kickoffAt))
 function defaultTab() {
   if (showEvents.value) activeTab.value = 'events'
   else activeTab.value = liveFeed.value.length ? 'live' : 'info'
+}
+
+/** 直播链接：HLS 与直链视频可在页内播放，其余仍作为外链入口。 */
+const HLS_URL_RE = /\.m3u8(?:[?#]|$)/i
+const DIRECT_VIDEO_RE = /\.(mp4|webm|ogv|ogg|mov|m4v)(?:[?#]|$)/i
+const playableLink = computed(() =>
+  liveLinks.value.find(
+    (link) => link.enabled !== false && (HLS_URL_RE.test(link.url) || DIRECT_VIDEO_RE.test(link.url)),
+  ),
+)
+// 只有比赛进行中才自动挂载播放器，避免赛前挂一个永远转圈的 <video>。
+const showLivePlayer = computed(() => Boolean(playableLink.value) && isLive.value)
+const liveVideoEl = ref<HTMLVideoElement | null>(null)
+let liveHls: { destroy: () => void } | null = null
+
+function destroyLivePlayer() {
+  liveHls?.destroy()
+  liveHls = null
+}
+
+/** .m3u8 用 hls.js 喂给 <video>；Safari 原生支持时直接吃 src，mp4 等直链不需要额外处理。 */
+async function attachLivePlayer() {
+  destroyLivePlayer()
+  const video = liveVideoEl.value
+  const url = playableLink.value?.url || ''
+  if (!video || !url) return
+  video.removeAttribute('src')
+  video.load()
+  if (!HLS_URL_RE.test(url)) {
+    video.src = url
+    return
+  }
+  const { default: Hls } = await import('hls.js')
+  // 同首页：Edge 原生 HLS 会黑屏，优先 hls.js，MSE 不可用时再退回原生。
+  if (!Hls.isSupported()) {
+    video.src = url
+    void video.play().catch(() => {})
+    return
+  }
+  const hls = new Hls({ lowLatencyMode: true, enableWorker: true })
+  liveHls = hls
+  hls.loadSource(url)
+  hls.attachMedia(video)
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    void video.play().catch(() => {})
+  })
+}
+
+watch(
+  () => [showLivePlayer.value, playableLink.value?.url] as const,
+  ([show]) => {
+    if (show) nextTick(() => void attachLivePlayer())
+    else destroyLivePlayer()
+  },
+)
+
+function isPlayableLink(link: LiveLink) {
+  return HLS_URL_RE.test(link.url) || DIRECT_VIDEO_RE.test(link.url)
+}
+
+/**
+ * 可播放的直播链接不再直接打开 .m3u8（浏览器会当成文件下载/选择打开方式），
+ * 而是滚到页内播放器、取消静音继续播放。
+ */
+function playInline(link: LiveLink) {
+  if (!showLivePlayer.value || playableLink.value?.url !== link.url) return
+  const video = liveVideoEl.value
+  if (!video) return
+  video.muted = false
+  void video.play().catch(() => {})
+  video.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 /** 公开直播链接只有 title/url，补齐渲染所需的本地 key，不回填业务字段。 */
@@ -235,6 +306,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (timer) window.clearInterval(timer)
+  destroyLivePlayer()
 })
 
 watch(() => route.params.id, load)
@@ -426,17 +498,39 @@ watch(() => route.params.id, load)
 
             <div v-if="liveLinks.length" class="link-block">
               <h3>直播入口</h3>
-              <a
-                v-for="link in liveLinks"
-                :key="link.id || link.url"
-                :href="link.url"
-                target="_blank"
-                rel="noreferrer"
-                class="live-link"
-              >
-                <el-icon><VideoCamera /></el-icon>
-                {{ link.title }}
-              </a>
+              <div v-if="showLivePlayer" class="live-player">
+                <video
+                  ref="liveVideoEl"
+                  controls
+                  autoplay
+                  muted
+                  playsinline
+                  preload="metadata"
+                  :aria-label="playableLink?.title || '比赛直播'"
+                />
+                <p>现场推流画面，若暂时黑屏请稍候或刷新页面。</p>
+              </div>
+              <template v-for="link in liveLinks" :key="link.id || link.url">
+                <button
+                  v-if="isPlayableLink(link)"
+                  type="button"
+                  class="live-link"
+                  @click="playInline(link)"
+                >
+                  <el-icon><VideoCamera /></el-icon>
+                  {{ link.title }}
+                </button>
+                <a
+                  v-else
+                  :href="link.url"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="live-link"
+                >
+                  <el-icon><VideoCamera /></el-icon>
+                  {{ link.title }}
+                </a>
+              </template>
             </div>
           </div>
         </div>
@@ -971,6 +1065,24 @@ watch(() => route.params.id, load)
   color: var(--ink-300);
 }
 
+.live-player {
+  margin-bottom: 12px;
+}
+
+.live-player video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  background: #000;
+}
+
+.live-player p {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--ink-300);
+}
+
 .live-link {
   display: flex;
   align-items: center;
@@ -981,6 +1093,14 @@ watch(() => route.params.id, load)
   color: var(--brand-700);
   font-size: 12px;
   margin-bottom: 7px;
+}
+
+button.live-link {
+  width: 100%;
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .detail-side {

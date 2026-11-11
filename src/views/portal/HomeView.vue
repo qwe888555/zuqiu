@@ -267,19 +267,22 @@ async function attachHeroHls(isRetry = false) {
   const video = heroVideoEl.value
   const url = heroVideoUrl.value
   if (!video || !url || !HLS_URL_RE.test(url)) return
-  if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = url
-    return
-  }
   const { default: Hls } = await import('hls.js')
+  // 优先 hls.js：Edge 对 HLS 的 canPlayType 返回 "maybe" 但原生播放会黑屏，
+  // 只有 MSE 不可用（iOS Safari 等）时才退回浏览器原生 HLS。
   if (!Hls.isSupported()) {
-    handleHeroMediaError()
+    video.src = url
+    void video.play().catch(() => {})
     return
   }
   const hls = new Hls({ lowLatencyMode: true, enableWorker: true })
   heroHls = hls
   hls.loadSource(url)
   hls.attachMedia(video)
+  // 有些浏览器（含后台标签页）不认 <video autoplay>，MSE 挂载后仍停在 paused。
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    void video.play().catch(() => {})
+  })
   hls.on(Hls.Events.ERROR, (_event, data) => {
     if (data?.fatal) retryHeroHls()
   })
@@ -325,6 +328,35 @@ function scheduleHeroRecoverProbe() {
     heroHlsRetries = 0
     heroLive.value = { ...live, mode: HLS_URL_RE.test(live.url) ? 'hls' : 'video' }
   }, HERO_RECOVER_PROBE_MS)
+}
+
+/**
+ * 点击直播角标：可播放的直播流不直接打开地址（浏览器会把它当文件下载），
+ * 而是在页内继续播放 —— 已经出画面就取消静音并全屏，之前降级过就重新挂载播放器。
+ */
+function openHeroLive() {
+  const live = heroLive.value
+  if (!live) return
+  const playable = HLS_URL_RE.test(live.url) || DIRECT_VIDEO_RE.test(live.url)
+  if (!playable) {
+    window.open(live.url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  const video = heroVideoEl.value
+  if (video && heroLiveVisible.value) {
+    video.muted = false
+    void video.play().catch(() => {})
+    try {
+      const request = video.requestFullscreen?.()
+      if (request && typeof request.catch === 'function') request.catch(() => {})
+    } catch {
+      // 部分浏览器禁止非用户手势之外的全屏，忽略即可，画面仍在页内播放
+    }
+    return
+  }
+  heroHlsRetries = 0
+  heroLive.value = { ...live, mode: HLS_URL_RE.test(live.url) ? 'hls' : 'video' }
+  nextTick(() => void attachHeroHls())
 }
 
 // 卡顿看门狗：推流断掉时 hls.js 往往不报致命错误，只是停在缓冲状态（画面定格），
@@ -572,37 +604,35 @@ function publicationLink(star: PublicityRecord) {
         />
       </div>
 
-      <!-- 直播画面铺满首屏时保留一个悬浮角标，说明画面来源并提供跳转入口。 -->
-      <a
+      <!-- 直播画面铺满首屏时保留一个悬浮角标；点击就地播放/取消静音，不把流地址交给浏览器下载。 -->
+      <button
         v-if="heroLive && heroLiveVisible"
+        type="button"
         class="hero__live hero__live--float"
-        :href="heroLive.url"
-        target="_blank"
-        rel="noopener noreferrer"
-        :title="`在新窗口打开直播：${heroLive.title}`"
+        :title="`点击播放直播：${heroLive.title}`"
+        @click="openHeroLive"
       >
         <span class="hero__live-dot" aria-hidden="true" />
         <span class="hero__live-label">正在直播</span>
         <span class="hero__live-title">{{ heroLive.title }}</span>
         <el-icon><VideoPlay /></el-icon>
-      </a>
+      </button>
 
       <!-- 只有直播画面播放时才首屏只留视频；轮播视频作为背景时文案与比分卡始终保留。 -->
       <div v-show="!heroLiveVisible" class="container hero__inner">
         <div class="hero__copy">
-          <a
+          <button
             v-if="heroLive"
+            type="button"
             class="hero__live"
-            :href="heroLive.url"
-            target="_blank"
-            rel="noopener noreferrer"
-            :title="`在新窗口打开直播：${heroLive.title}`"
+            :title="`点击播放直播：${heroLive.title}`"
+            @click="openHeroLive"
           >
             <span class="hero__live-dot" aria-hidden="true" />
             <span class="hero__live-label">正在直播</span>
             <span class="hero__live-title">{{ heroLive.title }}</span>
             <el-icon><VideoPlay /></el-icon>
-          </a>
+          </button>
           <span class="hero__eyebrow">四川省青少年校园足球联赛 · 2026 赛季</span>
           <h1>全省校园足球<br /><em>在这里开球</em></h1>
           <p>
@@ -1058,8 +1088,10 @@ function publicationLink(star: PublicityRecord) {
   border-radius: 999px;
   background: rgba(6, 32, 24, 0.55);
   backdrop-filter: blur(8px);
+  font-family: inherit;
   font-size: 12.5px;
   color: #fff;
+  cursor: pointer;
   transition: border-color 0.16s ease, background-color 0.16s ease;
 }
 
