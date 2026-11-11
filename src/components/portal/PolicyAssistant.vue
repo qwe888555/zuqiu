@@ -11,7 +11,7 @@ import {
   RefreshLeft,
 } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
-import type { PolicyAnswer } from '../../api/types'
+import type { PolicyAnswer, PolicyCitation } from '../../api/types'
 import {
   registerPolicyAssistant,
   type PolicyAssistantContext,
@@ -110,6 +110,18 @@ function scrollToBottom() {
 function resetThread() {
   exchanges.value = []
   question.value = ''
+}
+
+/**
+ * 问答接口返回的 publicUrl 是后端公开接口地址（/api/v1/public/contents/{id}），
+ * 不能直接给站内路由用，否则会命中兜底路由跳回首页。这里统一转成政策详情页。
+ */
+function citationTarget(citation: PolicyCitation): string {
+  if (citation.publicUrl?.startsWith('/policies/') || citation.publicUrl?.startsWith('/news/')) {
+    return citation.publicUrl
+  }
+  const idFromUrl = citation.publicUrl?.match(/\/public\/contents\/([^/?#]+)/)?.[1]
+  return `/policies/${idFromUrl || citation.contentId}`
 }
 
 function handleRequest(request: PolicyAssistantRequest) {
@@ -462,7 +474,7 @@ onBeforeUnmount(() => {
                     <router-link
                       v-for="(citation, sourceIndex) in item.answer.citations"
                       :key="citation.contentId"
-                      :to="citation.publicUrl"
+                      :to="citationTarget(citation)"
                       class="source-card"
                       @click="open = false"
                     >
@@ -481,7 +493,7 @@ onBeforeUnmount(() => {
                     <router-link
                       v-for="citation in item.answer.fallbackPolicies"
                       :key="citation.contentId"
-                      :to="citation.publicUrl"
+                      :to="citationTarget(citation)"
                       class="source-link"
                       @click="open = false"
                     >
