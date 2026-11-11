@@ -659,7 +659,6 @@ export const identityApi = {
     enrollmentId?: string
     athleteId?: string
     manualStatus?: string
-    machineStatus?: string
   }) => http.get<PageResult<IdentityCheck>>('/identity-checks/list', params),
   get: (id: string) => http.get<IdentityCheck>(`/identity-checks/${id}`),
   /** 创建按幂等契约要求携带 Idempotency-Key。 */

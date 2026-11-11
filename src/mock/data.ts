@@ -1024,14 +1024,14 @@ export const identityChecks: IdentityCheck[] = [
   {
     id: 'idc_001', matchId: 'match_001', matchLabel: '成都市实验小学 vs 宜宾人民路小学',
     enrollmentId: 'enr_001', athleteId: 'person_team_cd_syxx_001', athleteName: '张子轩',
-    teamName: '成都市实验小学', mode: 'FACE_COMPARE', machineStatus: 'MATCH',
-    machineVerified: true, manualStatus: 'NOT_REVIEWED', capturedPhotoUrl: '',
+    teamName: '成都市实验小学', mode: 'MANUAL', machineStatus: 'NOT_RUN',
+    machineVerified: false, manualStatus: 'NOT_REVIEWED', capturedPhotoUrl: '',
     version: 1, createdAt: '2026-10-19T09:40:00+08:00',
   },
   {
     id: 'idc_002', matchId: 'match_001', matchLabel: '成都市实验小学 vs 宜宾人民路小学',
     enrollmentId: 'enr_001', athleteId: 'person_team_cd_syxx_003', athleteName: '王浩然',
-    teamName: '成都市实验小学', mode: 'FACE_COMPARE', machineStatus: 'MISMATCH',
+    teamName: '成都市实验小学', mode: 'MANUAL', machineStatus: 'NOT_RUN',
     machineVerified: false, manualStatus: 'PENDING', capturedPhotoUrl: '',
     version: 2, createdAt: '2026-10-19T09:42:00+08:00',
   },
@@ -1046,7 +1046,7 @@ export const identityChecks: IdentityCheck[] = [
   {
     id: 'idc_004', matchId: 'match_004', matchLabel: '成都七中育才 vs 绵阳南山中学',
     enrollmentId: 'enr_004', athleteId: 'person_team_cd_qz_002', athleteName: '李明宇',
-    teamName: '成都七中育才学校', mode: 'FACE_COMPARE', machineStatus: 'UNAVAILABLE',
+    teamName: '成都七中育才学校', mode: 'MANUAL', machineStatus: 'NOT_RUN',
     machineVerified: false, manualStatus: 'PENDING', capturedPhotoUrl: '',
     version: 1, createdAt: '2026-10-18T13:35:00+08:00',
   },
@@ -1099,7 +1099,7 @@ export const messages: Message[] = [
     version: 1, createdAt: '2026-10-14T17:00:00+08:00',
   },
   {
-    id: 'msg_010', title: '待完成身份核验', body: '「成都市实验小学 vs 绵阳市实验小学」有 2 名球员尚未完成人脸比对，请在开赛前 30 分钟处理。',
+    id: 'msg_010', title: '待完成身份核验', body: '「成都市实验小学 vs 绵阳市实验小学」有 2 名球员尚未完成现场人工核验，请在开赛前 30 分钟处理。',
     businessType: 'IDENTITY', businessId: 'match_001', read: false, version: 1,
     createdAt: '2026-10-19T08:30:00+08:00',
   },

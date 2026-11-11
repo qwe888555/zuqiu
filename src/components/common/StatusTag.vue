@@ -56,10 +56,6 @@ const reviewMap: Record<string, [string, TagType]> = {
   VERIFIED: ['已核验', 'success'],
   REJECTED: ['已驳回', 'danger'],
   UNVERIFIED: ['未核验', 'info'],
-  MATCH: ['比对一致', 'success'],
-  MISMATCH: ['比对不一致', 'danger'],
-  UNAVAILABLE: ['服务不可用', 'info'],
-  NOT_RUN: ['未比对', 'info'],
 }
 
 const label = computed(() => {

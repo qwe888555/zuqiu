@@ -77,7 +77,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'match.manage', label: '编排比赛', description: '创建、修改、删除对阵' },
       { code: 'match.record', label: '赛况录入', description: '录入进球、判罚、换人与图文直播' },
       { code: 'match.publish', label: '发布比赛/赛果', description: '将比赛与成绩发布到门户' },
-      { code: 'identity.review', label: '身份核验', description: '现场人脸比对与人工确认' },
+      { code: 'identity.review', label: '身份核验', description: '现场人工核验证件与报名信息' },
     ],
   },
   {

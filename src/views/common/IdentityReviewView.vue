@@ -19,7 +19,7 @@ const statsRows = ref<IdentityCheck[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
-const filters = reactive({ manualStatus: '', machineStatus: '' })
+const filters = reactive({ manualStatus: '' })
 
 /** 列表投影只有 ID，展示用信息按 ID 缓存补齐，避免同一条比赛/报名重复请求。 */
 const matchCache = new Map<string, Promise<Match | null>>()
@@ -112,25 +112,13 @@ const createForm = reactive({
   matchId: '',
   enrollmentId: '',
   athleteId: '',
-  mode: 'FACE_COMPARE' as 'FACE_COMPARE' | 'MANUAL',
+  // 平台只提供现场人工核验，创建记录时固定为该方式。
+  mode: 'MANUAL',
   capturedPhotoFileId: '',
 })
 
-const machineLabel: Record<string, string> = {
-  NOT_RUN: '未比对',
-  MATCH: '比对一致',
-  MISMATCH: '比对不一致',
-  UNAVAILABLE: '服务不可用',
-}
-
-const modeLabel: Record<string, string> = {
-  FACE_COMPARE: '人脸比对',
-  MANUAL: '人工核验',
-}
-
 const confirmedCount = computed(() => statsRows.value.filter((row) => row.manualStatus === 'CONFIRMED').length)
 const pendingCount = computed(() => statsRows.value.filter((row) => row.manualStatus === 'PENDING' || row.manualStatus === 'NOT_REVIEWED').length)
-const mismatchCount = computed(() => statsRows.value.filter((row) => row.machineStatus === 'MISMATCH').length)
 const filterSummary = computed(() => `共 ${total.value} 条记录`)
 
 async function load() {
@@ -140,7 +128,6 @@ async function load() {
       page: page.value,
       pageSize: pageSize.value,
       manualStatus: filters.manualStatus || undefined,
-      machineStatus: filters.machineStatus || undefined,
     })
     total.value = res.total
     statsRows.value = res.items
@@ -225,7 +212,7 @@ async function openCreate() {
   createForm.matchId = ''
   createForm.enrollmentId = ''
   createForm.athleteId = ''
-  createForm.mode = 'FACE_COMPARE'
+  createForm.mode = 'MANUAL'
   createForm.capturedPhotoFileId = ''
   photoFileName.value = ''
   enrollmentOptions.value = []
@@ -324,7 +311,7 @@ onBeforeUnmount(() => {
   <div class="page">
     <PageHeader
       title="身份核验"
-      description="查看赛前人脸比对与人工核验记录。比对不一致或服务不可用时，需由记录员现场核验证件后人工确认。"
+      description="记录员现场核对参赛证、身份证原件与报名信息后录入的人工核验记录，确认无误即可通过。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -335,8 +322,7 @@ onBeforeUnmount(() => {
     <div class="stat-grid">
       <StatCard label="核验记录" :value="total" hint="当前筛选范围" :icon="VideoCamera" tone="green" />
       <StatCard label="已确认" :value="confirmedCount" hint="当前页" :icon="Check" tone="lime" />
-      <StatCard label="待人工复核" :value="pendingCount" hint="当前页" :icon="Camera" tone="amber" />
-      <StatCard label="比对不一致" :value="mismatchCount" hint="当前页" :icon="Close" tone="blue" />
+      <StatCard label="待人工核验" :value="pendingCount" hint="当前页" :icon="Camera" tone="amber" />
     </div>
 
     <section class="page-card">
@@ -346,12 +332,6 @@ onBeforeUnmount(() => {
           <el-option label="待核验" value="PENDING" />
           <el-option label="已确认" value="CONFIRMED" />
           <el-option label="已驳回" value="REJECTED" />
-        </el-select>
-        <el-select v-model="filters.machineStatus" placeholder="人脸比对结果" clearable @change="search">
-          <el-option label="比对一致" value="MATCH" />
-          <el-option label="比对不一致" value="MISMATCH" />
-          <el-option label="未比对" value="NOT_RUN" />
-          <el-option label="服务不可用" value="UNAVAILABLE" />
         </el-select>
       </FilterBar>
 
@@ -369,20 +349,6 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column prop="matchLabel" label="比赛" min-width="200">
           <template #default="{ row }">{{ row.matchLabel || '—' }}</template>
-        </el-table-column>
-        <el-table-column label="核验方式" width="110">
-          <template #default="{ row }">{{ modeLabel[row.mode] }}</template>
-        </el-table-column>
-        <el-table-column label="人脸比对" width="120">
-          <template #default="{ row }">
-            <el-tag
-              :type="row.machineStatus === 'MATCH' ? 'success' : row.machineStatus === 'MISMATCH' ? 'danger' : 'info'"
-              size="small"
-              effect="plain"
-            >
-              {{ machineLabel[row.machineStatus] }}
-            </el-tag>
-          </template>
         </el-table-column>
         <el-table-column label="人工核验" width="120">
           <template #default="{ row }"><StatusTag :status="row.manualStatus" kind="identity" /></template>
@@ -430,8 +396,6 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="info-grid">
-          <div><span>核验方式</span><strong>{{ modeLabel[detail.mode] }}</strong></div>
-          <div><span>人脸比对</span><strong>{{ machineLabel[detail.machineStatus] }}</strong></div>
           <div><span>采集时间</span><strong>{{ dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm') }}</strong></div>
           <div>
             <span>复核人</span>
@@ -443,15 +407,6 @@ onBeforeUnmount(() => {
           <span>复核意见</span>
           <p>{{ detail.manualReason }}</p>
         </div>
-
-        <el-alert
-          v-if="detail.machineStatus === 'MISMATCH'"
-          type="warning"
-          :closable="false"
-          show-icon
-          title="人脸比对不一致"
-          description="请核对参赛证、身份证原件与报名照片，确认无误后方可人工通过；存在冒名顶替嫌疑时应驳回并上报。"
-        />
 
         <footer v-if="detail.manualStatus === 'PENDING' || detail.manualStatus === 'NOT_REVIEWED'" class="detail-foot">
           <el-button type="danger" plain :icon="Close" :loading="reviewing" @click="review('REJECT_IDENTITY')">
@@ -520,12 +475,6 @@ onBeforeUnmount(() => {
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="核验方式">
-          <el-radio-group v-model="createForm.mode">
-            <el-radio-button value="FACE_COMPARE">人脸比对</el-radio-button>
-            <el-radio-button value="MANUAL">人工核验</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
         <el-form-item label="现场采集照片" required>
           <el-upload
             class="capture-uploader"
@@ -541,7 +490,7 @@ onBeforeUnmount(() => {
             </div>
             <template v-else>
               <div class="capture-uploader__text">拍摄或上传现场照片</div>
-              <div class="capture-uploader__hint">照片将与人脸库比对，请确保面部清晰无遮挡</div>
+              <div class="capture-uploader__hint">照片仅用于留存核验记录，请确保面部清晰无遮挡</div>
             </template>
           </el-upload>
           <span v-if="photoUploading" class="muted">照片上传中…</span>
@@ -711,10 +660,6 @@ onBeforeUnmount(() => {
 
 .identity-detail {
   padding-bottom: 30px;
-}
-
-.identity-detail :deep(.el-alert) {
-  margin-top: 14px;
 }
 
 .form-hint {

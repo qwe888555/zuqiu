@@ -3198,7 +3198,6 @@ function listIdentityChecks({ query }: { query: Record<string, unknown> }) {
   let items = identityChecks
   if (query.matchId) items = items.filter((i) => i.matchId === query.matchId)
   if (query.manualStatus) items = items.filter((i) => i.manualStatus === query.manualStatus)
-  if (query.machineStatus) items = items.filter((i) => i.machineStatus === query.machineStatus)
   return pageOf(items, query)
 }
 
@@ -3221,10 +3220,10 @@ on('POST', '/identity-checks', ({ body }) => {
     athleteId: str(body.athleteId),
     athleteName: persons.find((p) => p.id === body.athleteId)?.realName || '',
     teamName: '',
-    mode: body.mode || 'MANUAL',
-    machineStatus: body.mode === 'FACE_COMPARE' ? 'MATCH' : 'NOT_RUN',
-    machineVerified: body.mode === 'FACE_COMPARE',
-    manualStatus: body.mode === 'FACE_COMPARE' ? 'NOT_REVIEWED' : 'PENDING',
+    mode: 'MANUAL',
+    machineStatus: 'NOT_RUN',
+    machineVerified: false,
+    manualStatus: 'PENDING',
     capturedPhotoUrl: '',
     version: 1,
     createdAt: now(),
