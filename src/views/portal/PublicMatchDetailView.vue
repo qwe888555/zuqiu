@@ -986,6 +986,11 @@ watch(() => route.params.id, load)
   border-radius: 9px;
 }
 
+/* 单张现场图占满整行，避免只显示半幅。 */
+.live-post__images img:only-child {
+  grid-column: 1 / -1;
+}
+
 .live-post__time {
   display: block;
   margin-top: 8px;
