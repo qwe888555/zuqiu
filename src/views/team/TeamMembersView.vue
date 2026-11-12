@@ -223,7 +223,7 @@ async function savePerson() {
   if (!createForm.birthDate) return ElMessage.warning('请选择出生日期（报名按出生日期预检年龄）')
   // 后端创建链强制 18 位身份证号与 11 位手机号（schema pattern），提前校验避免 400。
   if (!/^\d{17}[\dXx]$/.test(createForm.idNumber.trim())) return ElMessage.warning('请填写 18 位身份证号')
-  if (!/^1\d{10}$/.test(createForm.phone.trim())) return ElMessage.warning('请填写 11 位手机号')
+  if (!/^1[3-9]\d{9}$/.test(createForm.phone.trim())) return ElMessage.warning('请填写正确的 11 位手机号')
   if (createForm.kinds.length !== 1) return ElMessage.warning('人员类型只能选择一项')
   if (!createForm.education.trim()) return ElMessage.warning('请填写学历')
   creating.value = true

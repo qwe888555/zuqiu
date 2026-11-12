@@ -47,8 +47,8 @@ const validateRegisterConfirm = (_rule: unknown, value: string, callback: (error
 }
 
 const validateRegisterPhone = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
-  if (!value || /^1\d{10}$/.test(value)) callback()
-  else callback(new Error('请输入 11 位手机号'))
+  if (!value || /^1[3-9]\d{9}$/.test(value)) callback()
+  else callback(new Error('请输入正确的 11 位手机号'))
 }
 
 const registerRules: FormRules = {
