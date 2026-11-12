@@ -19,7 +19,7 @@ const statsRows = ref<IdentityCheck[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
-const filters = reactive({ manualStatus: '' })
+const filters = reactive({ manualStatus: '', machineStatus: '' })
 
 /** 列表投影只有 ID，展示用信息按 ID 缓存补齐，避免同一条比赛/报名重复请求。 */
 const matchCache = new Map<string, Promise<Match | null>>()
@@ -100,8 +100,8 @@ const createForm = reactive({
   matchId: '',
   enrollmentId: '',
   athleteId: '',
-  // 平台只提供现场人工核验，创建记录时固定为该方式。
-  mode: 'MANUAL',
+  // 默认机器比对；比对不可用时后端记为 UNAVAILABLE，由人工复核兜底。
+  mode: 'FACE_COMPARE',
   capturedPhotoFileId: '',
 })
 
@@ -116,6 +116,7 @@ async function load() {
       page: page.value,
       pageSize: pageSize.value,
       manualStatus: filters.manualStatus || undefined,
+      machineStatus: filters.machineStatus || undefined,
     })
     total.value = res.total
     statsRows.value = res.items
@@ -200,7 +201,7 @@ async function openCreate() {
   createForm.matchId = ''
   createForm.enrollmentId = ''
   createForm.athleteId = ''
-  createForm.mode = 'MANUAL'
+  createForm.mode = 'FACE_COMPARE'
   createForm.capturedPhotoFileId = ''
   photoFileName.value = ''
   enrollmentOptions.value = []
@@ -299,7 +300,7 @@ onBeforeUnmount(() => {
   <div class="page">
     <PageHeader
       title="身份核验"
-      description="记录员现场核对参赛证、身份证原件与报名信息后录入的人工核验记录，确认无误即可通过。"
+      description="记录员现场采集照片后由系统先与报名照片自动比对，人工复核确认后生效；比对不可用时以人工核验为准。"
     >
       <template #actions>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
@@ -315,6 +316,12 @@ onBeforeUnmount(() => {
 
     <section class="page-card">
       <FilterBar :summary="filterSummary">
+        <el-select v-model="filters.machineStatus" placeholder="机器核验状态" clearable @change="search">
+          <el-option label="一致" value="MATCH" />
+          <el-option label="不一致" value="MISMATCH" />
+          <el-option label="比对不可用" value="UNAVAILABLE" />
+          <el-option label="未比对" value="NOT_RUN" />
+        </el-select>
         <el-select v-model="filters.manualStatus" placeholder="人工核验状态" clearable @change="search">
           <el-option label="未复核" value="NOT_REVIEWED" />
           <el-option label="待核验" value="PENDING" />
@@ -337,6 +344,9 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column prop="matchLabel" label="比赛" min-width="200">
           <template #default="{ row }">{{ row.matchLabel || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="机器核验" width="120">
+          <template #default="{ row }"><StatusTag :status="row.machineStatus" kind="machine" /></template>
         </el-table-column>
         <el-table-column label="人工核验" width="120">
           <template #default="{ row }"><StatusTag :status="row.manualStatus" kind="identity" /></template>
@@ -370,7 +380,14 @@ onBeforeUnmount(() => {
           <span class="detail-head__eyebrow">身份核验</span>
           <h2>{{ detail.athleteName || `运动员 ${shortId(detail.athleteId)}` }}</h2>
           <p>{{ detail.matchLabel || '比赛未登记' }} · {{ detail.teamName || '球队未登记' }}</p>
-          <StatusTag :status="detail.manualStatus" kind="identity" size="default" />
+          <div class="detail-tags">
+            <StatusTag
+              :status="detail.mode === 'FACE_COMPARE' ? detail.machineStatus : 'NOT_RUN'"
+              kind="machine"
+              size="default"
+            />
+            <StatusTag :status="detail.manualStatus" kind="identity" size="default" />
+          </div>
         </header>
 
         <div class="capture">
@@ -385,10 +402,16 @@ onBeforeUnmount(() => {
 
         <div class="info-grid">
           <div><span>采集时间</span><strong>{{ dayjs(detail.createdAt).format('YYYY-MM-DD HH:mm') }}</strong></div>
+          <div><span>核验方式</span><strong>{{ detail.mode === 'FACE_COMPARE' ? '机器比对辅助' : '仅人工核验' }}</strong></div>
           <div>
             <span>复核人</span>
             <strong>{{ detail.reviewerName || (detail.reviewerAccountId ? `账号 ${shortId(detail.reviewerAccountId)}` : '—') }}</strong>
           </div>
+        </div>
+
+        <div v-if="detail.mode === 'FACE_COMPARE' && detail.machineStatus === 'UNAVAILABLE'" class="reason-box">
+          <span>机器比对说明</span>
+          <p>比对服务暂不可用，或该运动员没有报名照片，本次结果以人工核验为准。</p>
         </div>
 
         <div v-if="detail.manualReason" class="reason-box">
@@ -463,6 +486,13 @@ onBeforeUnmount(() => {
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="核验方式">
+          <el-radio-group v-model="createForm.mode">
+            <el-radio-button value="FACE_COMPARE">机器比对辅助</el-radio-button>
+            <el-radio-button value="MANUAL">仅人工核验</el-radio-button>
+          </el-radio-group>
+          <span class="form-hint">{{ createForm.mode === 'FACE_COMPARE' ? '创建后自动与报名照片比对，结果显示一致 / 不一致 / 不可用。' : '跳过机器比对，只保留现场人工核验记录。' }}</span>
+        </el-form-item>
         <el-form-item label="现场采集照片" required>
           <el-upload
             class="capture-uploader"
@@ -526,6 +556,11 @@ onBeforeUnmount(() => {
 .detail-head {
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
+}
+
+.detail-tags {
+  display: flex;
+  gap: 8px;
 }
 
 .detail-head__eyebrow {
