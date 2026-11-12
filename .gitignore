@@ -31,3 +31,8 @@ lerna-debug.log*
 
 # Local tooling
 .chrome-*/
+
+# 临时录制与下载文件
+*.mp4
+*.crdownload
+*.zip
