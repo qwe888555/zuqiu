@@ -731,6 +731,10 @@ export interface IdentityCheck {
   mode: 'FACE_COMPARE' | 'MANUAL'
   machineStatus: 'NOT_RUN' | 'MATCH' | 'MISMATCH' | 'UNAVAILABLE'
   machineVerified: boolean
+  /** 机器比对 cosine 距离，仅 FACE_COMPARE 成功出距离时有值 */
+  machineDistance?: number | null
+  /** 机器侧结论说明（防翻拍拦截、不可用原因等） */
+  machineReason?: string
   manualStatus: 'NOT_REVIEWED' | 'PENDING' | 'CONFIRMED' | 'REJECTED'
   manualReason?: string
   reviewerAccountId?: string

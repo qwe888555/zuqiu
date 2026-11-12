@@ -391,6 +391,24 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <div class="machine-box">
+          <div class="machine-box__head">
+            <span>机器比对</span>
+            <StatusTag :status="detail.machineStatus" kind="machine" size="default" />
+          </div>
+          <div class="machine-box__grid">
+            <div>
+              <span>核验方式</span>
+              <strong>{{ detail.mode === 'FACE_COMPARE' ? '机器 1:1 人脸比对' : '现场人工核验' }}</strong>
+            </div>
+            <div>
+              <span>相似度距离</span>
+              <strong>{{ detail.machineDistance === null || detail.machineDistance === undefined ? '—' : detail.machineDistance }}</strong>
+            </div>
+          </div>
+          <p v-if="detail.machineReason" class="machine-box__reason">{{ detail.machineReason }}</p>
+        </div>
+
         <div v-if="detail.manualReason" class="reason-box">
           <span>复核意见</span>
           <p>{{ detail.manualReason }}</p>
@@ -613,6 +631,53 @@ onBeforeUnmount(() => {
   margin-top: 3px;
   font-size: 11.5px;
   font-weight: 500;
+}
+
+.machine-box {
+  margin-top: 16px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.machine-box__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.machine-box__head > span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
+.machine-box__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.machine-box__grid span {
+  display: block;
+  font-size: 9.5px;
+  color: var(--ink-300);
+}
+
+.machine-box__grid strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.machine-box__reason {
+  margin-top: 9px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--ink-500);
 }
 
 .reason-box {
