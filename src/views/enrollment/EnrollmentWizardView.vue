@@ -396,7 +396,7 @@ onMounted(() => {
           </div>
           <div class="side-card side-card--tip">
             <span class="side-card__eyebrow">提示</span>
-            <p>建议先准备好球队球员名单 Excel 与证件照，创建后可在详情页批量导入。</p>
+            <p>建议先在「人员管理」完成建档并通过审核，加入球队名单后再创建报名。报名名单只能从球队名单或已审核人员中选择。</p>
           </div>
         </aside>
       </div>

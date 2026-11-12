@@ -2,18 +2,12 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import {
-  ElMessage,
-  ElMessageBox,
-  type UploadFile,
-  type UploadRequestOptions,
-} from 'element-plus'
+import { ElMessage, ElMessageBox, type UploadFile, type UploadRequestOptions } from 'element-plus'
 import {
   Check,
   CircleCheck,
   Close,
   Delete,
-  Document,
   Download,
   Edit,
   Plus,
@@ -26,7 +20,6 @@ import { enrollmentApi, fileApi, personApi, teamApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
 import type {
   EnrollmentAttachment,
-  ImportReport,
   Person,
   PrecheckIssue,
   ReviewRecord,
@@ -57,11 +50,6 @@ const savingPlayer = ref(false)
 const attachmentVisible = ref(false)
 const attachmentType = ref<'STAMPED_FORM' | 'STUDENT_STATUS'>('STAMPED_FORM')
 const attachmentUploading = ref(false)
-const importVisible = ref(false)
-const importReport = ref<ImportReport | null>(null)
-const importFile = ref<File | null>(null)
-const photoFile = ref<File | null>(null)
-const importing = ref(false)
 /** 添加球员来源：球队常备名单（默认）或人员库检索。 */
 const playerSource = ref<'TEAM' | 'SEARCH'>('TEAM')
 const teamMemberLoading = ref(false)
@@ -220,11 +208,6 @@ const canSetPlayerMeta = computed(() => selectedPersons.value.length <= 1)
 const selectedPlayerCount = computed(() =>
   playerSource.value === 'TEAM' ? selectedTeamMembers.value.length : selectedPersons.value.length,
 )
-const importReportTitle = computed(() => {
-  if (importReport.value?.mode === 'PHOTO_IMPORT') return '照片匹配结果'
-  if (importReport.value?.mode === 'APPLY_VALID_ROWS') return '导入结果（已写入有效行）'
-  return '校验结果（未修改名单）'
-})
 
 // 后端 latestReviewReason 取的是最近一条带原因的审核记录，审核通过意见也会返回，
 // 不能直接当作驳回原因展示；以审核记录中的最近一次动作为准。
@@ -557,7 +540,9 @@ async function searchPersons() {
   }
   searchLoading.value = true
   try {
-    personResults.value = await personApi.search({ keyword })
+    const results = await personApi.search({ keyword })
+    // 报名名单只允许使用审核通过的人员档案；未审核/驳回档案需先在「人员管理」处理。
+    personResults.value = results.filter((person) => person.reviewStatus === 'APPROVED')
   } catch {
     personResults.value = []
   } finally {
@@ -840,146 +825,6 @@ async function removeEnrollment() {
   }
 }
 
-function onImportFileChange(uploadFile: UploadFile) {
-  const file = (uploadFile.raw as File) || null
-  if (file && !file.name.toLowerCase().endsWith('.xlsx')) {
-    ElMessage.warning('球员名单仅支持 .xlsx 文件，请使用标准模板')
-    return
-  }
-  importFile.value = file
-  // 换文件后旧报告不再对应当前文件，避免误读上一批结果。
-  importReport.value = null
-}
-
-function onPhotoFileChange(uploadFile: UploadFile) {
-  const file = (uploadFile.raw as File) || null
-  if (file && !file.name.toLowerCase().endsWith('.zip')) {
-    ElMessage.warning('球员照片仅支持 .zip 压缩包')
-    return
-  }
-  photoFile.value = file
-  importReport.value = null
-}
-
-function clearImportFile() {
-  importFile.value = null
-  importReport.value = null
-}
-
-function clearPhotoFile() {
-  photoFile.value = null
-  importReport.value = null
-}
-
-function resetImportDialog() {
-  importFile.value = null
-  photoFile.value = null
-  importReport.value = null
-  importing.value = false
-}
-
-function formatFileSize(size: number) {
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / 1024 / 1024).toFixed(1)} MB`
-}
-
-/**
- * 单一入口：先只校验，全部有效时直接写入；存在失败行时先展示校验结果并二次确认，
- * 用户取消则不写名单，避免“先写一半、再修文件导致重复行”的情况。
- */
-async function runImport() {
-  if (!detail.value) return
-  if (!importFile.value) return ElMessage.warning('请先选择球员名单 Excel 文件')
-  importing.value = true
-  try {
-    const file = importFile.value
-    const checked = await enrollmentApi.importPlayers(
-      enrollmentId.value,
-      detail.value.version,
-      'VALIDATE_ONLY',
-      file,
-    )
-    importReport.value = checked
-    if (!checked.successCount) {
-      ElMessage.warning(
-        checked.failureCount
-          ? '文件未通过校验，名单未修改；请按错误清单修正后重新选择文件'
-          : '文件中没有可导入的行，名单未修改',
-      )
-      return
-    }
-    if (checked.failureCount) {
-      try {
-        await ElMessageBox.confirm(
-          `校验通过 ${checked.successCount} 行、失败 ${checked.failureCount} 行。确认后只写入通过校验的 ${checked.successCount} 行，失败行跳过。`,
-          '部分行未通过校验',
-          {
-            confirmButtonText: `导入 ${checked.successCount} 行`,
-            cancelButtonText: '暂不导入',
-            type: 'warning',
-          },
-        )
-      } catch {
-        ElMessage.info('已保留校验结果，名单未修改')
-        return
-      }
-    }
-    const applied = await enrollmentApi.importPlayers(
-      enrollmentId.value,
-      detail.value.version,
-      'APPLY_VALID_ROWS',
-      file,
-    )
-    importReport.value = applied
-    await load()
-    ElMessage.success(
-      `已导入 ${applied.successCount} 名球员${applied.failureCount ? `，跳过 ${applied.failureCount} 行` : ''}`,
-    )
-  } catch {
-    // 拦截器提示
-  } finally {
-    importing.value = false
-  }
-}
-
-async function runPhotoImport() {
-  if (!detail.value) return
-  if (!photoFile.value) return ElMessage.warning('请先选择照片压缩包')
-  importing.value = true
-  try {
-    importReport.value = await enrollmentApi.importPhotos(
-      enrollmentId.value,
-      detail.value.version,
-      photoFile.value,
-    )
-    await load()
-  } catch {
-    // 拦截器提示
-  } finally {
-    importing.value = false
-  }
-}
-
-async function downloadTemplate() {
-  try {
-    const downloaded = await enrollmentApi.downloadRosterTemplate()
-    ElMessage.success(downloaded ? '模板已开始下载' : '演示环境已模拟下载，接入后端后将下载真实模板')
-  } catch {
-    // 拦截器提示
-  }
-}
-
-async function downloadImportErrors() {
-  if (!importReport.value?.batchId) return
-  try {
-    const downloaded = await enrollmentApi.downloadImportErrors(importReport.value.batchId)
-    ElMessage.success(downloaded ? '错误清单已开始下载' : '演示环境已模拟下载，接入后端后将下载真实文件')
-  } catch {
-    // 拦截器提示
-  }
-}
-
 function openAttachmentUpload() {
   attachmentType.value = 'STAMPED_FORM'
   attachmentVisible.value = true
@@ -1205,14 +1050,13 @@ onMounted(load)
                 <small>{{ detail.playerCount ?? detail.players?.length ?? '—' }} 人 · {{ detail.groupName }}</small>
               </div>
               <div class="toolbar-actions">
-                <el-button v-if="canEdit" size="small" @click="importVisible = true">批量导入</el-button>
                 <el-button v-if="canEdit" size="small" type="primary" :icon="Plus" @click="openAddPlayer">
                   添加球员
                 </el-button>
               </div>
             </div>
             <p v-if="canEdit" class="roster-photo-hint">
-              照片可打包 ZIP 按身份证号批量匹配；未办理身份证的学生无需放入 ZIP，请在球员「编辑」中逐人上传。
+              报名球员必须来自已审核的人员档案。照片请在球员「编辑」中逐人上传。
             </p>
 
             <el-table :data="detail.players || []" style="width: 100%">
@@ -1323,7 +1167,7 @@ onMounted(load)
             </el-table>
             <el-empty
               v-if="!(detail.players || []).length"
-              description="本次报名名单尚未选择球员。球队常备名单不会自动带入，请从球队名单添加或批量导入。"
+              description="本次报名名单尚未选择球员。请先在「人员管理」完成建档并审核通过，再加入球队名单后从球队名单添加。"
               :image-size="80"
             >
               <el-button v-if="canEdit" type="primary" plain size="small" @click="openAddPlayer">
@@ -1457,15 +1301,6 @@ onMounted(load)
                   下载
                 </el-button>
               </div>
-              <div class="template-item">
-                <div class="template-item__meta">
-                  <strong>球员名单导入模板</strong>
-                  <small>XLSX · 批量导入球员名单</small>
-                </div>
-                <el-button link type="primary" :icon="Download" @click="downloadTemplate">
-                  下载
-                </el-button>
-              </div>
             </div>
           </section>
 
@@ -1516,7 +1351,7 @@ onMounted(load)
         <span class="player-source__hint">
           {{ playerSource === 'TEAM'
             ? '球队常备名单不会自动带入报名，请勾选本次参赛球员。'
-            : '用于补充不在球队常备名单中的球员。' }}
+            : '仅显示已审核通过、但不在球队常备名单中的运动员。' }}
         </span>
       </div>
 
@@ -1611,7 +1446,7 @@ onMounted(load)
         <el-empty
           v-if="!personResults.length && !searchLoading"
           :description="personKeyword.trim()
-            ? '未检索到人员，请联系管理员先建档'
+            ? '未检索到已审核通过的运动员，请先在「人员管理」完成建档并审核'
             : '输入姓名或身份证后四位后点击检索'"
           :image-size="60"
         />
@@ -1759,189 +1594,6 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog
-      v-model="importVisible"
-      title="批量导入球员名单"
-      width="720px"
-      @closed="resetImportDialog"
-    >
-      <el-alert
-        class="import-intro"
-        type="info"
-        :closable="false"
-        show-icon
-        title="先校验，再写入"
-        description="点击「校验并导入」会先检查文件：全部通过时直接写入；存在失败行时先展示结果并二次确认，确认后只写入有效行，取消则名单不变。"
-      />
-
-      <section class="import-step">
-        <div class="import-step__head">
-          <span class="import-step__index">1</span>
-          <div class="import-step__title">
-            <h4>球员名单 Excel</h4>
-            <p>使用组委会标准模板，仅支持 .xlsx；每行一名球员。</p>
-          </div>
-          <el-button link type="primary" :icon="Download" @click="downloadTemplate">
-            下载模板
-          </el-button>
-        </div>
-
-        <div v-if="importFile" class="import-file-card">
-          <el-icon class="import-file-card__icon"><Document /></el-icon>
-          <div class="import-file-card__meta">
-            <strong :title="importFile.name">{{ importFile.name }}</strong>
-            <span>{{ formatFileSize(importFile.size) }} · 已选择</span>
-          </div>
-          <el-upload
-            :auto-upload="false"
-            :show-file-list="false"
-            accept=".xlsx"
-            :on-change="onImportFileChange"
-          >
-            <el-button link type="primary">更换</el-button>
-          </el-upload>
-          <el-button link type="danger" @click="clearImportFile">移除</el-button>
-        </div>
-        <el-upload
-          v-else
-          class="import-drop"
-          drag
-          :auto-upload="false"
-          :show-file-list="false"
-          accept=".xlsx"
-          :on-change="onImportFileChange"
-        >
-          <el-icon class="import-drop__icon"><UploadFilled /></el-icon>
-          <div class="import-drop__text">拖拽 Excel 到此处，或 <em>点击选择</em></div>
-          <div class="import-drop__hint">.xlsx，单次最多 1000 行</div>
-        </el-upload>
-
-        <div class="import-actions">
-          <el-button
-            type="primary"
-            :loading="importing"
-            :disabled="!importFile || importing"
-            @click="runImport"
-          >
-            校验并导入
-          </el-button>
-          <span class="import-actions__hint">存在失败行时会先提示，确认后才写入有效行</span>
-        </div>
-      </section>
-
-      <section class="import-step">
-        <div class="import-step__head">
-          <span class="import-step__index">2</span>
-          <div class="import-step__title">
-            <h4>球员照片 ZIP <small>可选</small></h4>
-            <p>照片文件名使用球员完整身份证号（结果中会脱敏显示）；选择 ZIP 后点击「开始匹配照片」。</p>
-            <p class="import-step__note">
-              学生尚未办理身份证时，不要放入 ZIP：保存名单后，在名单中逐人打开「编辑」单独上传照片即可，无需身份证号命名。
-            </p>
-          </div>
-        </div>
-
-        <div v-if="photoFile" class="import-file-card">
-          <el-icon class="import-file-card__icon"><Document /></el-icon>
-          <div class="import-file-card__meta">
-            <strong :title="photoFile.name">{{ photoFile.name }}</strong>
-            <span>{{ formatFileSize(photoFile.size) }} · 已选择</span>
-          </div>
-          <el-upload
-            :auto-upload="false"
-            :show-file-list="false"
-            accept=".zip"
-            :on-change="onPhotoFileChange"
-          >
-            <el-button link type="primary">更换</el-button>
-          </el-upload>
-          <el-button link type="danger" @click="clearPhotoFile">移除</el-button>
-        </div>
-        <el-upload
-          v-else
-          class="import-drop import-drop--compact"
-          drag
-          :auto-upload="false"
-          :show-file-list="false"
-          accept=".zip"
-          :on-change="onPhotoFileChange"
-        >
-          <el-icon class="import-drop__icon"><UploadFilled /></el-icon>
-          <div class="import-drop__text">拖拽 ZIP 到此处，或 <em>点击选择</em></div>
-          <div class="import-drop__hint">.zip，不超过 20 MiB</div>
-        </el-upload>
-
-        <div class="import-actions">
-          <el-button
-            type="primary"
-            plain
-            :loading="importing"
-            :disabled="!photoFile || importing"
-            @click="runPhotoImport"
-          >
-            开始匹配照片
-          </el-button>
-          <span class="import-actions__hint">匹配成功后照片会关联到报名名单球员</span>
-        </div>
-      </section>
-
-      <section v-if="importReport" class="import-report">
-        <div class="import-report__head">
-          <div>
-            <strong>{{ importReportTitle }}</strong>
-            <small>批次 {{ importReport.batchId }}</small>
-          </div>
-          <el-button
-            v-if="importReport.errors.length"
-            link
-            type="primary"
-            :icon="Download"
-            @click="downloadImportErrors"
-          >
-            下载错误清单 CSV
-          </el-button>
-        </div>
-        <div class="import-report__stats">
-          <div>
-            <strong class="num">{{ importReport.total }}</strong>
-            <span>{{ importReport.mode === 'PHOTO_IMPORT' ? '文件数' : '总行数' }}</span>
-          </div>
-          <div>
-            <strong class="num ok">{{ importReport.successCount }}</strong>
-            <span>{{ importReport.mode === 'PHOTO_IMPORT' ? '匹配成功' : '成功' }}</span>
-          </div>
-          <div>
-            <strong class="num fail">{{ importReport.failureCount }}</strong>
-            <span>{{ importReport.mode === 'PHOTO_IMPORT' ? '未匹配或失败' : '失败' }}</span>
-          </div>
-        </div>
-        <el-table
-          v-if="importReport.errors.length"
-          :data="importReport.errors"
-          size="small"
-          max-height="200"
-        >
-          <el-table-column label="行号 / 文件" width="150">
-            <template #default="{ row }">{{ row.rowNumber ?? row.fileName ?? '—' }}</template>
-          </el-table-column>
-          <el-table-column label="字段" width="110">
-            <template #default="{ row }">{{ row.field || row.code }}</template>
-          </el-table-column>
-          <el-table-column prop="message" label="错误说明" min-width="240" />
-        </el-table>
-        <el-alert
-          v-else
-          type="success"
-          :closable="false"
-          show-icon
-          title="全部处理成功，没有失败行"
-        />
-      </section>
-
-      <template #footer>
-        <el-button type="primary" @click="importVisible = false">完成</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -2584,217 +2236,6 @@ onMounted(load)
 .selected-count--footer {
   margin-top: 12px;
   text-align: right;
-}
-
-.import-intro {
-  margin-bottom: 6px;
-}
-
-.import-step {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.import-step:last-of-type {
-  border-bottom: none;
-  padding-bottom: 4px;
-}
-
-.import-step__head {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.import-step__index {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--brand-50, #eef7ee);
-  color: var(--brand-700);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.import-step__title {
-  flex: 1;
-  min-width: 0;
-}
-
-.import-step__title h4 {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--ink-700);
-}
-
-.import-step__title h4 small {
-  margin-left: 4px;
-  font-size: 10.5px;
-  font-weight: 400;
-  color: var(--ink-300);
-}
-
-.import-step__title p {
-  margin-top: 3px;
-  font-size: 10.5px;
-  line-height: 1.6;
-  color: var(--ink-500);
-}
-
-.import-step__note {
-  padding: 6px 9px;
-  border-radius: 7px;
-  background: var(--paper);
-  color: var(--ink-500) !important;
-}
-
-.import-file-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 10px;
-  padding: 11px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--paper);
-}
-
-.import-file-card__icon {
-  flex-shrink: 0;
-  color: var(--brand-700);
-}
-
-.import-file-card__meta {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.import-file-card__meta strong {
-  overflow: hidden;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--ink-700);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.import-file-card__meta span {
-  font-size: 10px;
-  color: var(--ink-300);
-}
-
-.import-drop {
-  display: block;
-  margin-top: 10px;
-}
-
-.import-drop :deep(.el-upload),
-.import-drop :deep(.el-upload-dragger) {
-  width: 100%;
-}
-
-.import-drop :deep(.el-upload-dragger) {
-  padding: 18px 12px;
-}
-
-.import-drop--compact :deep(.el-upload-dragger) {
-  padding: 12px;
-}
-
-.import-drop__icon {
-  font-size: 24px;
-  color: var(--ink-300);
-}
-
-.import-drop__text {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--ink-500);
-}
-
-.import-drop__text em {
-  color: var(--brand-700);
-  font-style: normal;
-}
-
-.import-drop__hint {
-  margin-top: 2px;
-  font-size: 10px;
-  color: var(--ink-300);
-}
-
-.import-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.import-actions__hint {
-  font-size: 10.5px;
-  color: var(--ink-300);
-}
-
-.import-report {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-}
-
-.import-report__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.import-report__head strong {
-  font-size: 13.5px;
-  color: var(--ink-700);
-}
-
-.import-report__head small {
-  margin-left: 8px;
-  font-size: 10px;
-  color: var(--ink-300);
-}
-
-.import-report__stats {
-  display: flex;
-  gap: 28px;
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: var(--paper);
-  margin: 10px 0;
-}
-
-.import-report__stats div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.import-report__stats strong {
-  font-size: 20px;
-}
-
-.import-report__stats .ok {
-  color: #2f9d58;
-}
-
-.import-report__stats .fail {
-  color: #c45656;
-}
-
-.import-report__stats span {
-  font-size: 9.5px;
-  color: var(--ink-300);
 }
 
 .readonly-alert {
