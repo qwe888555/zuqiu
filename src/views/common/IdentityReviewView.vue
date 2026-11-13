@@ -2,8 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
-import { Camera, Check, Close, Plus, Refresh, UploadFilled, VideoCamera } from '@element-plus/icons-vue'
-import { enrollmentApi, eventApi, fileApi, identityApi, matchApi } from '../../api'
+import { Camera, Check, Close, Picture, Plus, Refresh, UploadFilled, VideoCamera } from '@element-plus/icons-vue'
+import { enrollmentApi, eventApi, fileApi, identityApi, matchApi, personApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
 import type { Enrollment, IdentityCheck, Match, RosterItem } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -205,6 +205,7 @@ async function openCreate() {
   photoFileName.value = ''
   enrollmentOptions.value = []
   rosterOptions.value = []
+  clearReference()
   createVisible.value = true
   try {
     const res = await matchApi.list({ page: 1, pageSize: 50 })
@@ -219,6 +220,7 @@ async function onMatchChange() {
   createForm.athleteId = ''
   enrollmentOptions.value = []
   rosterOptions.value = []
+  clearReference()
   groupNames.value = {}
   const match = matches.value.find((item) => item.id === createForm.matchId)
   if (!match) return
@@ -241,6 +243,7 @@ async function onMatchChange() {
 async function onEnrollmentChange() {
   createForm.athleteId = ''
   rosterOptions.value = []
+  clearReference()
   if (!createForm.enrollmentId) return
   loadingRoster.value = true
   try {
@@ -374,11 +377,61 @@ async function useShot() {
   }
 }
 
+/** 参考照检测：与后端 resolve_reference_photo_file_id 同优先级（名单照片 → 人员档案头像）。 */
+const referenceFileId = ref('')
+const referenceUrl = ref('')
+const referenceSource = ref<'ROSTER' | 'PERSON' | 'NONE'>('NONE')
+const referenceLoading = ref(false)
+
+function clearReference() {
+  if (referenceUrl.value) URL.revokeObjectURL(referenceUrl.value)
+  referenceFileId.value = ''
+  referenceUrl.value = ''
+  referenceSource.value = 'NONE'
+}
+
+async function resolveReferencePhoto() {
+  clearReference()
+  const athleteId = createForm.athleteId
+  if (!athleteId) return
+  referenceLoading.value = true
+  try {
+    const roster = rosterOptions.value.find((item) => item.athleteId === athleteId)
+    if (roster?.photoFileId) {
+      referenceFileId.value = roster.photoFileId
+      referenceSource.value = 'ROSTER'
+    } else {
+      // 记录员等角色无人员档案读取权限，探测失败按「无头像」处理，不弹错误提示
+      const person = await personApi.get(athleteId, { silentError: true }).catch(() => null)
+      if (person?.avatarFileId) {
+        referenceFileId.value = person.avatarFileId
+        referenceSource.value = 'PERSON'
+      }
+    }
+    if (referenceFileId.value) {
+      referenceUrl.value = (await fileApi.contentObjectUrl(referenceFileId.value)) || ''
+    }
+  } finally {
+    referenceLoading.value = false
+  }
+}
+
 async function createCheck() {
   if (!createForm.matchId) return ElMessage.warning('请选择比赛')
   if (!createForm.enrollmentId) return ElMessage.warning('请选择报名单')
   if (!createForm.athleteId) return ElMessage.warning('请选择球员')
   if (!createForm.capturedPhotoFileId) return ElMessage.warning('请上传现场采集照片')
+  if (createForm.mode === 'FACE_COMPARE' && !referenceFileId.value) {
+    try {
+      await ElMessageBox.confirm(
+        '该球员没有可用的参考照片，机器 1:1 比对会直接返回「不可用」，需人工复核。参考照片可在「报名单详情 → 球员名单 → 编辑」上传，或在人员档案里设置头像。仍要创建这条核验记录吗？',
+        '缺少参考照片',
+        { confirmButtonText: '仍要创建', cancelButtonText: '去补照片', type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  }
   creating.value = true
   try {
     const created = await identityApi.create({ ...createForm })
@@ -400,6 +453,7 @@ onBeforeUnmount(() => {
   photoUrlCache.clear()
   stopCamera()
   releaseShot()
+  clearReference()
 })
 </script>
 
@@ -580,6 +634,7 @@ onBeforeUnmount(() => {
             :loading="loadingRoster"
             :disabled="!createForm.enrollmentId"
             style="width: 100%"
+            @change="resolveReferencePhoto"
           >
             <el-option
               v-for="item in rosterOptions"
@@ -594,6 +649,29 @@ onBeforeUnmount(() => {
             <el-radio value="FACE_COMPARE">机器 1:1 人脸比对（本地 DeepFace）</el-radio>
             <el-radio value="MANUAL">现场人工核验</el-radio>
           </el-radio-group>
+        </el-form-item>
+        <el-form-item label="参考照片">
+          <div v-loading="referenceLoading" class="ref-photo">
+            <img
+              v-if="referenceSource !== 'NONE' && referenceUrl"
+              :src="referenceUrl"
+              class="ref-photo__img"
+              alt="参考照片"
+            />
+            <div v-else class="ref-photo__img ref-photo__img--empty">
+              <el-icon :size="22"><Picture /></el-icon>
+            </div>
+            <div class="ref-photo__meta">
+              <strong v-if="referenceSource === 'ROSTER'">报名名单照片 · 可用</strong>
+              <strong v-else-if="referenceSource === 'PERSON'">人员档案头像 · 可用</strong>
+              <strong v-else-if="!createForm.athleteId" class="muted">选择球员后自动检测</strong>
+              <strong v-else class="ref-photo__meta--warn">该球员暂无参考照片</strong>
+              <span v-if="referenceSource !== 'NONE'">机器比对以这张图为基准</span>
+              <span v-else-if="createForm.athleteId">
+                请到「赛事报名 → 报名单详情 → 球员名单 → 编辑」上传照片，或到「人员管理」为该球员设置档案头像
+              </span>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="现场采集照片" required>
           <div class="capture-actions">
@@ -894,6 +972,49 @@ onBeforeUnmount(() => {
 
 .capture-file strong {
   color: var(--brand-700);
+}
+
+.ref-photo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+}
+
+.ref-photo__img {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #f2f4f5;
+  border: 1px solid #e3e7e8;
+  flex: none;
+}
+
+.ref-photo__img--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b6bcbf;
+}
+
+.ref-photo__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-500);
+}
+
+.ref-photo__meta strong {
+  font-size: 13px;
+  color: var(--brand-700);
+}
+
+.ref-photo__meta--warn {
+  color: #d4380d;
 }
 
 .camera-stage {
