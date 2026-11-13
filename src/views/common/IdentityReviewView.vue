@@ -100,8 +100,8 @@ const createForm = reactive({
   matchId: '',
   enrollmentId: '',
   athleteId: '',
-  // 平台只提供现场人工核验，创建记录时固定为该方式。
-  mode: 'MANUAL',
+  // 默认走本地 DeepFace 机器 1:1 比对；也可切回现场人工核验。
+  mode: 'FACE_COMPARE',
   capturedPhotoFileId: '',
 })
 
@@ -200,7 +200,7 @@ async function openCreate() {
   createForm.matchId = ''
   createForm.enrollmentId = ''
   createForm.athleteId = ''
-  createForm.mode = 'MANUAL'
+  createForm.mode = 'FACE_COMPARE'
   createForm.capturedPhotoFileId = ''
   photoFileName.value = ''
   enrollmentOptions.value = []
@@ -480,6 +480,12 @@ onBeforeUnmount(() => {
               :value="item.athleteId"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item label="核验方式" required>
+          <el-radio-group v-model="createForm.mode">
+            <el-radio value="FACE_COMPARE">机器 1:1 人脸比对（本地 DeepFace）</el-radio>
+            <el-radio value="MANUAL">现场人工核验</el-radio>
+          </el-radio-group>
         </el-form-item>
         <el-form-item label="现场采集照片" required>
           <el-upload
