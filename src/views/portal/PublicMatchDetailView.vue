@@ -10,6 +10,7 @@ import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 import { refereeRoleLabel } from '../../config/labels'
 import { httpStatusOf } from '../../utils/httpError'
+import { createLiveHls } from '../../utils/hls'
 import { formatBeijing, matchDisplayStatus } from '../../utils/portal'
 
 interface MatchDetail extends PublicMatch {
@@ -114,7 +115,7 @@ async function attachLivePlayer() {
     void video.play().catch(() => {})
     return
   }
-  const hls = new Hls({ lowLatencyMode: true, enableWorker: true })
+  const hls = createLiveHls(Hls)
   liveHls = hls
   hls.loadSource(url)
   hls.attachMedia(video)

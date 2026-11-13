@@ -15,6 +15,7 @@ import type {
   LiveLink,
   PublicContent,
   PublicEvent,
+  PublicLivePost,
   PublicMatch,
   PublicResource,
   PublicityRecord,
@@ -23,6 +24,7 @@ import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 import { useConsoleEntry } from '../../composables/useConsoleEntry'
 import { rankGoalRows } from '../../utils/goalRanking'
+import { createLiveHls } from '../../utils/hls'
 import { matchDisplayStatus, policyKind, sortPublicEvents } from '../../utils/portal'
 import { publicityNoticeKey } from '../../utils/publications'
 
@@ -45,6 +47,8 @@ const goals = ref<GoalRankingRow[]>([])
 const stars = ref<PublicityRecord[]>([])
 const matchTab = ref<MatchTab>('LIVE')
 const updatedAt = ref('')
+const homeLivePosts = ref<PublicLivePost[]>([])
+const homeLiveUpdatedAt = ref('')
 
 const orderedNews = computed(() =>
   news.value.slice().sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || '')),
@@ -74,6 +78,10 @@ const liveMatches = computed(() =>
     .slice()
     .sort((a, b) => dayjs(a.kickoffAt).valueOf() - dayjs(b.kickoffAt).valueOf()),
 )
+/** 首页「现场直播」取当前正在进行的比赛，没有直播就不占用版面。 */
+const homeLiveMatch = computed(() => liveMatches.value[0])
+const latestLivePosts = computed(() => homeLivePosts.value.slice(-3).reverse())
+
 const scheduledMatches = computed(() =>
   matches.value
     .filter((m) => matchDisplayStatus(m) === 'SCHEDULED')
@@ -146,6 +154,9 @@ interface HeroLive {
 }
 
 const heroLive = ref<HeroLive | null>(null)
+// 推流端停止后，播放器只会停在最后一帧，比赛数据里这场仍是“进行中”。
+// 探测到流不可用就收回直播画面与角标，页面回到普通首页；推流恢复后自动接回来。
+const heroStreamOffline = ref(false)
 // 直链媒体文件用 <video>；HLS（.m3u8）同样走 <video>，由 hls.js 喂流；其余页面用 <iframe>，再不行只留跳转入口。
 const DIRECT_VIDEO_RE = /\.(mp4|webm|ogv|ogg|mov|m4v)(?:[?#]|$)/i
 const HLS_URL_RE = /\.m3u8(?:[?#]|$)/i
@@ -165,6 +176,8 @@ const bannerVideoUrl = computed(() =>
   bannerVideoBroken.value ? '' : banners.value[0]?.videoUrl || '',
 )
 const heroVideoUrl = computed(() => {
+  // 流已不可用：退回轮播视频，直播角标与状态层一并收起。
+  if (heroStreamOffline.value) return bannerVideoUrl.value
   if (heroLive.value?.mode === 'video' || heroLive.value?.mode === 'hls') return heroLive.value.url
   return bannerVideoUrl.value
 })
@@ -183,7 +196,7 @@ let heroRestTimer: ReturnType<typeof setTimeout> | undefined
  */
 const heroLiveVisible = computed(() => {
   const live = heroLive.value
-  if (!live) return false
+  if (!live || heroStreamOffline.value) return false
   if (live.mode === 'iframe') return true
   return (live.mode === 'video' || live.mode === 'hls') && !heroResting.value
 })
@@ -223,6 +236,25 @@ function handleHeroMediaError() {
 // HLS（.m3u8）浏览器不能原生播放，用 hls.js 把分片喂给 <video>；Safari 等原生支持的浏览器直接吃 src。
 const heroVideoEl = ref<HTMLVideoElement | null>(null)
 let heroHls: { destroy: () => void } | null = null
+
+// 接流/断流时画面只剩一块空白（部分显卡上呈现为整片绿色），
+// 用状态层明确告诉观众在等信号，而不是让他们盯着绿屏猜。
+const heroLiveStatus = ref<'connecting' | 'playing' | 'stalled'>('connecting')
+const heroLiveBuffering = computed(() => {
+  const mode = heroLive.value?.mode
+  return (
+    !heroStreamOffline.value &&
+    heroLiveVisible.value &&
+    (mode === 'hls' || mode === 'video') &&
+    heroLiveStatus.value !== 'playing'
+  )
+})
+
+function handleHeroTimeUpdate() {
+  if (heroStreamOffline.value) return
+  const video = heroVideoEl.value
+  if (video && video.currentTime > 0) heroLiveStatus.value = 'playing'
+}
 
 // 断流容错：现场网络抖动或推流端重启时，hls.js 会抛致命错误并彻底停下来。
 // 这里先自动重连 3 次（每次间隔 2 秒），全部失败才退回「跳转入口」，不必手动刷新。
@@ -267,6 +299,10 @@ async function attachHeroHls(isRetry = false) {
   const video = heroVideoEl.value
   const url = heroVideoUrl.value
   if (!video || !url || !HLS_URL_RE.test(url)) return
+  heroPlaybackStarted = false
+  heroAttachedAt = Date.now()
+  heroLastFrameAt = Date.now()
+  heroLiveStatus.value = 'connecting'
   const { default: Hls } = await import('hls.js')
   // 优先 hls.js：Edge 对 HLS 的 canPlayType 返回 "maybe" 但原生播放会黑屏，
   // 只有 MSE 不可用（iOS Safari 等）时才退回浏览器原生 HLS。
@@ -275,7 +311,7 @@ async function attachHeroHls(isRetry = false) {
     void video.play().catch(() => {})
     return
   }
-  const hls = new Hls({ lowLatencyMode: true, enableWorker: true })
+  const hls = createLiveHls(Hls)
   heroHls = hls
   hls.loadSource(url)
   hls.attachMedia(video)
@@ -289,6 +325,7 @@ async function attachHeroHls(isRetry = false) {
   // 真正播出新分片才算恢复，重置重试计数（避免解析成功但解码失败时死循环）。
   hls.on(Hls.Events.FRAG_CHANGED, () => {
     heroHlsRetries = 0
+    heroLiveStatus.value = 'playing'
   })
 }
 
@@ -306,9 +343,15 @@ function clearHeroRecoverProbe() {
 
 async function heroStreamAlive(url: string) {
   try {
+    // 直接带上 cookieCheck，省掉 nginx 302 的一跳。
+    const probeUrl = /[?&]cookieCheck=/.test(url)
+      ? url
+      : `${url}${url.includes('?') ? '&' : '?'}cookieCheck=1`
     // no-store：绕开缓存，避免把断流前的旧播放列表当成“已恢复”
-    const res = await fetch(url, { method: 'GET', cache: 'no-store' })
-    return res.ok
+    const res = await fetch(probeUrl, { method: 'GET', cache: 'no-store' })
+    if (!res.ok) return false
+    // 200 也可能是网关错误页，真正有推流时一定是 HLS 清单。
+    return (await res.text()).startsWith('#EXTM3U')
   } catch {
     return false
   }
@@ -328,6 +371,65 @@ function scheduleHeroRecoverProbe() {
     heroHlsRetries = 0
     heroLive.value = { ...live, mode: HLS_URL_RE.test(live.url) ? 'hls' : 'video' }
   }, HERO_RECOVER_PROBE_MS)
+}
+
+// 断流检测：OBS 停止推流后，hls.js 通常不报致命错误，只是把画面停在最后一帧，
+// 页面就会一直挂着“正在接入直播”和“正在直播”角标。这里在画面停住后探测原始播放列表，
+// 连续两次拉不到就认为当前没有直播，收回直播 UI；推流恢复后再自动接回来。
+const HERO_OFFLINE_PROBE_MS = 5_000
+const HERO_OFFLINE_CONFIRM = 2
+// 画面仍在推进时不做探测；停住超过这个时间才开始看清单。
+const HERO_FRAME_GRACE_MS = 6_000
+let heroOfflineTimer: ReturnType<typeof setInterval> | undefined
+let heroOfflineMisses = 0
+let heroOfflineProbing = false
+let heroLastFrameAt = Date.now()
+
+function stopHeroOfflineProbe() {
+  if (heroOfflineTimer) {
+    clearInterval(heroOfflineTimer)
+    heroOfflineTimer = undefined
+  }
+  heroOfflineMisses = 0
+  heroOfflineProbing = false
+}
+
+function startHeroOfflineProbe() {
+  stopHeroOfflineProbe()
+  heroOfflineTimer = setInterval(probeHeroStream, HERO_OFFLINE_PROBE_MS)
+}
+
+function probeHeroStream() {
+  const live = heroLive.value
+  // 只探测 HLS 直播；iframe/直链视频不在这里处理。后台标签页暂停轮询，回到前台再补。
+  if (!live || !HLS_URL_RE.test(live.url) || document.visibilityState !== 'visible') return
+  // 画面还在推进：正常播放，不用探测。
+  if (!heroStreamOffline.value && Date.now() - heroLastFrameAt < HERO_FRAME_GRACE_MS) return
+  if (heroOfflineProbing) return
+  heroOfflineProbing = true
+  void heroStreamAlive(live.url).then((alive) => {
+    heroOfflineProbing = false
+    if (alive) {
+      heroOfflineMisses = 0
+      if (heroStreamOffline.value) {
+        // 推流恢复：heroVideoUrl 变回直播地址，watcher 会重新挂载播放器。
+        heroStreamOffline.value = false
+        heroHlsRetries = 0
+        heroLastFrameAt = Date.now()
+        heroLiveStatus.value = 'connecting'
+        heroLive.value = { ...live, mode: 'hls' }
+      }
+      return
+    }
+    if (heroStreamOffline.value) return
+    heroOfflineMisses += 1
+    if (heroOfflineMisses >= HERO_OFFLINE_CONFIRM) {
+      heroOfflineMisses = 0
+      heroStreamOffline.value = true
+      heroLiveStatus.value = 'stalled'
+      destroyHeroHls()
+    }
+  })
 }
 
 /**
@@ -362,10 +464,27 @@ function openHeroLive() {
 // 卡顿看门狗：推流断掉时 hls.js 往往不报致命错误，只是停在缓冲状态（画面定格），
 // 所以光等 ERROR 事件不够。这里每 2 秒看一次播放进度，8 秒没前进就当断流处理。
 const HERO_STALL_CHECK_MS = 2_000
-const HERO_STALL_TOLERANCE_MS = 8_000
+// 推流端关键帧间隔偏大时，相邻分片可能相隔十几秒，等待期间不算卡死。
+const HERO_STALL_TOLERANCE_MS = 20_000
+// 冷启动要等推流端首个关键帧，播放列表可能十几秒才回来，这段时间不算卡顿。
+const HERO_START_TOLERANCE_MS = 30_000
 let heroStallTimer: ReturnType<typeof setInterval> | undefined
 let heroLastTime = -1
 let heroLastAdvanceAt = 0
+let heroPlaybackStarted = false
+let heroAttachedAt = 0
+
+/** 播放位置卡在空洞里时，跳到后面第一个已缓存区间；没有可跳的就返回 false。 */
+function seekHeroAcrossGap(video: HTMLVideoElement) {
+  const buffered = video.buffered
+  for (let i = 0; i < buffered.length; i += 1) {
+    if (buffered.start(i) > video.currentTime + 0.2 && buffered.end(i) > buffered.start(i)) {
+      video.currentTime = buffered.start(i) + 0.05
+      return true
+    }
+  }
+  return false
+}
 
 function stopHeroStallWatchdog() {
   if (heroStallTimer) {
@@ -378,12 +497,21 @@ function startHeroStallWatchdog() {
   stopHeroStallWatchdog()
   heroLastTime = -1
   heroLastAdvanceAt = Date.now()
+  heroLastFrameAt = Date.now()
   heroStallTimer = setInterval(() => {
     const now = Date.now()
     const video = heroVideoEl.value
     const live = heroLive.value
-    // 非页面内直播、暂停中（含轮播间隙）：重置计时，不算卡顿
-    if (!video || !live || (live.mode !== 'hls' && live.mode !== 'video') || video.paused) {
+    // 已判定断流：直播 UI 已收回，不再重连或计时。
+    // 非页面内直播、暂停中（含轮播间隙）：重置计时，不算卡顿；
+    // 但 heroLastFrameAt 只在画面真正推进时更新，断流探测要靠它判断“画面停住了”。
+    if (
+      heroStreamOffline.value ||
+      !video ||
+      !live ||
+      (live.mode !== 'hls' && live.mode !== 'video') ||
+      video.paused
+    ) {
       heroLastTime = -1
       heroLastAdvanceAt = now
       return
@@ -391,10 +519,27 @@ function startHeroStallWatchdog() {
     if (video.currentTime !== heroLastTime) {
       heroLastTime = video.currentTime
       heroLastAdvanceAt = now
+      heroLastFrameAt = now
+      if (video.currentTime > 0) {
+        heroPlaybackStarted = true
+        heroLiveStatus.value = 'playing'
+      }
+      return
+    }
+    if (!heroPlaybackStarted) {
+      // 已调用 play() 但时间轴还停在 0：首帧尚未解码出来，给足冷启动时间再判死。
+      if (now - heroAttachedAt >= HERO_START_TOLERANCE_MS) {
+        heroAttachedAt = now
+        retryHeroHls()
+      }
       return
     }
     if (now - heroLastAdvanceAt >= HERO_STALL_TOLERANCE_MS) {
       heroLastAdvanceAt = now
+      heroLiveStatus.value = 'stalled'
+      // 推流掉帧会在时间轴上留下几秒空洞。后面已经缓存到分片时直接跳过去，
+      // 比整路重连快得多；没有后继缓冲才重连。
+      if (seekHeroAcrossGap(video)) return
       retryHeroHls()
     }
   }, HERO_STALL_CHECK_MS)
@@ -402,6 +547,11 @@ function startHeroStallWatchdog() {
 
 /** <video> 自身报错：HLS 走重连，其余（轮播视频等）仍按原逻辑降级。 */
 function handleHeroVideoError() {
+  // 断流后播放器里放的是轮播视频，它的错误按轮播素材处理。
+  if (heroStreamOffline.value) {
+    bannerVideoBroken.value = true
+    return
+  }
   if (heroLive.value?.mode === 'hls') {
     retryHeroHls()
     return
@@ -416,6 +566,8 @@ watch([heroVideoUrl, heroResting], () => {
 async function loadHeroLive(match: PublicMatch | undefined) {
   clearHeroRecoverProbe()
   heroLive.value = null
+  heroStreamOffline.value = false
+  heroOfflineMisses = 0
   if (!match) return
   try {
     const links = await publicApi.liveLinks(match.id)
@@ -437,6 +589,41 @@ async function loadHeroLive(match: PublicMatch | undefined) {
   } catch {
     heroLive.value = null
   }
+}
+
+/* ---------- 首页现场直播 ---------- */
+const HOME_LIVE_REFRESH_MS = 30_000
+let homeLiveTimer: ReturnType<typeof setInterval> | undefined
+let homeLiveLoading = false
+
+async function loadHomeLive() {
+  const match = homeLiveMatch.value
+  if (!match) {
+    homeLivePosts.value = []
+    return
+  }
+  // 轮询与首屏加载可能同时触发，避免重复请求。
+  if (homeLiveLoading) return
+  homeLiveLoading = true
+  try {
+    // 每次取全量：条目可能被编辑或删除，增量合并对首页小列表没有收益。
+    const feed = await publicApi.liveFeed(match.id)
+    homeLivePosts.value = feed.items
+    homeLiveUpdatedAt.value = dayjs().format('HH:mm')
+  } catch {
+    // 直播接口异常时保留上一次内容，不影响首页其他区块。
+  } finally {
+    homeLiveLoading = false
+  }
+}
+
+function startHomeLiveRefresh() {
+  if (homeLiveTimer) clearInterval(homeLiveTimer)
+  homeLiveTimer = setInterval(() => {
+    // 标签页不可见时不轮询；比赛结束后 liveMatches 为空，loadHomeLive 会清空列表。
+    if (document.visibilityState !== 'visible') return
+    if (homeLiveMatch.value) loadHomeLive()
+  }, HOME_LIVE_REFRESH_MS)
 }
 
 function tabCount(key: MatchTab) {
@@ -487,7 +674,11 @@ async function loadHome() {
     matches.value = matchItems
     goals.value = goalRows.slice(0, 5)
     // 首屏直播与公示互不依赖，一起等待以免串行拖慢首屏。
-    await Promise.all([loadHeroLive(liveMatches.value[0]), loadStars(publicEventId)])
+    await Promise.all([
+      loadHeroLive(liveMatches.value[0]),
+      loadHomeLive(),
+      loadStars(publicEventId),
+    ])
     if (!liveMatches.value.length) {
       matchTab.value = scheduledMatches.value.length ? 'SCHEDULED' : 'FINISHED'
     }
@@ -515,12 +706,16 @@ async function loadStars(publicEventId: string) {
 onMounted(() => {
   loadHome()
   startHeroStallWatchdog()
+  startHeroOfflineProbe()
+  startHomeLiveRefresh()
 })
 onBeforeUnmount(() => {
   stopHeroRestTimer()
   stopHeroStallWatchdog()
+  stopHeroOfflineProbe()
   clearHeroRecoverProbe()
   destroyHeroHls()
+  if (homeLiveTimer) clearInterval(homeLiveTimer)
 })
 
 function formatDate(value?: string) {
@@ -580,11 +775,12 @@ function publicationLink(star: PublicityRecord) {
           autoplay
           muted
           playsinline
-          :loop="!heroLive"
+          :loop="!heroLive || heroStreamOffline"
           :preload="heroIsHls ? 'auto' : 'metadata'"
           aria-hidden="true"
           @ended="handleHeroVideoEnded"
           @error="handleHeroVideoError"
+          @timeupdate="handleHeroTimeUpdate"
         />
         <iframe
           v-if="showHeroFrame"
@@ -602,6 +798,11 @@ function publicationLink(star: PublicityRecord) {
             'hero__shade--video': heroBannerVideoVisible,
           }"
         />
+        <!-- 接流或断流时盖住空白画面，明确提示正在等信号。 -->
+        <div v-if="heroLiveBuffering" class="hero__live-status" role="status" aria-live="polite">
+          <span class="hero__live-status-spinner" aria-hidden="true" />
+          <span>{{ heroLiveStatus === 'stalled' ? '直播信号波动，正在重连…' : '正在接入直播信号…' }}</span>
+        </div>
       </div>
 
       <!-- 直播画面铺满首屏时保留一个悬浮角标；点击就地播放/取消静音，不把流地址交给浏览器下载。 -->
@@ -622,7 +823,7 @@ function publicationLink(star: PublicityRecord) {
       <div v-show="!heroLiveVisible" class="container hero__inner">
         <div class="hero__copy">
           <button
-            v-if="heroLive"
+            v-if="heroLive && !heroStreamOffline"
             type="button"
             class="hero__live"
             :title="`点击播放直播：${heroLive.title}`"
@@ -757,6 +958,60 @@ function publicationLink(star: PublicityRecord) {
         <button type="button" @click="loadHome">重新加载</button>
       </div>
     </div>
+
+    <!-- 现场直播：仅在有进行中比赛时出现，展示最新图文动态并定时刷新。 -->
+    <section v-if="homeLiveMatch" class="home-live" aria-labelledby="home-live-title">
+      <div class="container home-live__inner">
+        <div class="home-live__side">
+          <span class="home-live__badge">
+            <span class="home-live__dot" aria-hidden="true" />
+            正在直播
+          </span>
+          <h2 id="home-live-title">比赛动态</h2>
+          <p class="home-live__match">
+            <span>{{ homeLiveMatch.homeTeamName || '主队' }}</span>
+            <strong class="num">
+              {{ homeScoreText(homeLiveMatch) }} : {{ awayScoreText(homeLiveMatch) }}
+            </strong>
+            <span>{{ homeLiveMatch.awayTeamName || '客队' }}</span>
+          </p>
+          <p class="home-live__meta">
+            {{ homeLiveMatch.groupName || homeLiveMatch.eventName }}
+            <template v-if="homeLiveMatch.venue"> · {{ homeLiveMatch.venue }}</template>
+          </p>
+          <router-link :to="`/matches/${homeLiveMatch.id}`" class="home-live__cta">
+            进入图文直播
+            <el-icon><ArrowRight /></el-icon>
+          </router-link>
+        </div>
+
+        <div class="home-live__feed">
+          <header class="home-live__feed-head">
+            <span>最新动态</span>
+            <span v-if="homeLiveUpdatedAt" class="home-live__updated">
+              {{ homeLiveUpdatedAt }} 刷新
+            </span>
+          </header>
+          <article v-for="post in latestLivePosts" :key="post.id" class="home-live__post">
+            <span class="home-live__minute num">
+              {{ post.minute != null ? `${post.minute}'` : '—' }}
+            </span>
+            <div class="home-live__post-body">
+              <p>{{ post.text }}</p>
+              <SafeImage
+                v-if="post.imageUrls?.length"
+                class="home-live__thumb"
+                :src="post.imageUrls[0]"
+                alt="赛场图片"
+              />
+            </div>
+          </article>
+          <p v-if="!latestLivePosts.length" class="home-live__empty">
+            比赛已开始，最新图文动态稍后更新。
+          </p>
+        </div>
+      </div>
+    </section>
 
     <section class="container home-section news-section">
       <div class="section-head">
@@ -1067,6 +1322,37 @@ function publicationLink(star: PublicityRecord) {
   background:
     linear-gradient(90deg, rgba(5, 40, 30, 0.6) 0%, rgba(5, 40, 30, 0.38) 42%, rgba(5, 40, 30, 0.04) 74%, rgba(5, 40, 30, 0.12) 100%),
     linear-gradient(0deg, rgba(5, 40, 30, 0.36) 0%, transparent 42%);
+}
+
+/* 接流/断流状态层：只在直播画面模式下出现，遮住没有画面的空白区域。 */
+.hero__live-status {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(4, 26, 19, 0.64);
+  color: var(--on-dark-1);
+  font-size: 13.5px;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+}
+
+.hero__live-status-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: var(--lime);
+  border-radius: 50%;
+  animation: hero-live-spin 0.9s linear infinite;
+}
+
+@keyframes hero-live-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 遮罩变浅后用文字阴影补对比度，避免视频亮帧把标题吃掉。 */
@@ -1660,6 +1946,181 @@ function publicationLink(star: PublicityRecord) {
 
 .section-head--compact h2 {
   font-size: 20px;
+}
+
+/* ---------- 首页现场直播 ---------- */
+.home-live {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--brand-50);
+}
+
+.home-live__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.6fr);
+  gap: 32px;
+  align-items: start;
+  padding: 34px 0;
+}
+
+.home-live__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--live-soft);
+  color: var(--live);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.home-live__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--live);
+  animation: home-live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes home-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+
+.home-live h2 {
+  margin: 10px 0 0;
+  font-size: 26px;
+  color: var(--ink-900);
+}
+
+.home-live__match {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
+.home-live__match strong {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--brand-800);
+}
+
+.home-live__meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-300);
+}
+
+.home-live__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  background: var(--brand-700);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.16s ease;
+}
+
+.home-live__cta:hover {
+  background: var(--brand-800);
+}
+
+.home-live__feed {
+  min-width: 0;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.home-live__feed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-700);
+}
+
+.home-live__updated {
+  font-weight: 400;
+  color: var(--ink-300);
+}
+
+.home-live__post {
+  display: flex;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.home-live__post + .home-live__post {
+  border-top: 1px dashed var(--line);
+}
+
+.home-live__minute {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--brand-700);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.home-live__post-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.home-live__post-body p {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-700);
+}
+
+.home-live__thumb {
+  flex-shrink: 0;
+  width: 72px;
+  height: 48px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.home-live__empty {
+  padding: 18px 0 4px;
+  font-size: 12.5px;
+  color: var(--ink-300);
+  text-align: center;
 }
 
 /* ---------- 资讯 ---------- */
@@ -2461,6 +2922,11 @@ function publicationLink(star: PublicityRecord) {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .home-live__inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
   .lead-card {
     min-height: 340px;
   }
@@ -2512,6 +2978,19 @@ function publicationLink(star: PublicityRecord) {
 
   .scoreboard {
     padding: 16px;
+  }
+
+  .home-live__inner {
+    padding: 26px 0;
+  }
+
+  .home-live__feed {
+    padding: 12px 14px;
+  }
+
+  .home-live__thumb {
+    width: 60px;
+    height: 40px;
   }
 
   .scoreboard__team strong {
