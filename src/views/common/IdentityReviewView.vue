@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Camera, Check, Close, Plus, Refresh, UploadFilled, VideoCamera } from '@element-plus/icons-vue'
@@ -268,6 +268,112 @@ async function uploadCapturePhoto(options: UploadRequestOptions) {
   }
 }
 
+/** 现场拍摄：用摄像头实时取景，避免再走"先拍照存手机再选文件"的绕路。 */
+const cameraVisible = ref(false)
+const cameraOpening = ref(false)
+const cameraVideo = ref<HTMLVideoElement | null>(null)
+const cameraShotUrl = ref('')
+const cameraShotBlob = ref<Blob | null>(null)
+let cameraStream: MediaStream | null = null
+
+function stopCamera() {
+  cameraStream?.getTracks().forEach((track) => track.stop())
+  cameraStream = null
+  if (cameraVideo.value) cameraVideo.value.srcObject = null
+}
+
+function releaseShot() {
+  if (cameraShotUrl.value) URL.revokeObjectURL(cameraShotUrl.value)
+  cameraShotUrl.value = ''
+  cameraShotBlob.value = null
+}
+
+async function openCamera() {
+  if (!createForm.matchId) return ElMessage.warning('请先选择比赛')
+  if (!navigator.mediaDevices?.getUserMedia) {
+    ElMessage.warning('当前浏览器不支持调用摄像头，请改用「选择照片上传」，或在手机上用系统相机拍摄')
+    return
+  }
+  releaseShot()
+  cameraVisible.value = true
+  cameraOpening.value = true
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      // 优先后置镜头，现场多为手机/外接摄像头
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 960 } },
+      audio: false,
+    })
+    await nextTick()
+    if (cameraVideo.value) {
+      cameraVideo.value.srcObject = cameraStream
+      await cameraVideo.value.play()
+    }
+  } catch (error) {
+    stopCamera()
+    cameraVisible.value = false
+    const name = (error as DOMException)?.name
+    if (name === 'NotAllowedError') {
+      ElMessage.warning('摄像头权限被拒绝。请在浏览器地址栏允许摄像头后重试，或改用「选择照片上传」')
+    } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+      ElMessage.warning('未检测到可用摄像头，请改用「选择照片上传」')
+    } else {
+      ElMessage.warning('无法打开摄像头。若通过局域网 IP 访问，浏览器要求 HTTPS 才允许调用摄像头，请改用「选择照片上传」')
+    }
+  } finally {
+    cameraOpening.value = false
+  }
+}
+
+/** 从视频流抓一帧转 JPEG，避免把原始大图直接塞进上传。 */
+async function takeShot() {
+  const video = cameraVideo.value
+  if (!video || !video.videoWidth || !video.videoHeight) {
+    return ElMessage.warning('摄像头尚未就绪，请稍候再拍')
+  }
+  releaseShot()
+  const canvas = document.createElement('canvas')
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return ElMessage.warning('照片生成失败，请改用「选择照片上传」')
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, 'image/jpeg', 0.92),
+  )
+  if (!blob) return ElMessage.warning('照片生成失败，请改用「选择照片上传」')
+  cameraShotBlob.value = blob
+  cameraShotUrl.value = URL.createObjectURL(blob)
+}
+
+/** 重拍：丢弃已拍照片，把实时画面接回来（视频节点在预览态被卸载，需重新绑定流）。 */
+async function retake() {
+  releaseShot()
+  await nextTick()
+  if (cameraVideo.value && cameraStream) {
+    cameraVideo.value.srcObject = cameraStream
+    await cameraVideo.value.play()
+  }
+}
+
+async function useShot() {
+  if (!cameraShotBlob.value) return ElMessage.warning('请先拍照')
+  if (!createForm.matchId) return ElMessage.warning('请先选择比赛')
+  const stamp = dayjs().format('YYYYMMDD-HHmmss')
+  const file = new File([cameraShotBlob.value], `capture-${stamp}.jpg`, { type: 'image/jpeg' })
+  photoUploading.value = true
+  try {
+    const record = await fileApi.upload(file, 'MATCH', createForm.matchId, 'CAPTURE_PHOTO')
+    createForm.capturedPhotoFileId = record.id
+    photoFileName.value = record.originalName || file.name
+    cameraVisible.value = false
+    ElMessage.success('现场照片已拍摄并上传')
+  } catch {
+    // 拦截器提示
+  } finally {
+    photoUploading.value = false
+  }
+}
+
 async function createCheck() {
   if (!createForm.matchId) return ElMessage.warning('请选择比赛')
   if (!createForm.enrollmentId) return ElMessage.warning('请选择报名单')
@@ -292,6 +398,8 @@ onMounted(load)
 onBeforeUnmount(() => {
   photoUrlCache.forEach((url) => URL.revokeObjectURL(url))
   photoUrlCache.clear()
+  stopCamera()
+  releaseShot()
 })
 </script>
 
@@ -488,29 +596,69 @@ onBeforeUnmount(() => {
           </el-radio-group>
         </el-form-item>
         <el-form-item label="现场采集照片" required>
-          <el-upload
-            class="capture-uploader"
-            drag
-            :show-file-list="false"
-            :disabled="!createForm.matchId"
-            :http-request="uploadCapturePhoto"
-            accept=".jpg,.jpeg,.png"
-          >
-            <el-icon class="capture-uploader__icon"><UploadFilled /></el-icon>
-            <div v-if="photoFileName" class="capture-uploader__file">
-              已上传：<strong>{{ photoFileName }}</strong>
-            </div>
-            <template v-else>
-              <div class="capture-uploader__text">拍摄或上传现场照片</div>
-              <div class="capture-uploader__hint">照片仅用于留存核验记录，请确保面部清晰无遮挡</div>
-            </template>
-          </el-upload>
+          <div class="capture-actions">
+            <el-button
+              type="primary"
+              :icon="Camera"
+              :loading="photoUploading"
+              :disabled="!createForm.matchId"
+              @click="openCamera"
+            >
+              摄像头拍摄
+            </el-button>
+            <el-upload
+              :show-file-list="false"
+              :disabled="!createForm.matchId"
+              :http-request="uploadCapturePhoto"
+              accept=".jpg,.jpeg,.png,image/*"
+            >
+              <el-button :icon="UploadFilled" :disabled="!createForm.matchId">选择照片上传</el-button>
+            </el-upload>
+          </div>
+          <div v-if="photoFileName" class="capture-file">
+            已上传：<strong>{{ photoFileName }}</strong>
+          </div>
+          <span v-else class="form-hint">
+            可现场调用摄像头拍摄，也可从相册选择照片；请确保面部清晰无遮挡
+          </span>
           <span v-if="photoUploading" class="muted">照片上传中…</span>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :loading="creating" @click="createCheck">发起核验</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="cameraVisible" title="现场拍摄" width="620px" @closed="stopCamera">
+      <div class="camera-stage">
+        <img v-if="cameraShotUrl" :src="cameraShotUrl" class="camera-media" alt="拍摄预览" />
+        <video
+          v-else
+          ref="cameraVideo"
+          class="camera-media"
+          autoplay
+          playsinline
+          muted
+        />
+      </div>
+      <p class="camera-tip">
+        <span v-if="cameraOpening">正在打开摄像头…</span>
+        <span v-else-if="cameraShotUrl">确认照片清晰后点击「使用这张照片」</span>
+        <span v-else>请让运动员正对镜头，面部清晰无遮挡后点击「拍照」</span>
+      </p>
+      <template #footer>
+        <el-button @click="cameraVisible = false">取消</el-button>
+        <el-button v-if="cameraShotUrl" @click="retake">重拍</el-button>
+        <el-button v-else type="primary" :loading="cameraOpening" @click="takeShot">拍照</el-button>
+        <el-button
+          v-if="cameraShotUrl"
+          type="primary"
+          :loading="photoUploading"
+          @click="useShot"
+        >
+          使用这张照片
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -727,41 +875,48 @@ onBeforeUnmount(() => {
   color: var(--ink-300);
 }
 
-.capture-uploader {
-  width: 100%;
+.capture-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.capture-uploader :deep(.el-upload-dragger) {
-  padding: 22px 16px;
-  border-color: var(--line);
-  border-radius: 12px;
-  background: var(--paper);
+.capture-actions :deep(.el-upload) {
+  display: inline-block;
 }
 
-.capture-uploader__icon {
-  font-size: 26px;
-  color: var(--brand-500);
-}
-
-.capture-uploader__text {
+.capture-file {
   margin-top: 8px;
   font-size: 12px;
   color: var(--ink-500);
 }
 
-.capture-uploader__hint {
-  margin-top: 5px;
-  font-size: 9.5px;
-  color: var(--ink-300);
-}
-
-.capture-uploader__file {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--ink-500);
-}
-
-.capture-uploader__file strong {
+.capture-file strong {
   color: var(--brand-700);
+}
+
+.camera-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  border-radius: 12px;
+  background: #101314;
+  overflow: hidden;
+}
+
+.camera-media {
+  width: 100%;
+  max-height: 56vh;
+  object-fit: contain;
+  display: block;
+}
+
+.camera-tip {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--ink-300);
 }
 </style>
