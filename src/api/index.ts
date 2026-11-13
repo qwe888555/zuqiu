@@ -661,6 +661,16 @@ export const identityApi = {
     manualStatus?: string
   }) => http.get<PageResult<IdentityCheck>>('/identity-checks/list', params),
   get: (id: string) => http.get<IdentityCheck>(`/identity-checks/${id}`),
+  /** 核验前探测报名参考照：后端按「名单照片 → 人员档案头像」判定，记录员无权读人员档案。 */
+  referencePhoto: (
+    params: { enrollmentId: string; athleteId: string },
+    options?: RequestOptions,
+  ) =>
+    http.get<{ fileId: string; source: 'ROSTER' | 'PERSON' | 'NONE'; available: boolean }>(
+      '/identity-checks/reference-photo',
+      params,
+      options,
+    ),
   /** 创建按幂等契约要求携带 Idempotency-Key。 */
   create: (data: Query) =>
     http.postIdempotent<IdentityCheck>('/identity-checks', data, newIdempotencyKey('identity')),

@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'v
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
 import { Camera, Check, Close, Picture, Plus, Refresh, UploadFilled, VideoCamera } from '@element-plus/icons-vue'
-import { enrollmentApi, eventApi, fileApi, identityApi, matchApi, personApi } from '../../api'
+import { enrollmentApi, eventApi, fileApi, identityApi, matchApi } from '../../api'
 import type { EnrollmentDetail } from '../../api'
 import type { Enrollment, IdentityCheck, Match, RosterItem } from '../../api/types'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -396,20 +396,14 @@ async function resolveReferencePhoto() {
   if (!athleteId) return
   referenceLoading.value = true
   try {
-    const roster = rosterOptions.value.find((item) => item.athleteId === athleteId)
-    if (roster?.photoFileId) {
-      referenceFileId.value = roster.photoFileId
-      referenceSource.value = 'ROSTER'
-    } else {
-      // 记录员等角色无人员档案读取权限，探测失败按「无头像」处理，不弹错误提示
-      const person = await personApi.get(athleteId, { silentError: true }).catch(() => null)
-      if (person?.avatarFileId) {
-        referenceFileId.value = person.avatarFileId
-        referenceSource.value = 'PERSON'
-      }
-    }
-    if (referenceFileId.value) {
-      referenceUrl.value = (await fileApi.contentObjectUrl(referenceFileId.value)) || ''
+    // 两级回落（名单照片 → 人员档案头像）由后端判定：记录员无权读取人员档案，前端自判会误报缺失
+    const res = await identityApi
+      .referencePhoto({ enrollmentId: createForm.enrollmentId, athleteId }, { silentError: true })
+      .catch(() => null)
+    if (res?.available && res.fileId) {
+      referenceFileId.value = res.fileId
+      referenceSource.value = res.source === 'ROSTER' ? 'ROSTER' : 'PERSON'
+      referenceUrl.value = (await fileApi.contentObjectUrl(res.fileId).catch(() => '')) || ''
     }
   } finally {
     referenceLoading.value = false
@@ -424,7 +418,7 @@ async function createCheck() {
   if (createForm.mode === 'FACE_COMPARE' && !referenceFileId.value) {
     try {
       await ElMessageBox.confirm(
-        '该球员没有可用的参考照片，机器 1:1 比对会直接返回「不可用」，需人工复核。参考照片可在「报名单详情 → 球员名单 → 编辑」上传，或在人员档案里设置头像。仍要创建这条核验记录吗？',
+        '该球员没有可用的参考照片，机器 1:1 比对会直接返回「不可用」，需人工复核。参考照可在报名单处于草稿/驳回/撤回时到「报名单详情 → 球员名单 → 编辑」上传，已提交的报名单请在「人员管理」为该球员设置档案头像。仍要创建这条核验记录吗？',
         '缺少参考照片',
         { confirmButtonText: '仍要创建', cancelButtonText: '去补照片', type: 'warning' },
       )
@@ -668,7 +662,7 @@ onBeforeUnmount(() => {
               <strong v-else class="ref-photo__meta--warn">该球员暂无参考照片</strong>
               <span v-if="referenceSource !== 'NONE'">机器比对以这张图为基准</span>
               <span v-else-if="createForm.athleteId">
-                请到「赛事报名 → 报名单详情 → 球员名单 → 编辑」上传照片，或到「人员管理」为该球员设置档案头像
+                报名单处于草稿/驳回/撤回时，可在「报名单详情 → 球员名单 → 编辑」上传照片；已提交或已通过的报名单不能改，改到「人员管理」为该球员设置档案头像
               </span>
             </div>
           </div>
