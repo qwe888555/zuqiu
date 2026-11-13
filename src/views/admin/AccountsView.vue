@@ -1074,8 +1074,6 @@ onMounted(() => {
             <span>有效期至</span>
             <strong>{{ dayjs(inviteInfo.expiresAt).format('YYYY-MM-DD HH:mm') }}</strong>
           </div>
-          <p class="muted invite-tip">仅需令牌时：</p>
-          <div class="token-box">{{ inviteInfo.registrationToken }}</div>
         </template>
       </div>
       <template #footer>
