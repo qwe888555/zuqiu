@@ -44,13 +44,19 @@ const CITY_TILES: CityTile[] = [
   { key: '攀枝花', label: '攀枝花市', col: '3', row: '5' },
 ]
 
+const CITY_KEYS = CITY_TILES.map((tile) => tile.key)
+
 function cityKey(label: string) {
-  return label
+  const base = label
     // 统计接口按市州组织聚合，label 通常是「成都市教育局」这类机构名；
     // 先去掉机构后缀，再去掉行政区划后缀，才能和内置市州 key 对齐。
     .replace(/(教育和体育局|教育体育局|教育局|教育委员会|教体局|体育局)$/g, '')
     .replace(/(藏族羌族自治州|彝族自治州|藏族自治州|自治州|地区|市|州)$/g, '')
     .trim()
+  // 机构名可能带省名或区县前缀（如「四川省成都市青羊区教育局」），
+  // 只要包含内置市州名就归入对应市州，避免真实市州落到「未匹配」。
+  const matched = CITY_KEYS.find((key) => base.includes(key))
+  return matched ?? base
 }
 
 const statsByCity = computed(() => {
