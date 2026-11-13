@@ -68,14 +68,15 @@ const emptyHint = computed(() => {
   return '学校端与球队端为报送主体，本账号仅查看权限范围内的记录。'
 })
 
-const statusOptions = [
-  { value: 'DRAFT', label: '草稿' },
+// 草稿只存在于报送账号自己那里，审核/管理端不提供「草稿」筛选项。
+const statusOptions = computed(() => [
+  ...(canReport.value ? [{ value: 'DRAFT', label: '草稿' }] : []),
   { value: 'PENDING_CITY_REVIEW', label: '待市州审核' },
   { value: 'PENDING_PROVINCE_REVIEW', label: '待省级终审' },
   { value: 'APPROVED', label: '已通过' },
   { value: 'REJECTED', label: '已驳回' },
   { value: 'WITHDRAWN', label: '已撤回' },
-]
+])
 
 async function load() {
   loading.value = true
