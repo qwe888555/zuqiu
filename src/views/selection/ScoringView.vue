@@ -45,6 +45,8 @@ const prefillAthleteName = String(route.query.athleteName || '')
 const template = ref<SelectionTemplate | null>(null)
 const scores = ref<SelectionScoreRecord[]>([])
 const total = ref(0)
+const page = ref(1)
+const pageSize = ref(10)
 const keyword = ref('')
 
 const dialogVisible = ref(false)
@@ -59,6 +61,7 @@ const values = reactive<Record<string, number>>({})
 const groupTypeOptions = Object.entries(GROUP_TYPE_LABEL) as Array<[SelectionGroupType, string]>
 const roundOptions = Object.entries(ROUND_LABEL) as Array<[SelectionRound, string]>
 
+// 分页后只统计当前页，避免把「本页平均」误读为全量平均。
 const avgScore = computed(() => {
   if (!scores.value.length) return 0
   const list = scores.value.map((score) => score.totalScore)
@@ -89,7 +92,11 @@ async function loadTemplate() {
   }
 }
 
+// 翻页与改页大小可能并发，只允许最后一次请求落表。
+let loadSeq = 0
+
 async function loadScores() {
+  const seq = ++loadSeq
   if (!eventId.value) {
     scores.value = []
     total.value = 0
@@ -102,26 +109,42 @@ async function loadScores() {
       groupType: groupType.value,
       round: round.value,
       keyword: keyword.value || undefined,
-      page: 1,
-      size: 100,
+      page: page.value,
+      size: pageSize.value,
     })
+    if (seq !== loadSeq) return
     scores.value = res.items
     total.value = res.total
   } catch {
-    scores.value = []
-    total.value = 0
+    if (seq === loadSeq) {
+      scores.value = []
+      total.value = 0
+    }
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
+}
+
+function changePage(next: number) {
+  page.value = next
+  loadScores()
+}
+
+function changePageSize(next: number) {
+  pageSize.value = next
+  page.value = 1
+  loadScores()
 }
 
 async function changeContext() {
   keyword.value = ''
+  page.value = 1
   await loadTemplate()
   await loadScores()
 }
 
 function search() {
+  page.value = 1
   loadScores()
 }
 
@@ -232,7 +255,20 @@ async function openFromRoute() {
   if (!template.value) {
     return ElMessage.warning('当前组别与轮次尚未启用评分模板，请先在「评分模板」中创建')
   }
-  const existing = scores.value.find((score) => score.candidateId === prefillAthleteId)
+  // 分页后目标运动员可能不在当前页，先在当前页找，再用全量摘要兜底。
+  let existing = scores.value.find((score) => score.candidateId === prefillAthleteId)
+  if (!existing) {
+    try {
+      const all = await selectionScoreApi.summary({
+        eventId: eventId.value,
+        groupType: groupType.value,
+        round: round.value,
+      })
+      existing = all.find((score) => score.candidateId === prefillAthleteId)
+    } catch {
+      // 摘要接口不可用时仍允许走新建流程
+    }
+  }
   if (existing) {
     openEdit(existing)
     return
@@ -285,7 +321,7 @@ onMounted(async () => {
         />
         <el-button type="primary" plain @click="search">查询</el-button>
         <span class="filter-spacer" />
-        <span class="muted">平均总分 <strong class="num avg">{{ avgScore }}</strong></span>
+        <span class="muted">本页平均总分 <strong class="num avg">{{ avgScore }}</strong></span>
       </div>
 
       <div v-if="template" class="rule-strip">
@@ -341,6 +377,18 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
       <el-empty v-if="!loading && !scores.length" description="当前赛事下暂无评分记录" :image-size="80" />
+      <div v-if="total > 0" class="table-pager">
+        <el-pagination
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50]"
+          :total="total"
+          layout="total, sizes, prev, pager, next"
+          background
+          @current-change="changePage"
+          @size-change="changePageSize"
+        />
+      </div>
     </section>
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '修改评分' : '录入评分'" width="680px">
@@ -432,6 +480,12 @@ onMounted(async () => {
 .muted {
   font-size: 10px;
   color: var(--ink-300);
+}
+
+.table-pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 .rule-strip {
