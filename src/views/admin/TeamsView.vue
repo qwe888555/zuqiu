@@ -87,7 +87,9 @@ const playerCount = computed(() =>
 )
 const approvedCount = computed(() => rows.value.filter((team) => team.status === 'APPROVED').length)
 const teamTotalHint = computed(() =>
-  filters.cityOrgId || filters.category || filters.keyword ? '当前筛选范围' : '全省已建档球队',
+  filters.cityOrgId || filters.category || filters.keyword
+    ? '当前筛选范围'
+    : '全部已建档球队；报名统计按赛事去重',
 )
 
 async function loadCities() {

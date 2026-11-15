@@ -149,6 +149,13 @@ const reviewedEnd = computed(() =>
 
 const maxTeamCount = computed(() => Math.max(1, ...rows.value.map((row) => row.teamCount)))
 
+/** 按组别时同队可报多组，队伍数是「球队×组别」的累计，需要在卡片上说明。 */
+const teamKpiHint = computed(() =>
+  dimension.value === 'GROUP'
+    ? '按组别累计，同队报多组会重复计入'
+    : '有有效报名的球队（按球队归属地归并）',
+)
+
 const dimensionLabel = computed(
   () => ({ CITY: '市州', SCHOOL: '学校', GROUP: '组别' })[dimension.value],
 )
@@ -327,7 +334,7 @@ onMounted(refresh)
   <div class="page">
     <PageHeader
       title="报名统计"
-      description="按市州、组别或报送学校聚合报名数据，辅助审核排期与名额统筹。数据实时来源于报名主档。"
+      description="按市州、组别或报送学校聚合报名数据；学校报送与球队报送都按球队归属地归并，辅助审核排期与名额统筹。"
     >
       <template #actions>
         <el-button :icon="Refresh" :loading="eventsLoading || loading" @click="refresh">刷新</el-button>
@@ -407,7 +414,7 @@ onMounted(refresh)
     </div>
 
     <div class="stat-grid">
-      <StatCard label="报名球队" :value="totalTeams" hint="学校报送的参赛球队" :icon="Trophy" tone="green" />
+      <StatCard label="报名球队" :value="totalTeams" :hint="teamKpiHint" :icon="Trophy" tone="green" />
       <StatCard label="报名球员" :value="athleteKpiValue" :hint="athleteKpiHint" :icon="User" tone="lime" />
       <StatCard label="待审核" :value="totalPending" hint="报名单待审核" :icon="Warning" tone="amber" />
       <StatCard label="已通过" :value="totalApproved" hint="报名单已终审" :icon="DataAnalysis" tone="blue" />
