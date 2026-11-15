@@ -269,14 +269,20 @@ onMounted(load)
           <el-button size="small" :icon="Plus" @click="addDimension">添加维度</el-button>
         </div>
         <div class="dim-editor">
+          <div class="dim-row dim-row--head">
+            <span>维度名称</span>
+            <span>编码</span>
+            <span>权重</span>
+            <span>满分</span>
+            <span />
+          </div>
           <div v-for="(dim, index) in form.dimensions" :key="index" class="dim-row">
-            <el-input v-model="dim.name" placeholder="维度名称" />
-            <el-input v-model="dim.code" placeholder="编码" style="text-transform: uppercase" />
+            <el-input v-model="dim.name" placeholder="如：技术能力" />
+            <el-input v-model="dim.code" class="dim-code" placeholder="如：TECH" style="text-transform: uppercase" />
             <el-input-number v-model="dim.weight" :min="0" :max="100" :step="5" :precision="0" controls-position="right" />
-            <span class="dim-row__suffix">权重</span>
             <el-input-number v-model="dim.maxScore" :min="1" :max="1000" :step="10" controls-position="right" />
-            <span class="dim-row__suffix">满分</span>
             <el-button
+              class="dim-remove"
               link
               type="danger"
               :icon="Delete"
@@ -411,14 +417,27 @@ onMounted(load)
 
 .dim-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) 110px auto 110px auto auto;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.9fr) 120px 120px 28px;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
 }
 
-.dim-row__suffix {
-  font-size: 9.5px;
+.dim-row--head {
+  padding: 0 2px;
+  font-size: 10px;
   color: var(--ink-300);
+}
+
+/* Element Plus 的数字输入默认 150px，会溢出 120px 的网格列并压到相邻控件上。 */
+.dim-row :deep(.el-input-number) {
+  width: 100%;
+  min-width: 0;
+}
+
+.dim-remove {
+  justify-self: center;
+  width: 28px;
+  padding: 0;
 }
 
 @media (max-width: 760px) {
@@ -427,11 +446,11 @@ onMounted(load)
   }
 
   .dim-row {
-    grid-template-columns: minmax(0, 1fr) 110px auto;
+    grid-template-columns: minmax(0, 1fr) 102px 102px 28px;
   }
 
-  .dim-row__suffix:nth-of-type(2),
-  .dim-row .el-input-number:nth-of-type(2) {
+  .dim-row > .dim-code,
+  .dim-row--head > span:nth-child(2) {
     display: none;
   }
 }
