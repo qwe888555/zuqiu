@@ -33,7 +33,6 @@ const generateVisible = ref(false)
 const checkingScores = ref(false)
 const scoreCounts = reactive<Record<SelectionRound, number | null>>({ INITIAL: null, FINAL: null })
 const form = reactive({
-  resultRound: 'FINAL' as SelectionRound,
   quota: 11,
   initialWeight: 40,
   finalWeight: 60,
@@ -45,13 +44,24 @@ const detail = ref<SelectionResultBatch | null>(null)
 const publishing = ref(false)
 
 const groupTypeOptions = Object.entries(GROUP_TYPE_LABEL) as Array<[SelectionGroupType, string]>
-const roundOptions = Object.entries(ROUND_LABEL) as Array<[SelectionRound, string]>
 
 const activeBatch = computed(() => batches.value.find((batch) => batch.active) || null)
 const staleCount = computed(() => batches.value.filter((batch) => batch.stale).length)
 const currentEvent = computed(() => events.value.find((event) => event.id === eventId.value) || null)
-const currentScoreCount = computed(() => scoreCounts[form.resultRound])
-const canGenerate = computed(() => !checkingScores.value && currentScoreCount.value !== 0)
+/**
+ * 结果轮次不再让用户选：有复选评分就生成初选+复选加权综合结果；
+ * 只有初选评分时按初选成绩生成（此时权重不参与计算）。
+ */
+const effectiveRound = computed<SelectionRound>(() =>
+  (scoreCounts.FINAL ?? 0) > 0 ? 'FINAL' : 'INITIAL',
+)
+const currentScoreCount = computed(() => scoreCounts[effectiveRound.value])
+const canGenerate = computed(
+  () => !checkingScores.value && (currentScoreCount.value ?? 0) > 0,
+)
+const initialOnly = computed(
+  () => !checkingScores.value && effectiveRound.value === 'INITIAL' && (scoreCounts.INITIAL ?? 0) > 0,
+)
 
 async function loadEvents() {
   try {
@@ -104,7 +114,6 @@ async function loadScoreCounts() {
 
 function openGenerate(source?: SelectionResultBatch) {
   if (!eventId.value) return ElMessage.warning('请选择赛事')
-  form.resultRound = source?.resultRound || 'FINAL'
   form.quota = source?.quota || 11
   form.initialWeight = Math.round((source?.initialWeight ?? 0.4) * 100)
   form.finalWeight = Math.round((source?.finalWeight ?? 0.6) * 100)
@@ -119,17 +128,19 @@ function goScoring() {
     query: {
       eventId: eventId.value,
       groupType: groupType.value,
-      round: form.resultRound,
+      round: effectiveRound.value,
     },
   })
 }
 
 async function generate() {
   if (!eventId.value) return
-  if (currentScoreCount.value === 0) {
-    return ElMessage.warning(`当前赛事与组别暂无${ROUND_LABEL[form.resultRound]}评分，请先录入评分`)
+  if ((currentScoreCount.value ?? 0) === 0) {
+    return ElMessage.warning(`当前赛事与组别暂无${ROUND_LABEL[effectiveRound.value]}评分，请先录入评分`)
   }
-  if (form.initialWeight + form.finalWeight !== 100) return ElMessage.warning('初选与复选权重之和需为 100%')
+  if (effectiveRound.value === 'FINAL' && form.initialWeight + form.finalWeight !== 100) {
+    return ElMessage.warning('初选与复选权重之和需为 100%')
+  }
   try {
     await ElMessageBox.confirm(
       '将按当前评分生成新的结果批次，原有批次转为历史版本；评分后续变更会使该批次标记为「待重算」。',
@@ -140,7 +151,7 @@ async function generate() {
     const batch = await selectionResultApi.generate({
       eventId: eventId.value,
       groupType: groupType.value,
-      resultRound: form.resultRound,
+      resultRound: effectiveRound.value,
       quota: form.quota,
       initialWeight: form.initialWeight / 100,
       finalWeight: form.finalWeight / 100,
@@ -287,7 +298,7 @@ onMounted(async () => {
       <el-empty v-if="!loading && !batches.length" description="尚未生成遴选结果" :image-size="80" />
     </section>
 
-    <el-dialog v-model="generateVisible" title="生成最佳球员遴选结果" width="560px">
+    <el-dialog v-model="generateVisible" title="生成最佳球员遴选结果" width="600px">
       <div class="generate-context">
         <div>
           <span>赛事</span>
@@ -301,29 +312,35 @@ onMounted(async () => {
           <span>可用评分</span>
           <strong>
             <template v-if="checkingScores">检查中…</template>
-            <template v-else>{{ currentScoreCount ?? 0 }} 条{{ ROUND_LABEL[form.resultRound] }}评分</template>
+            <template v-else>
+              {{ scoreCounts.INITIAL ?? 0 }} 初选 / {{ scoreCounts.FINAL ?? 0 }} 复选
+            </template>
           </strong>
         </div>
       </div>
       <el-alert
-        v-if="!checkingScores && currentScoreCount === 0"
+        v-if="!checkingScores && (currentScoreCount ?? 0) === 0"
         class="generate-alert"
         type="warning"
         :closable="false"
         show-icon
         title="当前赛事与组别没有可用于生成结果的评分"
-        :description="`请先在「评分录入」中为${GROUP_TYPE_LABEL[groupType]}录入${ROUND_LABEL[form.resultRound]}评分，或切换到其他已有评分的赛事；若赛事尚未开放报名，需先完成报名审核。`"
+        :description="`请先在「评分录入」中为${GROUP_TYPE_LABEL[groupType]}录入初选或复选评分，或切换到其他已有评分的赛事；若赛事尚未开放报名，需先完成报名审核。`"
+      />
+      <el-alert
+        v-else-if="initialOnly"
+        class="generate-alert"
+        type="info"
+        :closable="false"
+        show-icon
+        title="暂未录入复选评分"
+        :description="`本次将按初选成绩直接生成结果，初选/复选权重暂不生效；补录复选评分后重新生成，才会按权重计算综合分。`"
       />
       <p class="generate-tip">
         按当前评分生成结果批次，超出名额的运动员不入围；分数相同时按球员编号稳定排序。
       </p>
       <el-form :model="form" label-position="top">
         <div class="form-grid">
-          <el-form-item label="结果轮次">
-            <el-radio-group v-model="form.resultRound">
-              <el-radio-button v-for="[value, label] in roundOptions" :key="value" :value="value">{{ label }}</el-radio-button>
-            </el-radio-group>
-          </el-form-item>
           <el-form-item label="入围名额">
             <el-input-number v-model="form.quota" :min="1" :max="200" style="width: 100%" />
           </el-form-item>
@@ -337,7 +354,7 @@ onMounted(async () => {
       </el-form>
       <template #footer>
         <el-button
-          v-if="!checkingScores && currentScoreCount === 0"
+          v-if="!checkingScores && (currentScoreCount ?? 0) === 0"
           link
           type="primary"
           class="footer-shortcut"
@@ -516,8 +533,8 @@ onMounted(async () => {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 12px;
 }
 
 .detail-head {

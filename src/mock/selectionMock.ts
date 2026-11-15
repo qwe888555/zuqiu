@@ -592,15 +592,22 @@ on('POST', '/results/generate/', ({ body }) => {
       batch.active = false
     })
 
+  // 与后端一致：仅初选评分时按初选成绩生成，权重不参与计算，
+  // 批次快照记录实际生效的 100%/0%，避免列表显示未生效的 40/60。
+  const effectiveInitialWeight = resultRound === 'INITIAL' ? 1 : initialWeight
+  const effectiveFinalWeight = resultRound === 'INITIAL' ? 0 : finalWeight
   const created: MockResultBatch = {
     id: nextId('res'),
     event_id: eventId,
     group_type: groupType,
     result_round: resultRound,
     quota,
-    initial_weight: initialWeight,
-    final_weight: finalWeight,
-    formula_snapshot: '综合分=(初选总分×初选权重+复选总分×复选权重)/(初选权重+复选权重)',
+    initial_weight: effectiveInitialWeight,
+    final_weight: effectiveFinalWeight,
+    formula_snapshot:
+      resultRound === 'INITIAL'
+        ? '初选总分'
+        : '综合分=(初选总分×初选权重+复选总分×复选权重)/(初选权重+复选权重)',
     version_no: versionNo,
     active: true,
     stale: false,
