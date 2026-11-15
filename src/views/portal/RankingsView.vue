@@ -17,7 +17,8 @@ const generatedAt = ref('')
 
 const categories = [
   { label: '小学组', value: 'PRIMARY' },
-  { label: '中学组', value: 'MIDDLE' },
+  { label: '初中组', value: 'MIDDLE' },
+  { label: '高中组', value: 'HIGH' },
 ]
 
 const currentCategoryLabel = computed(

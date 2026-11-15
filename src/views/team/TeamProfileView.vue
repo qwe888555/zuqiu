@@ -266,7 +266,7 @@ async function save() {
   saving.value = true
   try {
     const id = team.value.id
-    // groupCategory 是建队学段（PRIMARY/MIDDLE），本页不编辑；后端返回的
+    // groupCategory 是建队学段（PRIMARY/MIDDLE/HIGH），本页不编辑；后端返回的
     // team.category 可能是 U12/U15 等年龄组，直接回传会被 400 拒绝。
     const payload: Record<string, unknown> = {
       name: form.name,

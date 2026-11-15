@@ -57,6 +57,10 @@ const groupForm = reactive({
 })
 
 const categoryLabel = CATEGORY_LABELS
+const categoryOptions = Object.entries(CATEGORY_LABELS).map(([value, label]) => ({
+  value: value as GroupCategory,
+  label,
+}))
 const genderLabel: Record<string, string> = { MALE: '男子', FEMALE: '女子', MIXED: '混合' }
 
 /** 老数据可能没有年龄/人数配置，避免页面出现「- 岁」「最多 0 人」这类异常值。 */
@@ -614,8 +618,7 @@ onMounted(load)
           </el-form-item>
           <el-form-item label="学段">
             <el-select v-model="groupForm.category" style="width: 100%">
-              <el-option label="小学" value="PRIMARY" />
-              <el-option label="中学" value="MIDDLE" />
+              <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="性别">

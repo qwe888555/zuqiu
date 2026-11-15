@@ -14,16 +14,21 @@ describe('teamEligibility', () => {
       teamMatchesGroupCategory('U15', { category: 'MIDDLE', minAge: 13, maxAge: 15 }),
     ).toBe(true)
     expect(
-      teamMatchesGroupCategory('U15', { category: 'MIDDLE', minAge: 16, maxAge: 18 }),
+      teamMatchesGroupCategory('U15', { category: 'HIGH', minAge: 16, maxAge: 18 }),
     ).toBe(false)
     expect(
       teamMatchesGroupCategory('U12', { category: 'PRIMARY', minAge: 10, maxAge: 12 }),
     ).toBe(true)
+    expect(
+      teamMatchesGroupCategory('U18', { category: 'HIGH', minAge: 16, maxAge: 18 }),
+    ).toBe(true)
   })
 
-  it('PRIMARY/MIDDLE 学段仍按组别学段匹配', () => {
+  it('PRIMARY/MIDDLE/HIGH 学段仍按组别学段匹配', () => {
     expect(teamMatchesGroupCategory('PRIMARY', { category: 'PRIMARY' })).toBe(true)
     expect(teamMatchesGroupCategory('MIDDLE', { category: 'PRIMARY' })).toBe(false)
+    expect(teamMatchesGroupCategory('HIGH', { category: 'HIGH' })).toBe(true)
+    expect(teamMatchesGroupCategory('HIGH', { category: 'MIDDLE' })).toBe(false)
   })
 
   it('组别限制性别时过滤不一致的球队', () => {

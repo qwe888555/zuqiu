@@ -55,7 +55,17 @@ function num(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-const GROUP_LABEL: Record<string, string> = { MIDDLE: '中学组', PRIMARY: '小学组' }
+const GROUP_LABEL: Record<string, string> = { PRIMARY: '小学组', MIDDLE: '初中组', HIGH: '高中组' }
+const GROUP_TYPES = new Set(['PRIMARY', 'MIDDLE', 'HIGH'])
+
+/** 球队/赛事组别编码 → 小学组/初中组/高中组；识别不了的历史编码按初中兜底。 */
+function groupTypeOfCategory(category?: string): string {
+  const value = String(category || '').toUpperCase()
+  if (GROUP_TYPES.has(value)) return value
+  if (value.startsWith('U12')) return 'PRIMARY'
+  if (value.startsWith('U18') || value.startsWith('U19') || value.startsWith('U20')) return 'HIGH'
+  return 'MIDDLE'
+}
 const ROUND_LABEL: Record<string, string> = { INITIAL: '初选', FINAL: '复选' }
 const PUBLICITY_LABEL: Record<string, string> = { ATHLETE: '运动员', COACH: '教练员', TEAM: '球队' }
 
@@ -86,7 +96,7 @@ interface MockTemplate {
 
 function groupTypeOf(groupId?: string): string {
   const group = eventGroups.find((item) => item.id === groupId)
-  return group?.category === 'PRIMARY' ? 'PRIMARY' : 'MIDDLE'
+  return groupTypeOfCategory(group?.category)
 }
 
 function templateIdOf(ruleId: string, round: string): string {
@@ -236,7 +246,7 @@ function publicityTypeOf(targetType: string): string {
 
 function groupTypeOfGroupName(groupName?: string): string {
   const group = eventGroups.find((item) => item.name === groupName)
-  return group?.category === 'PRIMARY' ? 'PRIMARY' : 'MIDDLE'
+  return groupTypeOfCategory(group?.category)
 }
 
 function eventIdOfPublication(eventId?: string, groupName?: string): string {
@@ -676,7 +686,7 @@ function findSource(sourceId: string) {
       teamName: team?.name || '',
       schoolName: team?.schoolName || person.schoolName || '',
       city: team?.cityName || '',
-      groupType: team?.category === 'PRIMARY' ? 'PRIMARY' : 'MIDDLE',
+      groupType: groupTypeOfCategory(team?.category),
       kind: person.kinds.includes('COACH') ? 'COACH' : 'ATHLETE',
     }
   }
@@ -687,7 +697,7 @@ function findSource(sourceId: string) {
       teamName: team.name,
       schoolName: team.schoolName || '',
       city: team.cityName || '',
-      groupType: team.category === 'PRIMARY' ? 'PRIMARY' : 'MIDDLE',
+      groupType: groupTypeOfCategory(team.category),
       kind: 'TEAM' as const,
     }
   }
@@ -766,7 +776,7 @@ on('POST', '/publicity/batch/', ({ body }) => {
     candidates.push({
       id: person.id,
       kind,
-      groupType: team?.category === 'PRIMARY' ? 'PRIMARY' : 'MIDDLE',
+      groupType: groupTypeOfCategory(team?.category),
       city: team?.cityName || '',
     })
   })
@@ -774,7 +784,7 @@ on('POST', '/publicity/batch/', ({ body }) => {
     candidates.push({
       id: team.id,
       kind: 'TEAM',
-      groupType: team.category === 'PRIMARY' ? 'PRIMARY' : 'MIDDLE',
+      groupType: groupTypeOfCategory(team.category),
       city: team.cityName || '',
     })
   })

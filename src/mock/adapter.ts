@@ -699,7 +699,8 @@ const dictItems: Array<{
   updatedAt: string
 }> = [
   { id: 'di_tc_primary', typeId: 'dt_team_category', value: 'PRIMARY', label: '小学组', sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
-  { id: 'di_tc_middle', typeId: 'dt_team_category', value: 'MIDDLE', label: '中学组', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_tc_middle', typeId: 'dt_team_category', value: 'MIDDLE', label: '初中组', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+  { id: 'di_tc_high', typeId: 'dt_team_category', value: 'HIGH', label: '高中组', sortOrder: 3, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
   { id: 'di_pos_gk', typeId: 'dt_position', value: 'GK', label: '守门员', sortOrder: 1, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
   { id: 'di_pos_df', typeId: 'dt_position', value: 'DF', label: '后卫', sortOrder: 2, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
   { id: 'di_pos_mf', typeId: 'dt_position', value: 'MF', label: '中场', sortOrder: 3, isActive: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
@@ -1547,9 +1548,10 @@ on('GET', '/teams/:id/matches', ({ params, query }) => {
 // ---------------------------------------------------------------------------
 
 /** 与真实后端保持同口径的组别/轮次文案，避免 mock 与接口返回不一致。 */
-const DOSSIER_GROUP_LABEL: Record<'PRIMARY' | 'MIDDLE', string> = {
+const DOSSIER_GROUP_LABEL: Record<'PRIMARY' | 'MIDDLE' | 'HIGH', string> = {
   PRIMARY: '小学组',
-  MIDDLE: '中学组',
+  MIDDLE: '初中组',
+  HIGH: '高中组',
 }
 const DOSSIER_ROUND_LABEL: Record<'INITIAL' | 'FINAL', string> = {
   INITIAL: '初选',

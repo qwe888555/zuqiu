@@ -659,7 +659,7 @@ async function loadHome() {
     let goalRows: GoalRankingRow[] = []
     for (const event of sortPublicEvents(eventRes.items)) {
       // 首页固定展示小学组，必须与榜单标题一起按 category 过滤；
-      // 不传 category 时后端会返回跨组别排名，中学组球员会混入。
+      // 不传 category 时后端会返回跨组别排名，初中/高中组球员会混入。
       const [matchRes, goalRes] = await Promise.all([
         publicApi.matches({ eventId: event.id, page: 1, pageSize: 50 }),
         publicApi.goals({ eventId: event.id, category: 'PRIMARY' }),

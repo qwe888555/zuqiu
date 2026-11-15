@@ -54,7 +54,8 @@ export const organizations: Organization[] = [
 
 export const dictionaries: DictionaryItem[] = [
   { id: 'dict_01', dictType: 'GROUP_CATEGORY', value: 'PRIMARY', label: '小学组', sortOrder: 1, enabled: true, version: 1 },
-  { id: 'dict_02', dictType: 'GROUP_CATEGORY', value: 'MIDDLE', label: '中学组', sortOrder: 2, enabled: true, version: 1 },
+  { id: 'dict_02', dictType: 'GROUP_CATEGORY', value: 'MIDDLE', label: '初中组', sortOrder: 2, enabled: true, version: 1 },
+  { id: 'dict_03', dictType: 'GROUP_CATEGORY', value: 'HIGH', label: '高中组', sortOrder: 3, enabled: true, version: 1 },
   { id: 'dict_04', dictType: 'POSITION', value: 'GK', label: '守门员', sortOrder: 1, enabled: true, version: 1 },
   { id: 'dict_05', dictType: 'POSITION', value: 'DF', label: '后卫', sortOrder: 2, enabled: true, version: 1 },
   { id: 'dict_06', dictType: 'POSITION', value: 'MF', label: '中场', sortOrder: 3, enabled: true, version: 1 },
@@ -91,7 +92,7 @@ export const events: Event[] = [
   },
   {
     id: 'event_middle_2026',
-    name: '2026年四川省青少年校园足球联赛（中学组）',
+    name: '2026年四川省青少年校园足球联赛（初中组）',
     season: '2026',
     eventCategory: 'CITY_LEAGUE',
     registrationOpensAt: '2026-09-10T09:00:00+08:00',
@@ -292,7 +293,7 @@ const teamSeeds: Array<{
   name: string
   cityOrgId: string
   cityName: string
-  category: 'PRIMARY' | 'MIDDLE'
+  category: 'PRIMARY' | 'MIDDLE' | 'HIGH'
   schoolOrgId: string
   schoolName: string
   gender: 'MALE' | 'FEMALE'

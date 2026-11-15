@@ -33,7 +33,8 @@ export const PERSON_KIND_LABELS: Record<string, string> = {
 
 export const CATEGORY_LABELS: Record<GroupCategory, string> = {
   PRIMARY: '小学',
-  MIDDLE: '中学',
+  MIDDLE: '初中',
+  HIGH: '高中',
 }
 
 /**
@@ -103,7 +104,8 @@ export function eventLevelLabel(category?: string, serverLabel?: string): string
 
 export const CATEGORY_GROUP_LABELS: Record<GroupCategory, string> = {
   PRIMARY: '小学组',
-  MIDDLE: '中学组',
+  MIDDLE: '初中组',
+  HIGH: '高中组',
 }
 
 /** 成员5 对阵接口的裁判岗位枚举。 */

@@ -15,12 +15,13 @@ export interface NoticeGroup {
   cities: string[]
 }
 
-export type GroupCategoryKey = 'PRIMARY' | 'MIDDLE'
+export type GroupCategoryKey = 'PRIMARY' | 'MIDDLE' | 'HIGH'
 
 export const GROUP_TABS: { label: string; value: '' | GroupCategoryKey }[] = [
   { label: '全部组别', value: '' },
   { label: '小学组', value: 'PRIMARY' },
-  { label: '中学组', value: 'MIDDLE' },
+  { label: '初中组', value: 'MIDDLE' },
+  { label: '高中组', value: 'HIGH' },
 ]
 
 export function groupCategoryOf(groupType?: SelectionGroupType): GroupCategoryKey {

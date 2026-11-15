@@ -144,8 +144,9 @@ async function download(
  * ------------------------------------------------------------------------- */
 
 export const GROUP_TYPE_LABEL: Record<SelectionGroupType, string> = {
-  MIDDLE: '中学组',
   PRIMARY: '小学组',
+  MIDDLE: '初中组',
+  HIGH: '高中组',
 }
 
 export const ROUND_LABEL: Record<SelectionRound, string> = {

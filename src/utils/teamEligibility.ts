@@ -4,9 +4,9 @@ import type { EventGroup, Team } from '../api/types'
  * 球队可报组别匹配。
  *
  * 后端球队 `category` 存在两种历史口径：
- * - PRIMARY / MIDDLE：直接对应组别学段；
+ * - PRIMARY / MIDDLE / HIGH：直接对应小学/初中/高中学段；
  * - U12 / U15 / U18 / U15_MALE：年龄组编码，需用组别 minAge/maxAge 判断，
- *   不能直接和组别的 PRIMARY/MIDDLE 比较。
+ *   不能直接和组别学段编码比较。
  */
 export function teamAgeBound(category?: string): number | undefined {
   if (!category) return undefined
@@ -22,7 +22,7 @@ export function teamMatchesGroupCategory(
 ): boolean {
   if (!category) return true
   const normalized = category.trim().toUpperCase()
-  if (normalized === 'PRIMARY' || normalized === 'MIDDLE') {
+  if (normalized === 'PRIMARY' || normalized === 'MIDDLE' || normalized === 'HIGH') {
     return normalized === String(group.category).toUpperCase()
   }
   const age = teamAgeBound(normalized)
@@ -30,7 +30,8 @@ export function teamMatchesGroupCategory(
   if (typeof group.minAge === 'number' && typeof group.maxAge === 'number') {
     return age >= group.minAge && age <= group.maxAge
   }
-  return (age <= 12 ? 'PRIMARY' : 'MIDDLE') === String(group.category).toUpperCase()
+  const stage = age <= 12 ? 'PRIMARY' : age <= 15 ? 'MIDDLE' : 'HIGH'
+  return stage === String(group.category).toUpperCase()
 }
 
 /** 球队是否满足组别的学段与性别要求；认证状态由调用方另行拦截。 */

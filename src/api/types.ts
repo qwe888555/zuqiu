@@ -28,7 +28,7 @@ export type EnrollmentStatus =
 export type MatchStatus = 'SCHEDULED' | 'LIVE' | 'FINISHED' | 'CANCELLED'
 export type ContentType = 'NEWS' | 'POLICY' | 'HIGHLIGHT' | 'BEST_LINEUP'
 export type RoundType = 'PRELIMINARY' | 'FINAL'
-export type GroupCategory = 'PRIMARY' | 'MIDDLE'
+export type GroupCategory = 'PRIMARY' | 'MIDDLE' | 'HIGH'
 
 export interface Envelope<T> {
   code: string
@@ -923,7 +923,7 @@ export interface OptionItem {
  * 成员6 遴选评分与报名公示（/api/selection）
  * ------------------------------------------------------------------------- */
 
-export type SelectionGroupType = 'MIDDLE' | 'PRIMARY'
+export type SelectionGroupType = 'PRIMARY' | 'MIDDLE' | 'HIGH'
 export type SelectionRound = 'INITIAL' | 'FINAL'
 export type PublicityType = 'ATHLETE' | 'COACH' | 'TEAM'
 export type PublicityStatus = 'PUBLISHED' | 'CANCELLED'

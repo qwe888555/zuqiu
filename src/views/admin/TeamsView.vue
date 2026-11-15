@@ -34,6 +34,10 @@ const { can } = usePermission()
 const canManage = computed(() => can('team.manage'))
 
 const categoryLabels = CATEGORY_GROUP_LABELS
+const categoryOptions = Object.entries(CATEGORY_GROUP_LABELS).map(([value, label]) => ({
+  value: value as GroupCategory,
+  label,
+}))
 
 const rows = ref<Team[]>([])
 const total = ref(0)
@@ -381,8 +385,7 @@ onMounted(async () => {
         style="width: 150px"
         @change="search"
       >
-        <el-option label="小学组" value="PRIMARY" />
-        <el-option label="中学组" value="MIDDLE" />
+        <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
       </el-select>
       <el-input
         v-model="filters.keyword"
@@ -651,8 +654,7 @@ onMounted(async () => {
           </el-form-item>
           <el-form-item label="参赛组别" required>
             <el-select v-model="createForm.category" style="width: 100%">
-              <el-option label="小学组" value="PRIMARY" />
-              <el-option label="中学组" value="MIDDLE" />
+              <el-option v-for="item in categoryOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </el-form-item>
           <el-form-item label="球队性别" required>
