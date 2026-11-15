@@ -402,7 +402,14 @@ onMounted(() => {
       </div>
     </section>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑资源' : '新增资源'" width="560px">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑资源' : '新增资源'"
+      class="resource-dialog"
+      body-class="resource-dialog__body"
+      width="min(560px, 92vw)"
+      top="5vh"
+    >
       <el-form :model="form" label-position="top">
         <el-form-item label="资源类型">
           <el-radio-group v-model="form.resourceType">
@@ -666,6 +673,26 @@ a.resource-card__media:focus-visible::after {
   color: var(--ink-300);
 }
 
+/* 弹窗内容较高时内部滚动，标题栏和底部按钮始终可见。 */
+:global(.resource-dialog) {
+  display: flex;
+  flex-direction: column;
+  /* 5vh 顶距 + 默认 50px 底部外边距，保证整个弹窗留在视口内。 */
+  max-height: calc(95vh - 50px);
+  overflow: hidden;
+}
+
+:global(.resource-dialog > .el-dialog__header),
+:global(.resource-dialog > .el-dialog__footer) {
+  flex: none;
+}
+
+:global(.resource-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .resource-card__actions {
   display: flex;
   flex-wrap: wrap;
@@ -690,7 +717,7 @@ a.resource-card__media:focus-visible::after {
 .image-upload__box {
   display: grid;
   place-items: center;
-  width: 240px;
+  width: 200px;
   aspect-ratio: 16 / 9;
   overflow: hidden;
   border: 1px dashed var(--line);
