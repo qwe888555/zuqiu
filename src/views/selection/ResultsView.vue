@@ -204,9 +204,21 @@ async function publishShortlist() {
     )
     publishing.value = true
     const res = await publicityApi.publishResultBatch({ resultBatchId: detail.value.id })
-    ElMessage.success(
-      `公示完成：新增 ${res.published} 条，跳过 ${res.skipped} 条，失败 ${res.failed} 条`,
-    )
+    const firstError = res.errors[0]?.message
+    if (res.published === 0 && res.skipped > 0 && res.failed === 0) {
+      // 「跳过」表示名单里的运动员已经在公示中，不是失败；明确提示避免误以为没发布成功。
+      ElMessage.info(
+        `本批次 ${res.candidateCount ?? res.published + res.skipped + res.failed} 名运动员均已在公示中，无需重复发布`,
+      )
+    } else if (res.failed > 0) {
+      ElMessage.warning(
+        `公示完成：新增 ${res.published} 条，已在公示中 ${res.skipped} 条，失败 ${res.failed} 条${firstError ? `（${firstError}）` : ''}`,
+      )
+    } else {
+      ElMessage.success(
+        `公示完成：新增 ${res.published} 条，已在公示中 ${res.skipped} 条`,
+      )
+    }
   } catch {
     // 取消或异常
   } finally {
