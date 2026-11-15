@@ -482,9 +482,16 @@ onMounted(() => {
       />
     </section>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑内容' : '新建内容'" width="780px" top="6vh">
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑内容' : '新建内容'"
+      class="content-dialog"
+      body-class="content-dialog__body"
+      width="min(720px, 92vw)"
+      top="5vh"
+    >
       <el-form :model="form" label-position="top">
-        <div class="form-grid">
+        <div class="form-grid form-grid--3">
           <el-form-item label="内容类型">
             <el-select v-model="form.contentType" style="width: 100%">
               <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
@@ -545,7 +552,7 @@ onMounted(() => {
           <el-input
             v-model="form.bodyHtml"
             type="textarea"
-            :rows="10"
+            :rows="8"
             placeholder="<p>请输入正文内容...</p>"
           />
         </el-form-item>
@@ -724,10 +731,34 @@ onMounted(() => {
   color: var(--ink-300);
 }
 
+/* 弹窗内容较高时内部滚动，标题栏和底部按钮始终可见，避免超出屏幕。 */
+:global(.content-dialog) {
+  display: flex;
+  flex-direction: column;
+  /* 5vh 顶距 + 默认 50px 底部外边距，保证整个弹窗留在视口内。 */
+  max-height: calc(95vh - 50px);
+  overflow: hidden;
+}
+
+:global(.content-dialog > .el-dialog__header),
+:global(.content-dialog > .el-dialog__footer) {
+  flex: none;
+}
+
+:global(.content-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 16px;
+}
+
+.form-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .cover-upload {
@@ -739,7 +770,7 @@ onMounted(() => {
 .cover-upload__box {
   display: grid;
   place-items: center;
-  width: 240px;
+  width: 200px;
   aspect-ratio: 16 / 9;
   overflow: hidden;
   border: 1px dashed var(--line);
@@ -846,7 +877,8 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
-  .form-grid {
+  .form-grid,
+  .form-grid--3 {
     grid-template-columns: 1fr;
   }
 }
