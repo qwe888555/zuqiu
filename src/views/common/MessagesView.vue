@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import { ArrowRight, Refresh } from '@element-plus/icons-vue'
+import { ArrowRight, Promotion, Refresh } from '@element-plus/icons-vue'
 import { meApi } from '../../api'
 import type { Message as MessageItem } from '../../api/types'
+import { ROLE_LABELS } from '../../config/labels'
 import { useAppStore } from '../../stores/app'
+import { useAuthStore } from '../../stores/auth'
 import { useMessageLink } from '../../composables/useMessageLink'
 import PageHeader from '../../components/common/PageHeader.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
@@ -30,7 +32,40 @@ const categories: Category[] = [
 
 const router = useRouter()
 const app = useAppStore()
+const auth = useAuthStore()
 const { linkFor } = useMessageLink()
+
+const publishVisible = ref(false)
+const publishing = ref(false)
+const publishForm = reactive({ title: '', body: '', roles: [] as string[] })
+const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
+
+function openPublish() {
+  publishForm.title = ''
+  publishForm.body = ''
+  publishForm.roles = []
+  publishVisible.value = true
+}
+
+async function submitPublish() {
+  if (!publishForm.title.trim()) {
+    ElMessage.warning('请填写消息标题')
+    return
+  }
+  publishing.value = true
+  try {
+    const res = await meApi.publishMessage({
+      title: publishForm.title.trim(),
+      body: publishForm.body.trim(),
+      roles: publishForm.roles,
+    })
+    ElMessage.success(`消息已发布给 ${res.count} 个账号`)
+    publishVisible.value = false
+    await load()
+  } finally {
+    publishing.value = false
+  }
+}
 
 const loading = ref(false)
 const rows = ref<MessageItem[]>([])
@@ -188,6 +223,7 @@ onMounted(load)
       description="审核结果、材料提醒、赛程变更与公示通知统一汇总。"
     >
       <template #actions>
+        <el-button v-if="auth.isAdmin" type="primary" :icon="Promotion" @click="openPublish">发布消息</el-button>
         <el-button :icon="Refresh" @click="refresh">刷新</el-button>
       </template>
     </PageHeader>
@@ -303,6 +339,33 @@ onMounted(load)
         </div>
       </div>
     </section>
+
+    <el-dialog v-model="publishVisible" title="发布消息" width="520px" :close-on-click-modal="false">
+      <el-form label-position="top">
+        <el-form-item label="消息标题" required>
+          <el-input v-model="publishForm.title" maxlength="150" show-word-limit placeholder="例如：赛程调整通知" />
+        </el-form-item>
+        <el-form-item label="消息内容">
+          <el-input
+            v-model="publishForm.body"
+            type="textarea"
+            :rows="5"
+            maxlength="2000"
+            show-word-limit
+            placeholder="填写消息正文"
+          />
+        </el-form-item>
+        <el-form-item label="接收角色">
+          <el-select v-model="publishForm.roles" multiple collapse-tags placeholder="不选则发送给全部启用账号">
+            <el-option v-for="role in roleOptions" :key="role.value" :label="role.label" :value="role.value" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="publishVisible = false">取消</el-button>
+        <el-button type="primary" :loading="publishing" @click="submitPublish">发布</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 

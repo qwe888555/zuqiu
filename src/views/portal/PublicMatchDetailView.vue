@@ -64,7 +64,7 @@ const sortedEvents = computed(() =>
   [...(match.value?.events || [])].sort((a, b) => {
     const am = (a.minute || 0) * 100 + (a.stoppageMinute || 0)
     const bm = (b.minute || 0) * 100 + (b.stoppageMinute || 0)
-    return bm - am
+    return am - bm
   }),
 )
 

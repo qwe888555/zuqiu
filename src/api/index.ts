@@ -72,6 +72,7 @@ export const meApi = {
   messages: (params: Query) => http.get<PageResult<Message>>('/me/messages', params),
   message: (id: string) => http.get<Message>(`/me/messages/${id}`),
   readMessage: (id: string) => http.post<{ success: boolean }>(`/me/messages/${id}/read`),
+  publishMessage: (data: Query) => http.post<{ count: number }>('/messages', data),
   profile: (options?: RequestOptions) => http.get<Person>('/me/profile', undefined, options),
   /** 本人档案更新：version 必填（乐观锁），缺失后端返回 400 INVALID_ARGUMENT。 */
   updateProfile: (data: Partial<Person> & { version: number }) =>

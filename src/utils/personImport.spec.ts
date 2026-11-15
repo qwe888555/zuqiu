@@ -64,7 +64,7 @@ describe('resolvePersonSchool', () => {
 describe('parsePersonImportRows', () => {
   it('下载模板的表头都能被识别', () => {
     const parsed = parsePersonImportRows(
-      [PERSON_IMPORT_TEMPLATE_HEADERS, ['张三', '510101201001011234', '13800000000', '运动员', 'CDQZ', '', '', '']],
+      [PERSON_IMPORT_TEMPLATE_HEADERS, ['张三', '510101201001011231', '13800000000', '运动员', 'CDQZ', '', '', '']],
       ORGS,
     )
 
@@ -78,7 +78,7 @@ describe('parsePersonImportRows', () => {
         ['2026 年秋季运动员名单'],
         [],
         PERSON_IMPORT_TEMPLATE_HEADERS,
-        ['张三', '510101201001011234', '13800000000', '运动员', 'CDQZ', '', '', ''],
+        ['张三', '510101201001011231', '13800000000', '运动员', 'CDQZ', '', '', ''],
       ],
       ORGS,
     )
@@ -89,7 +89,7 @@ describe('parsePersonImportRows', () => {
 
   it('解析有效行并从身份证推导性别与出生日期', () => {
     const parsed = parsePersonImportRows(
-      matrix(['张三', '510101201001011234', '13800000000', '运动员', 'CDQZ', '', '', '']),
+      matrix(['张三', '510101201001011231', '13800000000', '运动员', 'CDQZ', '', '', '']),
       ORGS,
     )
 
@@ -111,8 +111,8 @@ describe('parsePersonImportRows', () => {
   it('文件内重复身份证、手机号与人员类型会逐行报错', () => {
     const parsed = parsePersonImportRows(
       matrix(
-        ['张三', '510101201001011234', '13800000000', '运动员', '成都七中', '', '', ''],
-        ['李四', '510101201001011234', '1380000000', '替补', '成都七中', '', '', ''],
+        ['张三', '510101201001011231', '13800000000', '运动员', '成都七中', '', '', ''],
+        ['李四', '510101201001011231', '1380000000', '替补', '成都七中', '', '', ''],
       ),
       ORGS,
     )
@@ -126,7 +126,7 @@ describe('parsePersonImportRows', () => {
 
   it('身份证被 Excel 存成数字时拒绝导入，避免精度丢失', () => {
     const parsed = parsePersonImportRows(
-      matrix(['张三', 510101201001011234, '13800000000', '运动员', 'CDQZ', '', '', '']),
+      matrix(['张三', 510101201001011231, '13800000000', '运动员', 'CDQZ', '', '', '']),
       ORGS,
     )
 
@@ -136,7 +136,7 @@ describe('parsePersonImportRows', () => {
 
   it('姓名为空或学校无法匹配时报错', () => {
     const parsed = parsePersonImportRows(
-      matrix(['', '510101201001011234', '13800000000', '运动员', '不存在学校', '', '', '']),
+      matrix(['', '510101201001011231', '13800000000', '运动员', '不存在学校', '', '', '']),
       ORGS,
     )
 
@@ -158,7 +158,7 @@ describe('parsePersonImportRows', () => {
   it('出生日期支持常见分隔符，非法日期逐行报错', () => {
     const parsed = parsePersonImportRows(
       matrix(
-        ['张三', '510101201001011234', '13800000000', '运动员', 'CDQZ', '', '', '2020/2/29'],
+        ['张三', '510101201001011231', '13800000000', '运动员', 'CDQZ', '', '', '2020/2/29'],
         ['李四', '510101201202024567', '13900000000', '运动员', 'CDQZ', '', '', '2021-02-29'],
       ),
       ORGS,
@@ -172,7 +172,7 @@ describe('parsePersonImportRows', () => {
 describe('buildPersonImportPayload', () => {
   it('只提交 PersonCreate 接受的字段，空值省略', () => {
     const parsed = parsePersonImportRows(
-      matrix(['张三', '510101201001011234', '13800000000', '教练员', 'CDQZ', '', '', '']),
+      matrix(['张三', '510101201001011231', '13800000000', '教练员', 'CDQZ', '', '', '']),
       ORGS,
     )
     const payload = buildPersonImportPayload(parsed.rows[0])
@@ -180,7 +180,7 @@ describe('buildPersonImportPayload', () => {
     expect(payload).toMatchObject({
       realName: '张三',
       kinds: ['COACH'],
-      idNumber: '510101201001011234',
+      idNumber: '510101201001011231',
       phone: '13800000000',
       schoolOrgId: 'org_cdqz',
       gender: 'MALE',

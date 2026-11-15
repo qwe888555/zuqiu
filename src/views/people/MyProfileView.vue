@@ -35,7 +35,6 @@ const GENDER_LABELS: Record<string, string> = {
 const genderLabel = computed(() => (form.gender ? GENDER_LABELS[form.gender] || form.gender : '未填写'))
 const educationDisplay = computed(() => educationLabel(form.education))
 
-const isCoach = computed(() => person.value?.kinds.includes('COACH') ?? false)
 const kindLabel = computed(() => {
   const kinds = person.value?.kinds || []
   return kinds.map((kind) => (kind === 'ATHLETE' ? '运动员' : '教练员')).join(' / ') || '—'
@@ -237,9 +236,9 @@ onMounted(load)
             <span class="info-item__label">学历</span>
             <span class="info-item__value">{{ educationDisplay }}</span>
           </div>
-          <div v-if="isCoach" class="info-item">
+          <div v-if="person?.coachCategory" class="info-item">
             <span class="info-item__label">教练员类别</span>
-            <span class="info-item__value muted">由管理员维护</span>
+            <span class="info-item__value">{{ person.coachCategory }}</span>
           </div>
         </div>
 

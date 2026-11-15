@@ -25,6 +25,12 @@ export const ROLE_MENU_LABELS: Record<RoleCode, string> = {
   MATCH_RECORDER: '比赛记录员',
 }
 
+/** 人员身份（kinds）中文名：接口返回 COACH/ATHLETE，展示层统一转中文 */
+export const PERSON_KIND_LABELS: Record<string, string> = {
+  ATHLETE: '运动员',
+  COACH: '教练员',
+}
+
 export const CATEGORY_LABELS: Record<GroupCategory, string> = {
   PRIMARY: '小学',
   MIDDLE: '中学',

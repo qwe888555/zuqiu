@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
-import { Edit, Location, Plus, Refresh, UploadFilled, User, UserFilled } from '@element-plus/icons-vue'
+import { Delete, Edit, Location, Plus, Refresh, UploadFilled, User, UserFilled } from '@element-plus/icons-vue'
 import { fileApi, teamApi } from '../../api'
 import { MOCK_ENABLED } from '../../api/http'
 import type { GroupCategory, Team } from '../../api/types'
@@ -252,6 +252,14 @@ async function uploadMedia(
   }
 }
 
+async function clearMedia(kind: 'flag' | 'emblem' | 'groupPhoto') {
+  const idKey = `${kind}FileId` as const
+  const urlKey = `${kind}Url` as const
+  media[idKey] = ''
+  media[urlKey] = ''
+  ElMessage.success('已移除图片，保存后生效')
+}
+
 async function save() {
   if (!team.value) return
   if (!form.name.trim()) return ElMessage.warning('请填写球队名称')
@@ -265,9 +273,9 @@ async function save() {
       intro: form.intro,
       coachName: form.coachName,
       schoolOrgId: team.value.orgId,
-      flagFileId: media.flagFileId || undefined,
-      emblemFileId: media.emblemFileId || undefined,
-      groupPhotoFileId: media.groupPhotoFileId || undefined,
+      flagFileId: media.flagFileId,
+      emblemFileId: media.emblemFileId,
+      groupPhotoFileId: media.groupPhotoFileId,
       version: team.value.version,
     }
     // 只提交后端确实会回显的字段，避免「保存成功但值消失」。
@@ -559,6 +567,16 @@ onMounted(async () => {
                     上传队徽
                   </el-button>
                 </el-upload>
+                <el-button
+                  v-if="media.emblemUrl"
+                  size="small"
+                  link
+                  type="danger"
+                  :icon="Delete"
+                  @click="clearMedia('emblem')"
+                >
+                  移除
+                </el-button>
               </div>
             </el-form-item>
             <el-form-item label="队旗">
@@ -576,6 +594,16 @@ onMounted(async () => {
                     上传队旗
                   </el-button>
                 </el-upload>
+                <el-button
+                  v-if="media.flagUrl"
+                  size="small"
+                  link
+                  type="danger"
+                  :icon="Delete"
+                  @click="clearMedia('flag')"
+                >
+                  移除
+                </el-button>
               </div>
             </el-form-item>
           </div>
@@ -594,6 +622,16 @@ onMounted(async () => {
                   上传合影
                 </el-button>
               </el-upload>
+              <el-button
+                v-if="media.groupPhotoUrl"
+                size="small"
+                link
+                type="danger"
+                :icon="Delete"
+                @click="clearMedia('groupPhoto')"
+              >
+                移除
+              </el-button>
             </div>
           </el-form-item>
           <div class="edit-actions">

@@ -7,7 +7,8 @@ import type { Person, TeamMember } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import { usePermission } from '../../composables/usePermission'
 import { useAuthStore } from '../../stores/auth'
-import { POSITION_LABELS, positionLabel } from '../../config/labels'
+import { PERSON_KIND_LABELS, POSITION_LABELS, positionLabel } from '../../config/labels'
+import { isValidIdCard } from '../../utils/idCard'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
@@ -173,6 +174,10 @@ async function loadPersons() {
   }
 }
 
+function kindText(kinds?: string[]) {
+  return (kinds || []).map((kind) => PERSON_KIND_LABELS[kind] || kind).join(' / ') || '—'
+}
+
 function openPersonDialog() {
   personDialogVisible.value = true
   personPage.value = 1
@@ -222,7 +227,9 @@ async function savePerson() {
   if (!createForm.realName.trim()) return ElMessage.warning('请填写姓名')
   if (!createForm.birthDate) return ElMessage.warning('请选择出生日期（报名按出生日期预检年龄）')
   // 后端创建链强制 18 位身份证号与 11 位手机号（schema pattern），提前校验避免 400。
-  if (!/^\d{17}[\dXx]$/.test(createForm.idNumber.trim())) return ElMessage.warning('请填写 18 位身份证号')
+  if (!isValidIdCard(createForm.idNumber)) return ElMessage.warning('请填写正确的 18 位身份证号')
+  if (createForm.birthDate > new Date().toISOString().slice(0, 10))
+    return ElMessage.warning('出生日期不能晚于今天')
   if (!/^1[3-9]\d{9}$/.test(createForm.phone.trim())) return ElMessage.warning('请填写正确的 11 位手机号')
   if (createForm.kinds.length !== 1) return ElMessage.warning('人员类型只能选择一项')
   if (!createForm.education.trim()) return ElMessage.warning('请填写学历')
@@ -635,7 +642,7 @@ onMounted(async () => {
           <template #default="{ row }">{{ row.schoolName || '未登记' }}</template>
         </el-table-column>
         <el-table-column label="身份" width="100">
-          <template #default="{ row }">{{ (row.kinds || []).join(' / ') || '—' }}</template>
+          <template #default="{ row }">{{ kindText(row.kinds) }}</template>
         </el-table-column>
         <el-table-column label="审核状态" width="110">
           <template #default="{ row }">

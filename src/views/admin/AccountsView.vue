@@ -796,28 +796,31 @@ onMounted(() => {
       </FilterBar>
 
       <el-table v-loading="loading" :data="rows" style="width: 100%">
-        <el-table-column label="账号" min-width="210">
+        <el-table-column label="账号" min-width="180">
           <template #default="{ row }">
             <div class="account-cell">
               <span class="account-cell__avatar">{{ (row.displayName || row.username).slice(0, 1) }}</span>
               <div>
                 <strong>{{ row.displayName }}</strong>
                 <small>{{ row.username }}</small>
+                <small class="account-cell__login">
+                  {{ row.lastLoginAt ? `最近登录 ${dayjs(row.lastLoginAt).format('MM-DD HH:mm')}` : '从未登录' }}
+                </small>
               </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="角色" min-width="190">
+        <el-table-column label="角色" min-width="130">
           <template #default="{ row }">
             <el-tag v-for="role in row.roles" :key="role" size="small" effect="plain" class="role-tag">
               {{ ROLE_LABELS[role as RoleCode] || role }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="orgName" label="所属机构" min-width="170">
+        <el-table-column prop="orgName" label="所属机构" min-width="130">
           <template #default="{ row }">{{ orgLabel(row) }}</template>
         </el-table-column>
-        <el-table-column label="人员档案" width="136" align="center">
+        <el-table-column label="人员档案" width="96" align="center">
           <template #default="{ row }">
             <el-tag
               :type="row.personId ? 'success' : isPlayerAccount(row) ? 'warning' : 'info'"
@@ -835,46 +838,37 @@ onMounted(() => {
             >
               补绑
             </el-button>
+            <div class="muted account-cell__login">球队 {{ row.teamIds?.length || 0 }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="绑定球队" width="100" align="center">
-          <template #default="{ row }">{{ row.teamIds?.length || 0 }}</template>
-        </el-table-column>
-        <el-table-column label="最近登录" width="150">
-          <template #default="{ row }">
-            <span class="muted">
-              {{ row.lastLoginAt ? dayjs(row.lastLoginAt).format('MM-DD HH:mm') : '从未登录' }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column label="状态" width="76">
           <template #default="{ row }">
             <el-tag :type="row.enabled ? 'success' : 'info'" size="small" effect="plain">
               {{ row.enabled ? '启用' : '停用' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="340" fixed="right" align="right" class-name="table-actions-cell">
+        <el-table-column label="操作" width="164" align="right" class-name="table-actions-cell">
           <template #default="{ row }">
             <div v-if="canManageRow(row)" class="table-actions">
-              <el-button size="small" type="primary" plain :icon="Edit" @click="openEdit(row)">
-                编辑
-              </el-button>
-              <span class="table-actions__divider" aria-hidden="true" />
-              <el-button v-if="canReset" link type="warning" :icon="Key" @click="resetPassword(row)">
-                重置
-              </el-button>
-              <el-button
-                link
-                :type="row.enabled ? 'info' : 'success'"
-                :icon="Switch"
-                @click="toggleEnabled(row)"
-              >
-                {{ row.enabled ? '停用' : '启用' }}
-              </el-button>
-              <el-button v-if="canDelete" link type="danger" :icon="Delete" @click="removeAccount(row)">
-                删除
-              </el-button>
+              <el-tooltip content="编辑账号" placement="top">
+                <el-button size="small" circle :icon="Edit" @click="openEdit(row)" />
+              </el-tooltip>
+              <el-tooltip v-if="canReset" content="重置密码" placement="top">
+                <el-button size="small" circle :icon="Key" @click="resetPassword(row)" />
+              </el-tooltip>
+              <el-tooltip :content="row.enabled ? '停用账号' : '启用账号'" placement="top">
+                <el-button
+                  size="small"
+                  circle
+                  :type="row.enabled ? 'info' : 'success'"
+                  :icon="Switch"
+                  @click="toggleEnabled(row)"
+                />
+              </el-tooltip>
+              <el-tooltip v-if="canDelete" content="删除账号" placement="top">
+                <el-button size="small" circle type="danger" :icon="Delete" @click="removeAccount(row)" />
+              </el-tooltip>
             </div>
             <span v-else class="muted">{{ manageDeniedReason(row) || '无权操作' }}</span>
           </template>

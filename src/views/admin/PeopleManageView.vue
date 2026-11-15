@@ -22,6 +22,7 @@ import type { Material, Organization, Person, PersonKind } from '../../api/types
 import { COACH_CATEGORY_LABELS } from '../../config/labels'
 import { fetchAllPages, mapLimit } from '../../utils/asyncPool'
 import { httpMessageOf } from '../../utils/httpError'
+import { isValidIdCard } from '../../utils/idCard'
 import {
   buildPersonImportPayload,
   parsePersonImportRows,
@@ -404,14 +405,16 @@ async function save() {
   if (!editingId.value && !pendingSubmitPerson.value) {
     // 后端创建链强制要求身份证号（冻结唯一约束无 NULL）；表单提前校验，
     // 避免提交后才报错。
-    if (!/^\d{17}[\dXx]$/.test(form.idNumber.trim()))
-      return ElMessage.warning('请填写 18 位身份证号')
+    if (!isValidIdCard(form.idNumber)) return ElMessage.warning('请填写正确的 18 位身份证号')
     // 后端 PersonCreate 的 phone 为 ^1[3-9]\d{9}$ + 11 位长度约束，提前校验格式，
     // 避免填了非手机号内容后提交才报“请求参数不合法”。
     if (!/^1[3-9]\d{9}$/.test(form.phone.trim())) return ElMessage.warning('请填写正确的 11 位手机号')
   }
   if (!form.schoolOrgId) return ElMessage.warning('请选择学校 / 单位')
   if (!form.education.trim()) return ElMessage.warning('请填写学历')
+  if (form.birthDate && form.birthDate > new Date().toISOString().slice(0, 10)) {
+    return ElMessage.warning('出生日期不能晚于今天')
+  }
   saving.value = true
   try {
     if (pendingSubmitPerson.value) {
@@ -432,7 +435,7 @@ async function save() {
         gender: form.gender,
         birthDate: form.birthDate || undefined,
         schoolOrgId: form.schoolOrgId || undefined,
-        avatarFileId: avatarFileId.value || undefined,
+        avatarFileId: avatarFileId.value,
         education: form.education,
         coachCategory: form.coachCategory,
         version: pendingSubmitPerson.value.version,
@@ -448,7 +451,7 @@ async function save() {
         gender: form.gender,
         birthDate: form.birthDate || undefined,
         schoolOrgId: form.schoolOrgId || undefined,
-        avatarFileId: avatarFileId.value || undefined,
+        avatarFileId: avatarFileId.value,
         education: form.education,
         coachCategory: form.coachCategory,
         version: editingVersion.value,
@@ -484,9 +487,15 @@ async function save() {
         })
         pendingSubmitPerson.value = latest
       }
-      await ensurePersonSubmitted(latest)
-      pendingSubmitPerson.value = null
-      ElMessage.success('人员档案已创建并提交审核')
+      // 系统管理员建档由后端直接置为已通过，无需再走提交审核。
+      if (latest.reviewStatus === 'APPROVED') {
+        pendingSubmitPerson.value = null
+        ElMessage.success('人员档案已创建并直接通过')
+      } else {
+        await ensurePersonSubmitted(latest)
+        pendingSubmitPerson.value = null
+        ElMessage.success('人员档案已创建并提交审核')
+      }
     }
     dialogVisible.value = false
     await load()
@@ -558,6 +567,13 @@ async function uploadAvatar(options: UploadRequestOptions) {
   } finally {
     avatarUploading.value = false
   }
+}
+
+async function removeAvatar() {
+  avatarFileId.value = ''
+  avatarUrl.value = ''
+  pendingAvatarFile.value = null
+  ElMessage.success('头像已移除，保存档案后生效')
 }
 
 async function openMaterials(row: Person) {
@@ -856,7 +872,7 @@ async function downloadPersonTemplate() {
     const XLSX = await import('xlsx')
     const listSheet = XLSX.utils.aoa_to_sheet([
       PERSON_IMPORT_TEMPLATE_HEADERS,
-      ['张三', '510101201001011234', '13800000000', '运动员', '成都七中', '小学', '男', '2010-01-01'],
+      ['张三', '510101201001011231', '13800000000', '运动员', '成都七中', '小学', '男', '2010-01-01'],
     ])
     listSheet['!cols'] = [
       { wch: 12 },
@@ -1148,6 +1164,16 @@ onMounted(() => {
         >
           <el-button size="small" plain :icon="UploadFilled" :loading="avatarUploading">上传头像</el-button>
         </el-upload>
+        <el-button
+          v-if="avatarUrl || avatarFileId"
+          size="small"
+          link
+          type="danger"
+          :icon="Delete"
+          @click="removeAvatar"
+        >
+          移除头像
+        </el-button>
       </div>
       <el-form :model="form" label-position="top">
         <div class="form-grid">
@@ -1223,7 +1249,7 @@ onMounted(() => {
       <template #footer>
         <el-button @click="closePersonDialog(() => (dialogVisible = false))">取消</el-button>
         <el-button type="primary" :loading="saving" @click="save">
-          {{ pendingSubmitPerson ? '重新提交审核' : editingId ? '保存档案' : '保存并提交审核' }}
+          {{ pendingSubmitPerson ? '重新提交审核' : editingId || auth.isAdmin ? '保存档案' : '保存并提交审核' }}
         </el-button>
       </template>
     </el-dialog>

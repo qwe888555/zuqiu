@@ -1,5 +1,6 @@
 import dayjs from 'dayjs'
 import type { Organization, PersonKind } from '../api/types'
+import { isValidIdCard } from './idCard'
 
 export type PersonImportStatus = 'READY' | 'ERROR' | 'SUCCESS' | 'FAILED'
 export type PersonImportGender = 'MALE' | 'FEMALE' | 'UNSPECIFIED' | ''
@@ -209,8 +210,8 @@ function toRow(
     errors.push('请填写身份证号')
   } else if (typeof idRaw === 'number') {
     errors.push('身份证号被 Excel 识别为数字，可能已丢失精度；请把该列设为文本后重填')
-  } else if (!/^\d{17}[\dX]$/.test(idNumber)) {
-    errors.push('身份证号应为 18 位，末位可为 X')
+  } else if (!isValidIdCard(idNumber)) {
+    errors.push('身份证号校验位不正确，请核对后重填')
   }
   if (idNumber) {
     const firstRow = seenIds.get(idNumber)
