@@ -25,6 +25,8 @@ import SafeImage from '../../components/common/SafeImage.vue'
 import { useConsoleEntry } from '../../composables/useConsoleEntry'
 import { rankGoalRows } from '../../utils/goalRanking'
 import { createLiveHls } from '../../utils/hls'
+import { DEFAULT_NEWS_COVER } from '../../utils/newsCover'
+import { dedupeSummary } from '../../utils/contentDedupe'
 import { matchDisplayStatus, policyKind, sortPublicEvents } from '../../utils/portal'
 import { publicityNoticeKey } from '../../utils/publications'
 
@@ -65,11 +67,14 @@ const newsCoverMap = computed(() => {
   })
   return map
 })
-/** 封面非必填；没有配图时返回空串，首页焦点卡改用纯文字版式，不用站内图冒充。 */
+/** 封面非必填；没有配图时返回空串，列表仍按纯文字版式展示。 */
 function newsCover(item: PublicContent | undefined) {
   if (!item) return ''
   return newsCoverMap.value.get(item.id) || item.publicCoverUrl || ''
 }
+
+/** 焦点卡始终有图：没有真实封面时用品牌默认图兜底。 */
+const featuredCover = computed(() => newsCover(featured.value) || DEFAULT_NEWS_COVER)
 
 // 超过合理时长仍未确认赛果的场次不再占用“比赛动态”，统一归入“最新赛果”并标注待确认。
 const liveMatches = computed(() =>
@@ -1047,14 +1052,19 @@ function publicationLink(star: PublicityRecord) {
           v-if="featured"
           :to="`/news/${featured.id}`"
           class="lead-card"
-          :class="{ 'lead-card--text': !newsCover(featured) }"
+          :class="{ 'lead-card--text': !featuredCover }"
         >
-          <SafeImage v-if="newsCover(featured)" :src="newsCover(featured)" :alt="featured.title" />
-          <span v-if="newsCover(featured)" class="lead-card__shade" />
+          <SafeImage
+            v-if="featuredCover"
+            :src="featuredCover"
+            :alt="featured.title"
+            :fallback-src="DEFAULT_NEWS_COVER"
+          />
+          <span v-if="featuredCover" class="lead-card__shade" />
           <div class="lead-card__body">
             <span class="lead-card__tag">焦点</span>
             <h3>{{ featured.title }}</h3>
-            <p>{{ featured.summary }}</p>
+            <p>{{ dedupeSummary(featured.title, featured.summary) }}</p>
             <span class="lead-card__meta">
               {{ formatFullDate(featured.publishedAt) }}
               <i />
@@ -1078,7 +1088,7 @@ function publicationLink(star: PublicityRecord) {
             <span class="news-line__index num">{{ String(index + 2).padStart(2, '0') }}</span>
             <span class="news-line__body">
               <strong>{{ item.title }}</strong>
-              <small>{{ item.summary }}</small>
+              <small>{{ dedupeSummary(item.title, item.summary) }}</small>
             </span>
             <span class="news-line__date num">{{ formatDate(item.publishedAt) }}</span>
           </router-link>

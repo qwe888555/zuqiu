@@ -252,13 +252,19 @@ export const healthApi = {
 }
 
 export const fileApi = {
-  upload: (file: File, ownerType = 'PERSON', ownerId = '', category = 'MATERIAL') => {
+  upload: (
+    file: File,
+    ownerType = 'PERSON',
+    ownerId = '',
+    category = 'MATERIAL',
+    options?: RequestOptions,
+  ) => {
     const form = new FormData()
     form.append('file', file)
     form.append('ownerType', ownerType)
     form.append('ownerId', ownerId)
     form.append('category', category)
-    return http.postForm<FileRecord>('/files', form)
+    return http.postForm<FileRecord>('/files', form, options)
   },
   /** 批量上传：一次最多 20 个文件，返回与单文件同构的记录数组 */
   uploadBatch: (files: File[], ownerType = 'PERSON', ownerId = '', category = 'MATERIAL') => {
@@ -643,7 +649,8 @@ export const contentApi = {
   get: (id: string) => http.get<Content>(`/contents/${id}`),
   create: (data: Query, options?: RequestOptions) =>
     http.post<Content>('/contents', data, options),
-  update: (id: string, data: Query) => http.put<Content>(`/contents/${id}`, data),
+  update: (id: string, data: Query, options?: RequestOptions) =>
+    http.put<Content>(`/contents/${id}`, data, options),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/contents/${id}`, { version }),
   publish: (id: string, version: number, options?: RequestOptions) =>
     http.post<Content>(`/contents/${id}/publish`, { version }, options),

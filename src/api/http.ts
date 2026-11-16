@@ -216,12 +216,13 @@ export const http = {
   putIdempotent<T>(url: string, data?: unknown, key: string = newIdempotencyKey()): Promise<T> {
     return request<T>({ method: 'put', url, data, headers: { 'Idempotency-Key': key } })
   },
-  postForm<T>(url: string, form: FormData): Promise<T> {
+  postForm<T>(url: string, form: FormData, config?: AxiosRequestConfig): Promise<T> {
     return request<T>({
       method: 'post',
       url,
       data: form,
       headers: { 'Content-Type': 'multipart/form-data' },
+      ...config,
     })
   },
   /** 上传并直接接收二进制结果（如批量邀请导出的 CSV）。 */
@@ -237,8 +238,8 @@ export const http = {
       responseType: 'blob',
     })
   },
-  put<T>(url: string, data?: unknown): Promise<T> {
-    return request<T>({ method: 'put', url, data })
+  put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+    return request<T>({ method: 'put', url, data, ...config })
   },
   delete<T>(url: string, params?: Record<string, unknown>): Promise<T> {
     return request<T>({ method: 'delete', url, params })

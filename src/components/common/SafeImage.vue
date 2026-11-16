@@ -8,7 +8,7 @@ import { isFileServiceUrl, resolveImageUrl } from '../../utils/images'
  */
 defineOptions({ inheritAttrs: false })
 
-const props = defineProps<{ src?: string | null; alt?: string }>()
+const props = defineProps<{ src?: string | null; alt?: string; fallbackSrc?: string }>()
 
 const resolved = ref('')
 let seq = 0
@@ -31,8 +31,17 @@ watch(
   },
   { immediate: true },
 )
+
+/** 图片加载失败：有兜底图则切到兜底图（兜底也失败就隐藏），没有兜底则直接隐藏，不再显示破图图标。 */
+function handleError() {
+  if (props.fallbackSrc && resolved.value !== props.fallbackSrc) {
+    resolved.value = props.fallbackSrc
+    return
+  }
+  resolved.value = ''
+}
 </script>
 
 <template>
-  <img v-bind="$attrs" :src="resolved || undefined" :alt="alt" />
+  <img v-bind="$attrs" :src="resolved || undefined" :alt="alt" @error="handleError" />
 </template>

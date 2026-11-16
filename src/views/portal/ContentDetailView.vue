@@ -7,12 +7,19 @@ import { publicApi } from '../../api'
 import type { PublicContent } from '../../api/types'
 import { openPolicyAssistant } from '../../composables/usePolicyAssistant'
 import SafeImage from '../../components/common/SafeImage.vue'
+import { dedupeBodyHtml, dedupeSummary } from '../../utils/contentDedupe'
 
 const route = useRoute()
 const loading = ref(false)
 const content = ref<PublicContent | null>(null)
 const related = ref<PublicContent[]>([])
 const relatedIsRelevant = ref(false)
+
+/** 自动推送赛果会重复带标题，展示层剥离后供模板输出。 */
+const articleSummary = computed(() =>
+  dedupeSummary(content.value?.title, content.value?.summary),
+)
+const articleBody = computed(() => dedupeBodyHtml(content.value?.title, content.value?.bodyHtml))
 
 const isPolicy = computed(() => content.value?.contentType === 'POLICY')
 const categoryLabel = computed(() => {
@@ -116,14 +123,14 @@ watch(() => route.params.id, load)
               <span class="dot" />
               <span>第 {{ content.revision }} 版</span>
             </div>
-            <p v-if="content.summary" class="article__summary">{{ content.summary }}</p>
+            <p v-if="articleSummary" class="article__summary">{{ articleSummary }}</p>
           </header>
 
           <div v-if="content.publicCoverUrl" class="article__cover">
             <SafeImage :src="content.publicCoverUrl" :alt="content.title" />
           </div>
 
-          <div class="article__body rich-text" v-html="content.bodyHtml" />
+          <div class="article__body rich-text" v-html="articleBody" />
 
           <footer class="article__foot">
             <router-link :to="isPolicy ? '/policies' : '/news'" class="back-link">

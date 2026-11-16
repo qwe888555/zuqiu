@@ -1,6 +1,7 @@
 import dayjs from 'dayjs'
-import { contentApi } from '../api'
+import { contentApi, fileApi } from '../api'
 import type { Content, MatchEvent } from '../api/types'
+import { renderMatchCoverFile } from './matchCover'
 import type { StatsMatch } from './statsAggregation'
 
 function escapeHtml(value?: string): string {
@@ -132,17 +133,31 @@ export async function publishMatchDigest(
   )
   if (duplicated) return { created: false }
 
-  const created = await contentApi.create(
-    {
-      contentType: 'NEWS',
-      title: draft.title,
-      summary: draft.summary,
-      bodyHtml: draft.bodyHtml,
-      eventId: draft.eventId,
-      groupId: draft.groupId,
-    },
-    options,
-  )
-  const content = await contentApi.publish(created.id, created.version, options)
+  const payload = {
+    contentType: 'NEWS',
+    title: draft.title,
+    summary: draft.summary,
+    bodyHtml: draft.bodyHtml,
+    eventId: draft.eventId,
+    groupId: draft.groupId,
+  }
+  const created = await contentApi.create(payload, options)
+  let version = created.version
+  // 赛果快讯默认带一张比分封面；绘制或上传失败不影响快讯本身发布。
+  try {
+    const cover = await renderMatchCoverFile(match)
+    if (cover) {
+      const record = await fileApi.upload(cover, 'CONTENT', created.id, 'CMS_IMAGE', options)
+      const updated = await contentApi.update(
+        created.id,
+        { ...payload, coverFileId: record.id, version },
+        options,
+      )
+      if (typeof updated?.version === 'number') version = updated.version
+    }
+  } catch {
+    // 无封面时门户会使用默认配图。
+  }
+  const content = await contentApi.publish(created.id, version, options)
   return { created: true, content }
 }

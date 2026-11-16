@@ -6,6 +6,8 @@ import { publicApi } from '../../api'
 import type { PublicContent } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
+import { DEFAULT_NEWS_COVER } from '../../utils/newsCover'
+import { dedupeSummary } from '../../utils/contentDedupe'
 
 const loading = ref(false)
 const allItems = ref<PublicContent[]>([])
@@ -140,6 +142,12 @@ function hasCover(item: PublicContent) {
   return Boolean(coverFor(item))
 }
 
+/** 头图位置始终有图：没有真实封面时用品牌默认图，避免首屏出现纯色文字块。 */
+const leadCover = computed(() => {
+  const item = leadStory.value
+  return item ? coverFor(item) || DEFAULT_NEWS_COVER : ''
+})
+
 function switchTab(value: string) {
   activeType.value = value
   page.value = 1
@@ -210,13 +218,14 @@ onMounted(() => {
               v-if="leadStory"
               :to="`/news/${leadStory.id}`"
               class="lead-story"
-              :class="hasCover(leadStory) ? 'lead-story--cover' : 'lead-story--text'"
+              :class="leadCover ? 'lead-story--cover' : 'lead-story--text'"
             >
-              <template v-if="hasCover(leadStory)">
+              <template v-if="leadCover">
                 <SafeImage
                   class="lead-story__image"
-                  :src="coverFor(leadStory)"
+                  :src="leadCover"
                   :alt="leadStory.title"
+                  :fallback-src="DEFAULT_NEWS_COVER"
                 />
                 <span class="lead-story__shade" />
                 <div class="lead-story__cover-top">
@@ -230,7 +239,7 @@ onMounted(() => {
                 <div class="lead-story__cover-body">
                   <span class="lead-story__kicker">焦点 · TOP STORY</span>
                   <h2>{{ leadStory.title }}</h2>
-                  <p>{{ leadStory.summary }}</p>
+                  <p>{{ dedupeSummary(leadStory.title, leadStory.summary) }}</p>
                   <div class="lead-story__meta">
                     <span>{{ dayjs(leadStory.publishedAt).format('YYYY年MM月DD日') }}</span>
                     <span class="dot" />
@@ -254,7 +263,7 @@ onMounted(() => {
                 <div class="lead-story__text-body">
                   <span class="lead-story__kicker">焦点 · TOP STORY</span>
                   <h2>{{ leadStory.title }}</h2>
-                  <p>{{ leadStory.summary }}</p>
+                  <p>{{ dedupeSummary(leadStory.title, leadStory.summary) }}</p>
                   <div class="lead-story__meta">
                     <span>{{ dayjs(leadStory.publishedAt).format('YYYY年MM月DD日') }}</span>
                     <span class="dot" />
@@ -283,7 +292,7 @@ onMounted(() => {
                   <span class="num">{{ dayjs(secondaryStory.publishedAt).format('YYYY.MM.DD') }}</span>
                 </div>
                 <h3>{{ secondaryStory.title }}</h3>
-                <p>{{ secondaryStory.summary }}</p>
+                <p>{{ dedupeSummary(secondaryStory.title, secondaryStory.summary) }}</p>
                 <div class="side-story__foot">
                   <span>第 {{ secondaryStory.revision }} 版</span>
                   <span class="side-story__more">
@@ -318,7 +327,7 @@ onMounted(() => {
                       <span>{{ dayjs(item.publishedAt).format('MM.DD') }}</span>
                     </span>
                     <strong class="rail-item__title">{{ item.title }}</strong>
-                    <span class="rail-item__summary">{{ item.summary }}</span>
+                    <span class="rail-item__summary">{{ dedupeSummary(item.title, item.summary) }}</span>
                   </span>
                   <span v-if="hasCover(item)" class="rail-item__thumb">
                     <SafeImage :src="coverFor(item)" :alt="item.title" />
@@ -367,7 +376,7 @@ onMounted(() => {
                     <span>第 {{ item.revision }} 版</span>
                   </div>
                   <h3>{{ item.title }}</h3>
-                  <p>{{ item.summary }}</p>
+                  <p>{{ dedupeSummary(item.title, item.summary) }}</p>
                   <div class="news-card__foot">
                     <span v-if="!hasCover(item)">第 {{ item.revision }} 版</span>
                     <span v-else />

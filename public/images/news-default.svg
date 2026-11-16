@@ -1,47 +1,52 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" role="img" aria-label="赛事资讯默认配图">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#082f23"/>
-      <stop offset="0.55" stop-color="#0f4c34"/>
+      <stop offset="0" stop-color="#062a1f"/>
+      <stop offset="0.55" stop-color="#0e4630"/>
       <stop offset="1" stop-color="#176b43"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.78" cy="0.22" r="0.7">
-      <stop offset="0" stop-color="#8ee66b" stop-opacity="0.32"/>
-      <stop offset="1" stop-color="#8ee66b" stop-opacity="0"/>
+    <radialGradient id="lights" cx="0.5" cy="-0.1" r="0.95">
+      <stop offset="0" stop-color="#b6f58f" stop-opacity="0.26"/>
+      <stop offset="0.6" stop-color="#b6f58f" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#b6f58f" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0.35" stop-color="#041f17" stop-opacity="0"/>
-      <stop offset="1" stop-color="#041f17" stop-opacity="0.55"/>
+      <stop offset="0.3" stop-color="#041f17" stop-opacity="0"/>
+      <stop offset="1" stop-color="#041f17" stop-opacity="0.5"/>
     </linearGradient>
   </defs>
 
   <rect width="1200" height="640" fill="url(#bg)"/>
-  <rect width="1200" height="640" fill="url(#glow)"/>
+  <rect width="1200" height="640" fill="url(#lights)"/>
 
-  <g fill="none" stroke="#dff7e8" stroke-opacity="0.16" stroke-width="3">
-    <rect x="64" y="52" width="1072" height="536" rx="6"/>
-    <path d="M600 52v536"/>
-    <circle cx="600" cy="320" r="94"/>
-    <circle cx="600" cy="320" r="4" fill="#dff7e8" fill-opacity="0.3" stroke="none"/>
-    <rect x="64" y="176" width="152" height="288"/>
-    <rect x="984" y="176" width="152" height="288"/>
-    <rect x="64" y="248" width="58" height="144"/>
-    <rect x="1078" y="248" width="58" height="144"/>
-    <path d="M64 104a52 52 0 0 1 52-52M1136 588a52 52 0 0 1-52 52"/>
+  <g fill="none" stroke="#e2f8ea" stroke-opacity="0.14" stroke-width="3">
+    <rect x="58" y="46" width="1084" height="548" rx="8"/>
+    <path d="M600 46v548"/>
+    <circle cx="600" cy="320" r="112"/>
+    <circle cx="600" cy="320" r="5" fill="#e2f8ea" fill-opacity="0.35" stroke="none"/>
+    <rect x="58" y="176" width="158" height="288"/>
+    <rect x="984" y="176" width="158" height="288"/>
+    <rect x="58" y="250" width="62" height="140"/>
+    <rect x="1080" y="250" width="62" height="140"/>
+    <path d="M58 106a60 60 0 0 1 60-60M1142 534a60 60 0 0 1-60 60"/>
+    <path d="M58 640 300 46M1142 640 900 46" stroke-opacity="0.07"/>
   </g>
 
-  <g transform="translate(942 168)" opacity="0.9">
-    <circle r="70" fill="#f4fbf6"/>
-    <path d="M0-31 30-10 19 26h-38L-30-10Z" fill="#0b3d2b"/>
-    <path d="M0-31v-39M30-10l37-13M19 26l24 33M-19 26l-24 33M-30-10l-37-13" stroke="#0b3d2b" stroke-width="7" stroke-linecap="round" fill="none"/>
+  <g transform="translate(948 190)" opacity="0.92">
+    <g fill="none" stroke="#9be877" stroke-opacity="0.35" stroke-width="2">
+      <circle r="108"/>
+      <circle r="86"/>
+    </g>
+    <circle r="68" fill="#f2fbf5"/>
+    <path d="M0-30 29-9 18 25h-36L-29-9Z" fill="#0b3d2b"/>
+    <path d="M0-30v-38M29-9l36-12M18 25l23 32M-18 25l-23 32M-29-9l-36-12" stroke="#0b3d2b" stroke-width="7" stroke-linecap="round" fill="none"/>
   </g>
+  <circle cx="948" cy="190" r="150" fill="#9be877" fill-opacity="0.10"/>
 
-  <g fill="#e9fbef" font-family="'Microsoft YaHei','PingFang SC',Arial,sans-serif">
-    <text x="88" y="126" fill="#9be877" font-size="22" letter-spacing="7">MATCH REPORT</text>
-    <text x="88" y="196" font-size="60" font-weight="700">赛场内外</text>
-    <text x="88" y="244" font-size="24" fill="#c9efd7" letter-spacing="2">赛事动态 · 赛果快讯 · 精彩瞬间</text>
-    <text x="88" y="544" font-size="30" font-weight="700">绿茵少年</text>
-    <text x="88" y="580" font-size="18" fill="#9be877" letter-spacing="3">JUNIOR FOOTBALL LEAGUE</text>
+  <g fill="none" stroke="#9be877" stroke-opacity="0.16" stroke-width="2">
+    <circle cx="120" cy="500" r="46"/>
+    <circle cx="120" cy="500" r="24"/>
+    <circle cx="206" cy="560" r="18"/>
   </g>
 
   <rect width="1200" height="640" fill="url(#shade)"/>

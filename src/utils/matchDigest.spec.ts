@@ -1,16 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { contentApi } from '../api'
+import { contentApi, fileApi } from '../api'
 import type { Content, MatchEvent } from '../api/types'
 import type { StatsMatch } from './statsAggregation'
 import { buildMatchDigest, publishMatchDigest } from './matchDigest'
+import { renderMatchCoverFile } from './matchCover'
 
 vi.mock('../api', () => ({
   contentApi: {
     list: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
     publish: vi.fn(),
   },
+  fileApi: {
+    upload: vi.fn(),
+  },
 }))
+
+vi.mock('./matchCover', () => ({
+  renderMatchCoverFile: vi.fn(),
+}))
+
+const cover = new File([new Uint8Array([1, 2, 3])], 'match.png', { type: 'image/png' })
 
 const match: StatsMatch = {
   id: 'mat_1',
@@ -80,14 +91,17 @@ describe('buildMatchDigest', () => {
 })
 
 describe('publishMatchDigest', () => {
-  it('无同名快讯时创建并发布', async () => {
+  it('无同名快讯时生成封面、创建并发布', async () => {
     vi.mocked(contentApi.list).mockResolvedValue({ items: [], total: 0 } as never)
     vi.mocked(contentApi.create).mockResolvedValue({ id: 'cnt_1', version: 0 } as Content)
-    vi.mocked(contentApi.publish).mockResolvedValue({ id: 'cnt_1', version: 1 } as Content)
+    vi.mocked(renderMatchCoverFile).mockResolvedValue(cover)
+    vi.mocked(fileApi.upload).mockResolvedValue({ id: 'file_cover' } as never)
+    vi.mocked(contentApi.update).mockResolvedValue({ id: 'cnt_1', version: 1 } as Content)
+    vi.mocked(contentApi.publish).mockResolvedValue({ id: 'cnt_1', version: 2 } as Content)
 
     const result = await publishMatchDigest(match, events)
 
-    expect(result).toEqual({ created: true, content: { id: 'cnt_1', version: 1 } })
+    expect(result).toEqual({ created: true, content: { id: 'cnt_1', version: 2 } })
     expect(contentApi.list).toHaveBeenCalledWith(
       expect.objectContaining({ eventId: 'event_01', contentType: 'NEWS' }),
       { silentError: true },
@@ -100,6 +114,27 @@ describe('publishMatchDigest', () => {
       }),
       { silentError: true },
     )
+    expect(fileApi.upload).toHaveBeenCalledWith(cover, 'CONTENT', 'cnt_1', 'CMS_IMAGE', {
+      silentError: true,
+    })
+    expect(contentApi.update).toHaveBeenCalledWith(
+      'cnt_1',
+      expect.objectContaining({ coverFileId: 'file_cover', version: 0 }),
+      { silentError: true },
+    )
+    expect(contentApi.publish).toHaveBeenCalledWith('cnt_1', 1, { silentError: true })
+  })
+
+  it('封面生成失败时仍发布快讯', async () => {
+    vi.mocked(contentApi.list).mockResolvedValue({ items: [], total: 0 } as never)
+    vi.mocked(contentApi.create).mockResolvedValue({ id: 'cnt_1', version: 0 } as Content)
+    vi.mocked(renderMatchCoverFile).mockRejectedValue(new Error('canvas unavailable'))
+    vi.mocked(contentApi.publish).mockResolvedValue({ id: 'cnt_1', version: 1 } as Content)
+
+    const result = await publishMatchDigest(match, events)
+
+    expect(result.created).toBe(true)
+    expect(fileApi.upload).not.toHaveBeenCalled()
     expect(contentApi.publish).toHaveBeenCalledWith('cnt_1', 0, { silentError: true })
   })
 

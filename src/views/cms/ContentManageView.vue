@@ -11,6 +11,7 @@ import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import FilterBar from '../../components/common/FilterBar.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
+import { dedupeSummary } from '../../utils/contentDedupe'
 
 const loading = ref(false)
 const rows = ref<Content[]>([])
@@ -436,7 +437,7 @@ onMounted(() => {
               <div>
                 <strong>{{ row.title }}</strong>
                 <small>
-                  {{ row.summary || '暂无摘要' }}
+                  {{ dedupeSummary(row.title, row.summary) || '暂无摘要' }}
                 </small>
               </div>
               <el-tag v-if="row.pinned" size="small" type="danger" effect="plain">置顶</el-tag>
@@ -537,7 +538,7 @@ onMounted(() => {
               </div>
             </el-upload>
             <div class="cover-upload__hint">
-              <span>选填。建议尺寸 16:9，支持 JPG / PNG / WebP；未上传时门户使用纯文字版式。</span>
+              <span>选填。建议尺寸 16:9，支持 JPG / PNG；未上传时门户头图使用品牌默认配图。</span>
               <el-button v-if="coverPreview" link type="danger" @click="clearCover">移除</el-button>
             </div>
           </div>
@@ -604,7 +605,9 @@ onMounted(() => {
           <StatusTag :status="preview.status" kind="content" />
         </div>
         <SafeImage v-if="preview.coverUrl" :src="preview.coverUrl" alt="" class="preview__cover" />
-        <p v-if="preview.summary" class="preview__summary">{{ preview.summary }}</p>
+        <p v-if="preview.summary" class="preview__summary">
+          {{ dedupeSummary(preview.title, preview.summary) }}
+        </p>
         <div class="rich-text" v-html="preview.bodyHtml" />
       </div>
     </el-drawer>
