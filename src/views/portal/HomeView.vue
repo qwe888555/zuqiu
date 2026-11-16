@@ -27,7 +27,13 @@ import { rankGoalRows } from '../../utils/goalRanking'
 import { createLiveHls } from '../../utils/hls'
 import { DEFAULT_NEWS_COVER } from '../../utils/newsCover'
 import { dedupeSummary } from '../../utils/contentDedupe'
-import { matchDisplayStatus, policyKind, sortPublicEvents } from '../../utils/portal'
+import {
+  matchDisplayStatus,
+  matchResultPending,
+  matchSideScore,
+  policyKind,
+  sortPublicEvents,
+} from '../../utils/portal'
 import { publicityNoticeKey } from '../../utils/publications'
 
 const MATCH_TABS = [
@@ -95,11 +101,11 @@ const scheduledMatches = computed(() =>
 )
 const finishedMatches = computed(() =>
   matches.value
-    .filter((m) => ['FINISHED', 'CANCELLED'].includes(m.status))
+    .filter((m) => ['FINISHED', 'CANCELLED'].includes(matchDisplayStatus(m)))
     .slice()
     .sort((a, b) => {
       // 已确认赛果在前，已取消在后；同一状态内按最近开球时间排序。
-      const rank = (match: PublicMatch) => (match.status === 'FINISHED' ? 0 : 1)
+      const rank = (match: PublicMatch) => (matchDisplayStatus(match) === 'FINISHED' ? 0 : 1)
       return (
         rank(a) - rank(b) || dayjs(b.kickoffAt).valueOf() - dayjs(a.kickoffAt).valueOf()
       )
@@ -124,6 +130,10 @@ const fallbackMatch = computed(
 const featuredMatch = computed(() => tabMatch.value || fallbackMatch.value)
 const featuredStatus = computed(() =>
   featuredMatch.value ? matchDisplayStatus(featuredMatch.value) : '',
+)
+/** 已过结束时间但赛果还没确认：首屏不显示 0:0，改标“赛果待确认”。 */
+const featuredPending = computed(() =>
+  featuredMatch.value ? matchResultPending(featuredMatch.value) : false,
 )
 const showFallbackNote = computed(() => !tabMatch.value && Boolean(featuredMatch.value))
 const activeTabLabel = computed(
@@ -755,15 +765,11 @@ function matchCta(status?: string) {
 }
 
 function homeScoreText(match: PublicMatch) {
-  if (match.status === 'SCHEDULED') return '–'
-  if (match.status === 'CANCELLED') return '—'
-  return String(match.homeScore)
+  return matchSideScore(match, 'home')
 }
 
 function awayScoreText(match: PublicMatch) {
-  if (match.status === 'SCHEDULED') return '–'
-  if (match.status === 'CANCELLED') return '—'
-  return String(match.awayScore)
+  return matchSideScore(match, 'away')
 }
 
 function goalBarWidth(value: number) {
@@ -929,7 +935,8 @@ function publicationLink(star: PublicityRecord) {
               <span v-if="featuredStatus === 'SCHEDULED'" class="num">
                 {{ dayjs(featuredMatch.kickoffAt).format('HH:mm') }}
               </span>
-              <span v-else-if="featuredMatch.status === 'CANCELLED'" class="scoreboard__cancelled">比赛取消</span>
+              <span v-else-if="featuredPending" class="scoreboard__pending">赛果待确认</span>
+              <span v-else-if="featuredStatus === 'CANCELLED'" class="scoreboard__cancelled">比赛取消</span>
               <span v-else class="scoreboard__colon">:</span>
             </div>
             <div class="scoreboard__team">
@@ -1719,6 +1726,15 @@ function publicationLink(star: PublicityRecord) {
 
 .scoreboard__cancelled {
   white-space: nowrap;
+}
+
+.scoreboard__pending {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 10.5px;
+  white-space: nowrap;
+  color: var(--on-dark-2);
 }
 
 .scoreboard__divider::after {

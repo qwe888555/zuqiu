@@ -1,4 +1,5 @@
 import dayjs from 'dayjs'
+import { ref } from 'vue'
 import type { PublicEvent, PublicMatch } from '../api/types'
 
 export const FOLLOW_TEAM_KEY = 'football.portal.follow-team'
@@ -21,6 +22,22 @@ export function sortPublicEvents(list: PublicEvent[]): PublicEvent[] {
 
 export type MatchDisplayStatus = PublicMatch['status']
 
+/**
+ * 展示层时钟：比赛状态要随时间自己往前走，不能只等接口刷新。
+ * 每分钟推进一次，凡是调用 matchDisplayStatus 的计算属性与模板都会跟着重算。
+ */
+export const portalClock = ref(Date.now())
+if (typeof window !== 'undefined') {
+  window.setInterval(() => {
+    portalClock.value = Date.now()
+  }, 60_000)
+}
+
+/** 从开球到结束的合理时长（含中场与补时）：开球超过这个时长还没确认赛果，就按已结束展示。 */
+export const MATCH_LIVE_WINDOW_MINUTES = 150
+/** 状态仍写着“进行中”但开球已超过该时长，视为赛况没更新，不再占用“进行中”。 */
+export const MATCH_STALE_LIVE_MINUTES = 360
+
 export interface MatchSection {
   key: MatchDisplayStatus
   label: string
@@ -34,8 +51,51 @@ export const MATCH_SECTIONS: MatchSection[] = [
   { key: 'CANCELLED', label: '已取消', tone: 'finished' },
 ]
 
+/**
+ * 展示状态 = 记录的赛况 + 开球时间推算。
+ *
+ * 只按接口里的 status 展示会让过期数据一直停在“未开赛/进行中”：
+ * 开球时间已过的场次，短窗口内按“进行中”，超过常规时长按“已结束”。
+ * 已取消、已结束（组委会确认）保持不变，不会被时间改写。
+ */
 export function matchDisplayStatus(match: PublicMatch): MatchDisplayStatus {
-  return match.status
+  const recorded = match.status
+  if (recorded === 'FINISHED' || recorded === 'CANCELLED') return recorded
+  if (!match.kickoffAt) return recorded
+  const kickoff = dayjs(match.kickoffAt)
+  if (!kickoff.isValid()) return recorded
+
+  const elapsed = dayjs(portalClock.value).diff(kickoff, 'minute')
+  if (elapsed < 0) return 'SCHEDULED'
+  if (recorded === 'LIVE') {
+    return elapsed > MATCH_STALE_LIVE_MINUTES ? 'FINISHED' : 'LIVE'
+  }
+  return elapsed <= MATCH_LIVE_WINDOW_MINUTES ? 'LIVE' : 'FINISHED'
+}
+
+/**
+ * 已到结束时间但组委会还没确认赛果：比分不能拿 0:0 冒充结果，
+ * 页面按“待确认”展示，等后台录入并发布赛果后自动变成真实比分。
+ */
+export function matchResultPending(match: PublicMatch): boolean {
+  return matchDisplayStatus(match) === 'FINISHED' && match.status !== 'FINISHED'
+}
+
+/** 单侧比分：未开赛/赛果待确认给占位符，不拿 0 冒充真实比分。 */
+export function matchSideScore(match: PublicMatch, side: 'home' | 'away'): string {
+  const display = matchDisplayStatus(match)
+  if (display === 'SCHEDULED' || display === 'CANCELLED') return '–'
+  if (matchResultPending(match)) return '–'
+  return String(side === 'home' ? match.homeScore : match.awayScore)
+}
+
+/** 中间比分文案：进行中与已确认赛果给 "a : b"，其余给文字占位。 */
+export function matchScoreLabel(match: PublicMatch): string {
+  const display = matchDisplayStatus(match)
+  if (display === 'SCHEDULED') return 'VS'
+  if (display === 'CANCELLED') return '—'
+  if (matchResultPending(match)) return '待确认'
+  return `${match.homeScore} : ${match.awayScore}`
 }
 
 export function matchStatusOrder(status: MatchDisplayStatus): number {

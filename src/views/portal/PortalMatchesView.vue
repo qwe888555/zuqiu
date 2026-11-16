@@ -11,6 +11,8 @@ import { useVisiblePolling } from '../../composables/useVisiblePolling'
 import {
   MATCH_SECTIONS,
   matchDisplayStatus,
+  matchResultPending,
+  matchScoreLabel,
   sortPublicEvents,
   sortPublicMatches,
 } from '../../utils/portal'
@@ -159,9 +161,14 @@ const selectedDayMatches = computed(() =>
 function selectDefaultDay() {
   const cells = calendarCells.value.filter((cell): cell is CalendarCell => Boolean(cell))
   const todayCell = cells.find((cell) => cell.key === todayKey)
-  const firstMatchDay = cells.find((cell) => cell.matches.length)
-  selectedDay.value =
-    (todayCell?.matches.length ? todayCell : firstMatchDay || todayCell || cells[0])?.key || ''
+  if (todayCell?.matches.length) {
+    selectedDay.value = todayCell.key
+    return
+  }
+  // 优先落在本月下一个有比赛的日期：赛程过期后不应一进页面就停在已经踢完的那天。
+  const nextMatchDay = cells.find((cell) => cell.matches.length && cell.key > todayKey)
+  const lastMatchDay = [...cells].reverse().find((cell) => cell.matches.length)
+  selectedDay.value = (nextMatchDay || lastMatchDay || todayCell || cells[0])?.key || ''
 }
 
 async function fetchMatches(id: string) {
@@ -274,10 +281,7 @@ function formatTime(value?: string) {
 }
 
 function agendaScore(match: PublicMatch) {
-  const display = matchDisplayStatus(match)
-  if (display === 'SCHEDULED') return 'VS'
-  if (display === 'CANCELLED') return '—'
-  return `${match.homeScore} : ${match.awayScore}`
+  return matchScoreLabel(match)
 }
 
 function statusTone(value: string) {
@@ -519,7 +523,13 @@ useVisiblePolling(refreshSilently, 30_000)
                   <span class="agenda-team__badge">{{ (match.homeTeamName || '球').slice(0, 1) }}</span>
                   <span class="agenda-team__name">{{ match.homeTeamName || '未关联球队' }}</span>
                 </div>
-                <span class="agenda-score num" :class="{ 'is-upcoming': matchDisplayStatus(match) === 'SCHEDULED' }">
+                <span
+                  class="agenda-score num"
+                  :class="{
+                    'is-upcoming': matchDisplayStatus(match) === 'SCHEDULED',
+                    'is-pending': matchResultPending(match),
+                  }"
+                >
                   {{ agendaScore(match) }}
                 </span>
                 <div class="agenda-team agenda-team--away">
@@ -1184,6 +1194,12 @@ useVisiblePolling(refreshSilently, 30_000)
 
 .agenda-score.is-upcoming {
   font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-300);
+}
+
+.agenda-score.is-pending {
+  font-size: 11px;
   font-weight: 600;
   color: var(--ink-300);
 }

@@ -11,7 +11,7 @@ import SafeImage from '../../components/common/SafeImage.vue'
 import { refereeRoleLabel } from '../../config/labels'
 import { httpStatusOf } from '../../utils/httpError'
 import { createLiveHls } from '../../utils/hls'
-import { formatBeijing, matchDisplayStatus } from '../../utils/portal'
+import { formatBeijing, matchDisplayStatus, matchResultPending } from '../../utils/portal'
 
 interface MatchDetail extends PublicMatch {
   events?: MatchEvent[]
@@ -59,6 +59,8 @@ function leavePreview() {
 
 const displayStatus = computed(() => (match.value ? matchDisplayStatus(match.value) : ''))
 const isLive = computed(() => displayStatus.value === 'LIVE')
+/** 已过结束时间但赛果未确认：比分位不显示 0，改标“赛果待确认”。 */
+const resultPending = computed(() => (match.value ? matchResultPending(match.value) : false))
 
 const sortedEvents = computed(() =>
   [...(match.value?.events || [])].sort((a, b) => {
@@ -170,6 +172,9 @@ const briefText = computed(() => {
   }
   if (status === 'CANCELLED') {
     return '本场比赛已取消，后续安排以组委会通知为准。'
+  }
+  if (resultPending.value) {
+    return `本场已于 ${formatBeijing(current.kickoffAt)} 结束，赛果尚待组委会确认，确认后在此更新。`
   }
 
   const score = `${current.homeTeamName || '主队'} ${current.homeScore} : ${current.awayScore} ${current.awayTeamName || '客队'}`
@@ -348,9 +353,9 @@ watch(() => route.params.id, load)
 
             <div class="score">
               <div class="score__nums">
-                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' ? '-' : match.homeScore }}</span>
+                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' || resultPending ? '-' : match.homeScore }}</span>
                 <i>:</i>
-                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' ? '-' : match.awayScore }}</span>
+                <span class="num">{{ displayStatus === 'SCHEDULED' || displayStatus === 'CANCELLED' || resultPending ? '-' : match.awayScore }}</span>
               </div>
               <span class="score__state">
                 {{
@@ -360,7 +365,9 @@ watch(() => route.params.id, load)
                       ? '比赛进行中'
                       : displayStatus === 'CANCELLED'
                         ? '比赛已取消'
-                        : '全场结束'
+                        : resultPending
+                          ? '赛果待确认'
+                          : '全场结束'
                 }}
               </span>
               <span v-if="match.scoreRevision" class="score__revision">数据版本 {{ match.scoreRevision }}</span>

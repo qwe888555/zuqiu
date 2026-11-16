@@ -12,6 +12,7 @@ import {
 } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
 import type { PolicyAnswer, PolicyCitation } from '../../api/types'
+import { renderAnswerMarkdown } from '../../utils/answerMarkdown'
 import {
   registerPolicyAssistant,
   type PolicyAssistantContext,
@@ -452,7 +453,10 @@ onBeforeUnmount(() => {
               <template v-else-if="item.answer">
                 <!-- 日常/操作类答复没有政策依据，不展示引用卡片和“依据有限”标签。 -->
                 <template v-if="item.answer.answerMode === 'GENERAL'">
-                  <p class="answer-text answer-text--general">{{ item.answer.answer }}</p>
+                  <div
+                    class="answer-text answer-text--general"
+                    v-html="renderAnswerMarkdown(item.answer.answer)"
+                  />
                   <p v-if="item.answer.notice" class="general-notice">{{ item.answer.notice }}</p>
                 </template>
 
@@ -467,7 +471,7 @@ onBeforeUnmount(() => {
                     </span>
                   </div>
 
-                  <p class="answer-text">{{ item.answer.answer }}</p>
+                  <div class="answer-text" v-html="renderAnswerMarkdown(item.answer.answer)" />
 
                   <div v-if="item.answer.citations.length" class="sources">
                     <span class="sources__label">原文依据 · {{ item.answer.citations.length }}</span>
@@ -1224,7 +1228,86 @@ onBeforeUnmount(() => {
   font-size: 13px;
   line-height: 1.85;
   color: var(--ink-700);
-  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* 答复是模型输出的 Markdown 渲染结果，子元素需要 :deep 才能命中 scoped 样式。 */
+.answer-text :deep(p) {
+  margin: 0;
+}
+
+.answer-text :deep(p + p) {
+  margin-top: 8px;
+}
+
+.answer-text :deep(h4),
+.answer-text :deep(h5) {
+  margin: 12px 0 5px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+  color: var(--ink-900);
+}
+
+.answer-text :deep(h4:first-child),
+.answer-text :deep(h5:first-child) {
+  margin-top: 0;
+}
+
+.answer-text :deep(strong) {
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.answer-text :deep(em) {
+  font-style: normal;
+  color: var(--ink-500);
+}
+
+.answer-text :deep(ul),
+.answer-text :deep(ol) {
+  margin: 6px 0;
+  padding-left: 17px;
+}
+
+.answer-text :deep(ul) {
+  list-style: disc;
+}
+
+.answer-text :deep(ol) {
+  list-style: decimal;
+}
+
+.answer-text :deep(li) {
+  margin: 3px 0;
+  padding-left: 1px;
+}
+
+.answer-text :deep(li)::marker {
+  color: var(--brand-500);
+}
+
+.answer-text :deep(blockquote) {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--brand-100);
+  background: var(--paper);
+  color: var(--ink-500);
+}
+
+.answer-text :deep(code) {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--paper);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.answer-text :deep(hr) {
+  height: 1px;
+  margin: 10px 0;
+  border: none;
+  background: var(--line);
 }
 
 .answer-text--general {

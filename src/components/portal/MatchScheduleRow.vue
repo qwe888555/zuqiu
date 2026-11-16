@@ -4,13 +4,14 @@ import dayjs from 'dayjs'
 import { Location } from '@element-plus/icons-vue'
 import type { PublicMatch } from '../../api/types'
 import StatusTag from '../common/StatusTag.vue'
-import { matchDisplayStatus } from '../../utils/portal'
+import { matchDisplayStatus, matchResultPending, matchScoreLabel } from '../../utils/portal'
 
 const props = defineProps<{ match: PublicMatch; followedTeam?: string }>()
 
 const displayStatus = computed(() => matchDisplayStatus(props.match))
 const isScheduled = computed(() => displayStatus.value === 'SCHEDULED')
-const isCancelled = computed(() => displayStatus.value === 'CANCELLED')
+const resultPending = computed(() => matchResultPending(props.match))
+const scoreLabel = computed(() => matchScoreLabel(props.match))
 const followedSide = computed(() => {
   if (!props.followedTeam) return ''
   if (props.match.homeTeamName === props.followedTeam) return 'home'
@@ -50,10 +51,8 @@ function formatTime(value?: string) {
 
     <div class="match-row__teams">
       <span class="team team--home">{{ match.homeTeamName || '未关联球队' }}</span>
-      <span class="score num" :class="{ 'is-upcoming': isScheduled }">
-        <template v-if="isScheduled">VS</template>
-        <template v-else-if="isCancelled">—</template>
-        <template v-else>{{ match.homeScore }} : {{ match.awayScore }}</template>
+      <span class="score num" :class="{ 'is-upcoming': isScheduled, 'is-pending': resultPending }">
+        {{ scoreLabel }}
       </span>
       <span class="team team--away">{{ match.awayTeamName || '未关联球队' }}</span>
     </div>
@@ -175,6 +174,13 @@ function formatTime(value?: string) {
 
 .score.is-upcoming {
   font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-300);
+}
+
+/* 已到结束时间但赛果未确认：不给假比分，用弱化文字占位。 */
+.score.is-pending {
+  font-size: 13px;
   font-weight: 600;
   color: var(--ink-300);
 }
