@@ -69,9 +69,22 @@ instance.interceptors.response.use(
   },
   async (error) => {
     const status = error?.response?.status
-    const requestConfig = error?.config as AxiosRequestConfig | undefined
+    const requestConfig = error?.config as (AxiosRequestConfig & { _retried?: boolean }) | undefined
     const silent = Boolean(requestConfig?.silentError)
     const skipAuth = Boolean(requestConfig?.skipAuth)
+    // 连接被重置/瞬时断网会让 GET 直接失败且没有 response；读接口无副作用，
+    // 自动重试一次（间隔 400ms），避免偶发抖动直接弹「网络异常」。
+    if (
+      !silent &&
+      requestConfig &&
+      String(requestConfig.method || '').toLowerCase() === 'get' &&
+      error?.code === 'ERR_NETWORK' &&
+      !requestConfig._retried
+    ) {
+      requestConfig._retried = true
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      return instance.request(requestConfig)
+    }
     // 批量导入/导出使用 responseType=blob；后端出错时返回的是 JSON 封装，
     // 需要先读出 Blob 文本，否则只能看到 axios 的通用错误。
     if (error?.response?.data instanceof Blob) {
@@ -117,7 +130,8 @@ instance.interceptors.response.use(
         window.location.href = `/login?redirect=${encodeURIComponent(target)}`
       }
     }
-    if (!silent) ElMessage.error(message)
+    // grouping：并发的多个请求同时失败时合并成一条提示，不再叠三层红框。
+    if (!silent) ElMessage.error({ message, grouping: true })
     return Promise.reject(error)
   },
 )
