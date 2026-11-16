@@ -31,6 +31,7 @@ lerna-debug.log*
 
 # Local tooling
 .chrome-*/
+.tmp-chrome-profile/
 
 # 临时录制与下载文件
 *.mp4
