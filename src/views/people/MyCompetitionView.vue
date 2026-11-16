@@ -7,6 +7,7 @@ import { meApi, publicApi } from '../../api'
 import type {
   GoalRankingRow,
   MatchEvent,
+  MyCompetitionStat,
   Person,
   PublicEvent,
   PublicLivePost,
@@ -58,6 +59,8 @@ const details = ref<MatchWithEvents[]>([])
 const detailsLoaded = ref(false)
 const detailsTruncated = ref(false)
 const coverageText = ref('')
+/** 本人参赛聚合数据（服务端按赛事+球队汇总）；为空时沿用原公开接口口径。 */
+const myCompetitionStats = ref<MyCompetitionStat[]>([])
 
 const nameMatchedGoals = ref(false)
 
@@ -167,6 +170,24 @@ const myEvents = computed<MyEventRow[]>(() => {
 
 const totalGoals = computed(() => goalRows.value.reduce((sum, row) => sum + row.goals, 0))
 
+/** 接口有数据时以其为准；无数据或请求失败则回退到公开赛程/射手榜口径。 */
+const hasCompetitionStats = computed(() => myCompetitionStats.value.length > 0)
+const competitionEventCount = computed(
+  () => new Set(myCompetitionStats.value.map((row) => row.eventId || row.eventName)).size,
+)
+const competitionAppearances = computed(() =>
+  myCompetitionStats.value.reduce((sum, row) => sum + (row.appearances || 0), 0),
+)
+const competitionGoals = computed(() =>
+  myCompetitionStats.value.reduce((sum, row) => sum + (row.goals || 0), 0),
+)
+const competitionYellowCards = computed(() =>
+  myCompetitionStats.value.reduce((sum, row) => sum + (row.yellowCards || 0), 0),
+)
+const competitionRedCards = computed(() =>
+  myCompetitionStats.value.reduce((sum, row) => sum + (row.redCards || 0), 0),
+)
+
 const myPlayerRows = computed<PlayerStatRow[]>(() => {
   const stats = buildPlayerStats(details.value)
   return stats.filter((row) => {
@@ -200,12 +221,18 @@ const redCards = computed(() => cardTraces.value.filter((trace) => trace.kind ==
 async function loadBase() {
   loading.value = true
   try {
-    const [profileResult, teamsResult] = await Promise.allSettled([
+    const [profileResult, teamsResult, competitionsResult] = await Promise.allSettled([
       meApi.profile({ silentError: true }),
       meApi.teams({ silentError: true }),
+      meApi.competitions({ silentError: true }),
     ])
     profile.value = profileResult.status === 'fulfilled' ? profileResult.value : null
     teams.value = teamsResult.status === 'fulfilled' ? teamsResult.value : []
+    // 参赛聚合接口失败（401/403/404/网络）时静默降级，继续用下方公开数据渲染。
+    myCompetitionStats.value =
+      competitionsResult.status === 'fulfilled' && Array.isArray(competitionsResult.value)
+        ? competitionsResult.value
+        : []
 
     const eventPage = await fetchAllPages(
       (page, pageSize) => publicApi.events({ page, pageSize }),
@@ -364,6 +391,16 @@ function openEvent(event: PublicEvent) {
   scheduleDrawer.value = true
 }
 
+/** 聚合数据只带赛事 ID，需回查公开赛事后才能复用赛程抽屉。 */
+function findEvent(eventId: string): PublicEvent | undefined {
+  return events.value.find((item) => item.id === eventId)
+}
+
+function openEventById(eventId: string) {
+  const event = findEvent(eventId)
+  if (event) openEvent(event)
+}
+
 /** 裁判名单来自公开详情，缺失时显示“—”，不做推测。 */
 const referees = computed(() => activeDetail.value?.referees || [])
 
@@ -485,7 +522,11 @@ onMounted(loadBase)
       :closable="false"
       show-icon
       title="数据口径说明"
-      description="场次按所属球队的公开赛程统计，公开接口没有出场名单，不代表个人实际出场；缺少逐场事件时只展示射手榜汇总，红黄牌显示为“—”。"
+      :description="
+        hasCompetitionStats
+          ? '出场场次、进球与红黄牌取自本人参赛数据（按赛事与球队聚合）；逐场明细仍以公开接口为准。'
+          : '场次按所属球队的公开赛程统计，公开接口没有出场名单，不代表个人实际出场；缺少逐场事件时只展示射手榜汇总，红黄牌显示为“—”。'
+      "
     />
 
     <div v-if="coachOnly" class="stat-grid">
@@ -503,17 +544,41 @@ onMounted(loadBase)
     <div v-else class="stat-grid">
       <StatCard
         label="参赛赛事"
-        :value="myEvents.length"
-        :hint="myTeamIds.size ? '球队 ID 优先匹配' : '按球队名称匹配'"
+        :value="hasCompetitionStats ? competitionEventCount : myEvents.length"
+        :hint="hasCompetitionStats ? '本人参赛数据按赛事去重' : myTeamIds.size ? '球队 ID 优先匹配' : '按球队名称匹配'"
         :icon="Calendar"
         tone="green"
       />
-      <StatCard label="参赛场次" :value="myMatches.length" hint="本人球队的公开赛程，非个人出场数" :icon="Football" tone="blue" />
-      <StatCard label="累计进球" :value="totalGoals" hint="公开射手榜汇总" :icon="DataAnalysis" tone="lime" />
+      <StatCard
+        label="参赛场次"
+        :value="hasCompetitionStats ? competitionAppearances : myMatches.length"
+        :hint="hasCompetitionStats ? '本人实际出场场次' : '本人球队的公开赛程，非个人出场数'"
+        :icon="Football"
+        tone="blue"
+      />
+      <StatCard
+        label="累计进球"
+        :value="hasCompetitionStats ? competitionGoals : totalGoals"
+        :hint="hasCompetitionStats ? '本人参赛数据汇总' : '公开射手榜汇总'"
+        :icon="DataAnalysis"
+        tone="lime"
+      />
       <StatCard
         label="红黄牌"
-        :value="cardsAvailable ? `${yellowCards} 黄 / ${redCards} 红` : '—'"
-        :hint="cardsAvailable ? '逐场事件统计' : '公开接口未提供逐场事件'"
+        :value="
+          hasCompetitionStats
+            ? `${competitionYellowCards} 黄 / ${competitionRedCards} 红`
+            : cardsAvailable
+              ? `${yellowCards} 黄 / ${redCards} 红`
+              : '—'
+        "
+        :hint="
+          hasCompetitionStats
+            ? '本人参赛数据汇总'
+            : cardsAvailable
+              ? '逐场事件统计'
+              : '公开接口未提供逐场事件'
+        "
         :icon="Warning"
         tone="amber"
       />
@@ -526,7 +591,34 @@ onMounted(loadBase)
             参赛记录
             <small>赛程与比赛详情在当前页弹窗查看，不会离开控制台</small>
           </div>
-          <el-table v-loading="loading" :data="myEvents" style="width: 100%">
+          <!-- 接口有数据时以本人参赛聚合为准：每个「赛事 + 球队」一行 -->
+          <el-table v-if="hasCompetitionStats" v-loading="loading" :data="myCompetitionStats" style="width: 100%">
+            <el-table-column label="赛事" min-width="220">
+              <template #default="{ row }">
+                <strong>{{ row.eventName || '—' }}</strong>
+              </template>
+            </el-table-column>
+            <el-table-column label="球队" min-width="150">
+              <template #default="{ row }">{{ row.teamName || '—' }}</template>
+            </el-table-column>
+            <el-table-column prop="appearances" label="出场" width="80" align="center" />
+            <el-table-column prop="goals" label="进球" width="80" align="center" />
+            <el-table-column prop="yellowCards" label="黄牌" width="80" align="center" />
+            <el-table-column prop="redCards" label="红牌" width="80" align="center" />
+            <el-table-column label="操作" width="110" align="right">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="primary"
+                  :disabled="!findEvent(row.eventId)"
+                  @click="openEventById(row.eventId)"
+                >
+                  查看赛程
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-table v-else v-loading="loading" :data="myEvents" style="width: 100%">
             <el-table-column label="赛事" min-width="220">
               <template #default="{ row }">
                 <div class="event-cell">
@@ -556,7 +648,7 @@ onMounted(loadBase)
             </el-table-column>
           </el-table>
           <el-empty
-            v-if="!loading && !myEvents.length"
+            v-if="!loading && !hasCompetitionStats && !myEvents.length"
             description="未匹配到本人参赛记录。公开赛程仅覆盖已公布比赛；若球队近期变更且旧接口未返回球队 ID，可能暂时无法匹配。"
             :image-size="80"
           />

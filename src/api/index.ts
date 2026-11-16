@@ -28,6 +28,7 @@ import type {
   Material,
   Message,
   MyAffiliation,
+  MyCompetitionStat,
   OfficialStandingRow,
   Organization,
   PageResult,
@@ -41,6 +42,8 @@ import type {
   PublicLivePost,
   PublicMatch,
   PublicMatchDetail,
+  PublicAward,
+  PublicRanking,
   PublicResource,
   Region,
   ReviewRecord,
@@ -78,6 +81,9 @@ export const meApi = {
   updateProfile: (data: Partial<Person> & { version: number }) =>
     http.put<Person>('/me/profile', data),
   teams: (options?: RequestOptions) => http.get<Team[]>('/me/teams', undefined, options),
+  /** 本人参赛数据：赛事/球队/场次/进球/红黄牌（服务端聚合，运动员与教练均可）。 */
+  competitions: (options?: RequestOptions) =>
+    http.get<MyCompetitionStat[]>('/me/competitions', undefined, options),
   affiliations: (params: Query, options?: RequestOptions) =>
     http.get<PageResult<MyAffiliation>>('/me/team-affiliations', params, options),
   addAffiliation: (data: Query) => http.post<MyAffiliation>('/me/team-affiliations', data),
@@ -632,13 +638,15 @@ export const matchApi = {
 }
 
 export const contentApi = {
-  list: (params: Query) => http.get<PageResult<Content>>('/contents', params),
+  list: (params: Query, options?: RequestOptions) =>
+    http.get<PageResult<Content>>('/contents', params, options),
   get: (id: string) => http.get<Content>(`/contents/${id}`),
-  create: (data: Query) => http.post<Content>('/contents', data),
+  create: (data: Query, options?: RequestOptions) =>
+    http.post<Content>('/contents', data, options),
   update: (id: string, data: Query) => http.put<Content>(`/contents/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/contents/${id}`, { version }),
-  publish: (id: string, version: number) =>
-    http.post<Content>(`/contents/${id}/publish`, { version }),
+  publish: (id: string, version: number, options?: RequestOptions) =>
+    http.post<Content>(`/contents/${id}/publish`, { version }, options),
   unpublish: (id: string, version: number, reason: string) =>
     http.post<Content>(`/contents/${id}/unpublish`, { version, reason }),
 }
@@ -692,6 +700,12 @@ export const publicApi = {
   resources: (params?: Query) => http.get<{ items: PublicResource[] }>('/public/resources', params),
   matches: (params: Query) => http.get<PageResult<PublicMatch>>('/public/matches', params),
   match: (id: string) => http.get<PublicMatchDetail>(`/public/matches/${id}`),
+  /** 官方名次与奖项：仅返回已发布数据，未发布时两个数组均为空。 */
+  eventRankings: (eventId: string, groupId?: string) =>
+    http.get<{ rankings: PublicRanking[]; awards: PublicAward[] }>(
+      `/public/events/${eventId}/rankings`,
+      groupId ? { groupId } : undefined,
+    ),
   liveFeed: (id: string, afterRevision = 0) =>
     http.get<PublicLiveFeed>(`/public/matches/${id}/live-feed`, { afterRevision }),
   liveLinks: async (id: string) =>

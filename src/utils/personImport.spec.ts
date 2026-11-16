@@ -105,7 +105,7 @@ describe('parsePersonImportRows', () => {
       status: 'READY',
       errors: [],
     })
-    expect(parsed.rows[0].maskedIdNumber).toBe('510101********1234')
+    expect(parsed.rows[0].maskedIdNumber).toBe('510101********1231')
   })
 
   it('文件内重复身份证、手机号与人员类型会逐行报错', () => {

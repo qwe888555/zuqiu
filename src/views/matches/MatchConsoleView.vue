@@ -31,6 +31,7 @@ import type {
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
+import { publishMatchDigest } from '../../utils/matchDigest'
 import { useAuthStore } from '../../stores/auth'
 
 const route = useRoute()
@@ -502,14 +503,37 @@ async function publishResult() {
     ElMessage.warning('请先结束比赛，再发布赛果')
     return
   }
+  const current = match.value
+  // 记录员有赛果发布权，但没有内容管理权；先按角色提示，避免发布后才报错。
+  const canAutoDigest = auth.hasPermission('content.manage')
   try {
-    await ElMessageBox.confirm('发布赛果后将同步至门户与射手榜，并自动生成赛果快讯。', '发布赛果', {
-      confirmButtonText: '确认发布',
-      cancelButtonText: '取消',
-      type: 'warning',
-    })
-    await matchApi.publishResult(matchId, match.value?.version || 0)
-    ElMessage.success('赛果已发布，门户比分、射手榜与赛果快讯已同步')
+    await ElMessageBox.confirm(
+      `发布赛果后将同步至门户与射手榜${canAutoDigest ? '，并自动生成赛果快讯' : '；当前账号无内容管理权限，不会生成赛果快讯'}。`,
+      '发布赛果',
+      {
+        confirmButtonText: '确认发布',
+        cancelButtonText: '取消',
+        type: 'warning',
+      },
+    )
+    await matchApi.publishResult(matchId, current.version || 0)
+    // 重新取一次比赛，确保快讯用的是发布后的最终比分与事件。
+    await refreshMatch()
+    if (!canAutoDigest) {
+      ElMessage.success('赛果已发布，门户比分与射手榜已同步；赛果快讯需管理员或省级审核生成')
+    } else {
+      // 赛果已发布成功，快讯生成失败不影响主结果；页面只如实提示“未生成”。
+      try {
+        const digest = await publishMatchDigest(match.value || current, events.value)
+        if (digest.created) {
+          ElMessage.success('赛果已发布，门户比分、射手榜与赛果快讯已同步')
+        } else {
+          ElMessage.success('赛果已发布，门户比分与射手榜已同步（该场赛果快讯已存在）')
+        }
+      } catch {
+        ElMessage.warning('赛果已发布，门户比分与射手榜已同步；赛果快讯未生成（内容服务异常）')
+      }
+    }
     await loadAll()
   } catch {
     // 取消

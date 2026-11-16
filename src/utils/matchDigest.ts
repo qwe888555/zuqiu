@@ -115,26 +115,34 @@ export async function publishMatchDigest(
   events: readonly MatchEvent[] = [],
 ): Promise<PublishDigestResult> {
   const draft = buildMatchDigest(match, events)
-  const existing = await contentApi.list({
-    eventId: draft.eventId,
-    contentType: 'NEWS',
-    keyword: draft.title,
-    page: 1,
-    pageSize: 20,
-  })
+  // 赛果发布是主流程，快讯失败不能连带弹两条全局错误。由调用方决定如何提示。
+  const options = { silentError: true }
+  const existing = await contentApi.list(
+    {
+      eventId: draft.eventId,
+      contentType: 'NEWS',
+      keyword: draft.title,
+      page: 1,
+      pageSize: 20,
+    },
+    options,
+  )
   const duplicated = (existing.items || []).some(
     (item) => item.contentType === 'NEWS' && item.title.trim() === draft.title.trim(),
   )
   if (duplicated) return { created: false }
 
-  const created = await contentApi.create({
-    contentType: 'NEWS',
-    title: draft.title,
-    summary: draft.summary,
-    bodyHtml: draft.bodyHtml,
-    eventId: draft.eventId,
-    groupId: draft.groupId,
-  })
-  const content = await contentApi.publish(created.id, created.version)
+  const created = await contentApi.create(
+    {
+      contentType: 'NEWS',
+      title: draft.title,
+      summary: draft.summary,
+      bodyHtml: draft.bodyHtml,
+      eventId: draft.eventId,
+      groupId: draft.groupId,
+    },
+    options,
+  )
+  const content = await contentApi.publish(created.id, created.version, options)
   return { created: true, content }
 }

@@ -79,7 +79,7 @@ const liveMatches = computed(() =>
     .sort((a, b) => dayjs(a.kickoffAt).valueOf() - dayjs(b.kickoffAt).valueOf()),
 )
 /** 首页「现场直播」取当前正在进行的比赛，没有直播就不占用版面。 */
-const homeLiveMatch = computed(() => liveMatches.value[0])
+const homeLiveMatch = computed(() => (LIVE_ENABLED ? liveMatches.value[0] : undefined))
 const latestLivePosts = computed(() => homeLivePosts.value.slice(-3).reverse())
 
 const scheduledMatches = computed(() =>
@@ -154,6 +154,11 @@ interface HeroLive {
 }
 
 const heroLive = ref<HeroLive | null>(null)
+/**
+ * 直播内容暂缓上线（2026-11）：首页不展示直播视频、直播角标与“比赛动态”图文直播区块。
+ * 恢复时把它改回 true，下面的取流与轮询逻辑会自动重新启用。
+ */
+const LIVE_ENABLED: boolean = false
 // 推流端停止后，播放器只会停在最后一帧，比赛数据里这场仍是“进行中”。
 // 探测到流不可用就收回直播画面与角标，页面回到普通首页；推流恢复后自动接回来。
 const heroStreamOffline = ref(false)
@@ -568,6 +573,7 @@ async function loadHeroLive(match: PublicMatch | undefined) {
   heroLive.value = null
   heroStreamOffline.value = false
   heroOfflineMisses = 0
+  if (!LIVE_ENABLED) return
   if (!match) return
   try {
     const links = await publicApi.liveLinks(match.id)
@@ -597,6 +603,10 @@ let homeLiveTimer: ReturnType<typeof setInterval> | undefined
 let homeLiveLoading = false
 
 async function loadHomeLive() {
+  if (!LIVE_ENABLED) {
+    homeLivePosts.value = []
+    return
+  }
   const match = homeLiveMatch.value
   if (!match) {
     homeLivePosts.value = []

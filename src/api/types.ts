@@ -914,6 +914,45 @@ export interface OfficialStandingRow {
   points: number
 }
 
+/** 本人参赛数据：按（赛事、球队）聚合的场次与进球/红黄牌计数。 */
+export interface MyCompetitionStat {
+  eventId: string
+  eventName: string
+  teamId: string
+  teamName: string
+  groupIds: string[]
+  appearances: number
+  goals: number
+  yellowCards: number
+  redCards: number
+}
+
+/** 官方名次（公开接口只返回已发布数据）。 */
+export interface PublicRanking {
+  id: string
+  eventId: string
+  groupId: string
+  teamId: string
+  teamName?: string
+  finalRank: number
+  medal?: string
+  remark?: string
+}
+
+/** 官方奖项（公开接口只返回已发布数据）。 */
+export interface PublicAward {
+  id: string
+  eventId: string
+  groupId?: string
+  awardType: string
+  athleteId?: string
+  athleteName?: string
+  teamId?: string
+  teamName?: string
+  value?: string
+  remark?: string
+}
+
 export interface OptionItem {
   value: string
   label: string

@@ -3,6 +3,8 @@ import { defineStore } from 'pinia'
 import { authApi, meApi } from '../api'
 import { TOKEN_KEY } from '../api/http'
 import { visibleSections } from '../config/menus'
+import { hasPermission as roleHasPermission } from '../config/permissions'
+import type { PermissionCode } from '../config/permissions'
 import type { CurrentUser, RoleCode } from '../api/types'
 
 /**
@@ -100,6 +102,10 @@ export const useAuthStore = defineStore('auth', () => {
     return required.some((role) => roles.value.includes(role))
   }
 
+  function hasPermission(permission: PermissionCode) {
+    return roleHasPermission(roles.value, permission)
+  }
+
   return {
     token,
     user,
@@ -114,5 +120,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     clear,
     hasRole,
+    hasPermission,
   }
 })
