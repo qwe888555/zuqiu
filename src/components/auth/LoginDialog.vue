@@ -7,6 +7,7 @@ import { authApi } from '../../api'
 import { isUnauthenticated, loginErrorMessage, useAuthStore } from '../../stores/auth'
 import { canEnroll, canOpenEnrollment, homeForRoles, workspaceLabelForRoles } from '../../utils/roles'
 import { useLoginDialog } from '../../composables/useLoginDialog'
+import BrandMark from '../common/BrandMark.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -232,10 +233,7 @@ async function continueCurrent() {
 
         <div class="login-hero__brand">
           <span class="brand-mark">
-            <svg viewBox="0 0 40 40" aria-hidden="true">
-              <circle cx="20" cy="20" r="18" fill="rgba(255, 255, 255, 0.12)" />
-              <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="var(--lime)" />
-            </svg>
+            <BrandMark />
           </span>
           <span class="brand-text">
             <strong>绿茵少年</strong>

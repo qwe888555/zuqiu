@@ -11,6 +11,7 @@ import { useConsoleEntry } from '../composables/useConsoleEntry'
 import LoginDialog from '../components/auth/LoginDialog.vue'
 import PolicyAssistant from '../components/portal/PolicyAssistant.vue'
 import SafeImage from '../components/common/SafeImage.vue'
+import BrandMark from '../components/common/BrandMark.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -89,16 +90,7 @@ function navigate(path: string) {
       <div class="container header-inner">
         <router-link to="/" class="brand">
           <span class="brand__mark">
-            <svg viewBox="0 0 40 40" aria-hidden="true">
-              <circle cx="20" cy="20" r="18" fill="var(--brand-700)" />
-              <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="var(--lime)" />
-              <path
-                d="M20 4v6.5M36 20h-6M10 20H4M31.5 31.5l-4.2-4.2M8.5 31.5l4.2-4.2"
-                stroke="var(--lime)"
-                stroke-width="2"
-                stroke-linecap="round"
-              />
-            </svg>
+            <BrandMark />
           </span>
           <span class="brand__text">
             <strong>绿茵少年</strong>
@@ -143,10 +135,7 @@ function navigate(path: string) {
         <div class="footer-brand">
           <div class="brand">
             <span class="brand__mark brand__mark--footer">
-              <svg viewBox="0 0 40 40" aria-hidden="true">
-                <circle cx="20" cy="20" r="18" fill="var(--lime)" />
-                <path d="M20 10.5l5.4 3.9-2 6.3h-6.8l-2-6.3L20 10.5z" fill="var(--brand-900)" />
-              </svg>
+              <BrandMark />
             </span>
             <span class="brand__text brand__text--footer">
               <strong>绿茵少年</strong>
