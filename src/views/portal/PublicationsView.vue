@@ -103,7 +103,6 @@ onMounted(async () => {
     <section class="page-hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <span class="hero-kicker">信息公开</span>
           <h1>公示查询</h1>
           <p>
             按公示类型与组别查看参赛资格和人员名单。每一项公示独立成页，名单内可按姓名、球队或市州核对。
@@ -265,16 +264,6 @@ onMounted(async () => {
 
 .hero-copy {
   min-width: 0;
-}
-
-.hero-kicker {
-  display: block;
-  margin-bottom: 10px;
-  font-family: var(--font-display);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--lime);
 }
 
 .page-hero h1 {

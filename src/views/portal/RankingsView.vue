@@ -371,10 +371,9 @@ useVisiblePolling(refreshSilently, 30_000)
 }
 
 .page-hero h1 {
-  font-size: clamp(28px, 3.1vw, 38px);
+  font-size: clamp(30px, 3.4vw, 42px);
   font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: 0.01em;
+  line-height: 1.2;
 }
 
 .page-hero p {

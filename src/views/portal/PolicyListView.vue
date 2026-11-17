@@ -100,7 +100,6 @@ onMounted(async () => {
       <div class="container">
         <div class="hero-main">
           <div class="hero-copy">
-            <span class="hero-kicker">政策文件</span>
             <h1>政策公告</h1>
             <p>
               竞赛规程、报名办法与资格审查要求，均以本栏目发布的正式文件为准。
@@ -245,16 +244,6 @@ onMounted(async () => {
 
 .hero-copy {
   min-width: 0;
-}
-
-.hero-kicker {
-  display: block;
-  margin-bottom: 9px;
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--lime);
 }
 
 .hero-copy h1 {

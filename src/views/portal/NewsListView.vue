@@ -168,7 +168,6 @@ onMounted(() => {
     <section class="page-hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <span class="hero-kicker">赛事资讯</span>
           <h1>赛场内外</h1>
           <p>赛事动态、球队故事与赛场图集。记录每一个比赛日，也记录绿茵场外的成长。</p>
         </div>
@@ -433,16 +432,6 @@ onMounted(() => {
 
 .hero-copy {
   min-width: 0;
-}
-
-.hero-kicker {
-  display: block;
-  margin-bottom: 9px;
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--lime);
 }
 
 .page-hero h1 {
