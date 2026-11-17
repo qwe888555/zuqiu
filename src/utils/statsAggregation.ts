@@ -4,6 +4,7 @@ import type { MatchEvent, StatRow } from '../api/types'
 export interface StatsMatch {
   id: string
   eventId?: string
+  eventName?: string
   groupId?: string
   groupName?: string
   homeTeamId?: string

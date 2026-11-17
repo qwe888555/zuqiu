@@ -33,7 +33,7 @@ export function buildMatchDigest(match: StatsMatch, events: readonly MatchEvent[
   const homeScore = match.homeScore ?? 0
   const awayScore = match.awayScore ?? 0
   const score = `${homeScore}:${awayScore}`
-  const stage = match.groupName || match.eventId || ''
+  const stage = match.groupName || match.eventName || ''
   const kickoff = match.kickoffAt ? dayjs(match.kickoffAt).format('YYYY-MM-DD') : ''
   const titleSuffix = stage || kickoff
   const title = `赛果快讯｜${home} ${score} ${away}${titleSuffix ? `（${titleSuffix}）` : ''}`
@@ -61,13 +61,13 @@ export function buildMatchDigest(match: StatsMatch, events: readonly MatchEvent[
     .map((event) => {
       const kind = event.penaltyType === 'RED_CARD' ? '红牌' : '黄牌'
       const team = event.teamName ? `（${event.teamName}）` : ''
-      const reason = event.reason ? `：${escapeHtml(event.reason)}` : ''
-      return `<li>${minuteText(event)} ${kind} ${escapeHtml(event.athleteName || '未知球员')}${escapeHtml(team)}${reason}</li>`
+      // reason 是记录台自由文本备注，可能含内部验收标记，不进公开快讯。
+      return `<li>${minuteText(event)} ${kind} ${escapeHtml(event.athleteName || '未知球员')}${escapeHtml(team)}</li>`
     })
     .join('')
 
   const meta = [
-    match.eventId ? `赛事编号：${escapeHtml(match.eventId)}` : '',
+    match.eventName || match.eventId ? `赛事：${escapeHtml(match.eventName || match.eventId || '')}` : '',
     match.groupName ? `组别：${escapeHtml(match.groupName)}` : '',
     match.kickoffAt ? `开球时间：${dayjs(match.kickoffAt).format('YYYY-MM-DD HH:mm')}` : '',
   ]

@@ -86,7 +86,8 @@ describe('buildMatchDigest', () => {
     expect(draft.bodyHtml).toContain('12 分钟 张三')
     expect(draft.bodyHtml).toContain('[乌龙球]')
     expect(draft.bodyHtml).toContain('70 分钟 红牌 王五')
-    expect(draft.bodyHtml).toContain('严重犯规')
+    // reason 是记录台自由文本备注，不允许出现在公开快讯正文里。
+    expect(draft.bodyHtml).not.toContain('严重犯规')
   })
 })
 
