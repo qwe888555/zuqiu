@@ -39,17 +39,38 @@ function titleEndIndex(raw: string, title: string): number {
   return index
 }
 
+/**
+ * 进球人名去重：摘要里"进球球员：A，B，A，C"这类名单，
+ * 同一人梅开二度只保留一次；仅处理进球名单句，其余文案原样保留。
+ */
+function dedupeScorerNames(summary: string): string {
+  return summary.replace(
+    /(进球球员[:：])([^。]*)/g,
+    (_m, prefix: string, list: string) => {
+      const names = list.split(/[，,、]/).map((s) => s.trim()).filter(Boolean)
+      const seen = new Set<string>()
+      const unique = names.filter((n) => {
+        const key = norm(n)
+        if (!key || seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      return prefix + unique.join('，')
+    },
+  )
+}
+
 /** 摘要去重：剥离以 title 为前缀的重复部分；剩余若是"（赛事名）"一类括号壳则视为空。 */
 export function dedupeSummary(title: string | undefined, summary?: string | null): string {
   const raw = (summary || '').trim()
   const t = (title || '').trim()
   if (!raw) return ''
-  if (!t) return raw
+  if (!t) return dedupeScorerNames(raw)
   if (norm(raw) === norm(t)) return ''
-  if (!norm(raw).startsWith(norm(t))) return raw
+  if (!norm(raw).startsWith(norm(t))) return dedupeScorerNames(raw)
   const rest = raw.slice(titleEndIndex(raw, t)).replace(/^[\s，。；、,.!！?？:：;；—\-_·…（）()]+/, '')
   if (/^[（(][\s\S]*[)）]$/.test(rest.trim())) return ''
-  return rest
+  return dedupeScorerNames(rest)
 }
 
 /**
@@ -84,5 +105,5 @@ export function dedupeCardSummary(title: string | undefined, summary?: string | 
     .map((s) => s.trim())
     .filter((s) => s && !t.includes(norm(s)))
     .join('')
-  return kept.trim()
+  return dedupeScorerNames(kept.trim())
 }
