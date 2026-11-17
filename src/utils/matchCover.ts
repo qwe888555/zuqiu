@@ -29,33 +29,30 @@ function drawPitch(ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = bg
   ctx.fillRect(0, 0, WIDTH, HEIGHT)
 
-  const glow = ctx.createRadialGradient(WIDTH * 0.82, HEIGHT * 0.1, 0, WIDTH * 0.82, HEIGHT * 0.1, 520)
-  glow.addColorStop(0, 'rgba(155, 232, 119, 0.28)')
+  const glow = ctx.createRadialGradient(WIDTH * 0.82, HEIGHT * 0.08, 0, WIDTH * 0.82, HEIGHT * 0.08, 560)
+  glow.addColorStop(0, 'rgba(155, 232, 119, 0.26)')
   glow.addColorStop(1, 'rgba(155, 232, 119, 0)')
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, WIDTH, HEIGHT)
 
-  ctx.strokeStyle = 'rgba(226, 248, 234, 0.15)'
+  // 场地元素只保留中圈与中线，压低存在感，不与文字抢注意力。
+  ctx.strokeStyle = 'rgba(226, 248, 234, 0.08)'
   ctx.lineWidth = 3
-  ctx.strokeRect(52, 44, WIDTH - 104, HEIGHT - 88)
   ctx.beginPath()
   ctx.moveTo(WIDTH / 2, 44)
   ctx.lineTo(WIDTH / 2, HEIGHT - 44)
   ctx.stroke()
   ctx.beginPath()
-  ctx.arc(WIDTH / 2, HEIGHT / 2, 108, 0, Math.PI * 2)
+  ctx.arc(WIDTH / 2, HEIGHT / 2, 120, 0, Math.PI * 2)
   ctx.stroke()
-  ctx.beginPath()
-  ctx.arc(WIDTH / 2, HEIGHT / 2, 4, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(226, 248, 234, 0.4)'
-  ctx.fill()
-  ctx.strokeRect(52, 172, 150, 286)
-  ctx.strokeRect(WIDTH - 202, 172, 150, 286)
 }
 
-
 /**
- * 用赛果数据绘制封面（比分、队名、组别、日期），供自动快讯上传为 CMS 封面。
+ * 用赛果数据绘制封面（比分、队名、日期），供自动快讯上传为 CMS 封面。
+ *
+ * 海报式留白版式：卡片标题/组别由门户承载，封面只保留日期、队名、比分；
+ * 队名分居左右半场远端、比分以更大间距独占中轴，其余区域全部留白，
+ * 避免图内文字与门户叠放的标题挤在一起。
  * 无 DOM（单元测试/SSR）或浏览器不支持 canvas 导出时返回 null，由调用方降级。
  */
 export function renderMatchCoverFile(match: StatsMatch): Promise<File | null> {
@@ -67,54 +64,50 @@ export function renderMatchCoverFile(match: StatsMatch): Promise<File | null> {
   if (!ctx) return Promise.resolve(null)
 
   drawPitch(ctx)
-
-  // 关键信息集中在上半部：门户头图会在下半部叠加标题，避免比分被文字盖住。
-  ctx.shadowColor = 'rgba(3, 22, 16, 0.45)'
-  ctx.shadowBlur = 12
-  ctx.shadowOffsetY = 2
-  ctx.fillStyle = 'rgba(201, 239, 215, 0.78)'
-  ctx.font = `600 20px ${FONT_STACK}`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText('MATCH REPORT', WIDTH / 2, 92)
-
-  const home = match.homeTeamName || '主队'
-  const away = match.awayTeamName || '客队'
-  const homeSize = fitText(ctx, home, 470, 34, 22)
-  ctx.fillStyle = '#f3fbf6'
-  ctx.font = `700 ${homeSize}px ${FONT_STACK}`
-  ctx.textAlign = 'right'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(home, 552, 166)
-
-  const awaySize = fitText(ctx, away, 470, 34, 22)
-  ctx.fillStyle = '#f3fbf6'
-  ctx.font = `700 ${awaySize}px ${FONT_STACK}`
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(away, 648, 166)
-
-  const score = `${match.homeScore ?? 0} : ${match.awayScore ?? 0}`
-  ctx.fillStyle = '#9be877'
-  ctx.font = `800 104px ${FONT_STACK}`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(score, WIDTH / 2, 258)
-  ctx.shadowColor = 'transparent'
-
-  if (match.groupName) {
-    ctx.fillStyle = 'rgba(201, 239, 215, 0.92)'
-    ctx.font = `500 24px ${FONT_STACK}`
-    ctx.textAlign = 'center'
+  if (match.kickoffAt) {
+    ctx.fillStyle = 'rgba(201, 239, 215, 0.68)'
+    ctx.font = `500 20px ${FONT_STACK}`
+    ctx.textAlign = 'right'
     ctx.textBaseline = 'middle'
-    ctx.fillText(match.groupName, WIDTH / 2, 320)
+    ctx.fillText(match.kickoffAt.slice(0, 10), WIDTH - 64, 72)
   }
 
-  const shade = ctx.createLinearGradient(0, HEIGHT * 0.45, 0, HEIGHT)
+  // 队名分居左右半场中轴，互不相邻；比分其下拉开大间距，构成两层稀疏信息。
+  const home = match.homeTeamName || '主队'
+  const away = match.awayTeamName || '客队'
+  ctx.shadowColor = 'rgba(3, 22, 16, 0.35)'
+  ctx.shadowBlur = 8
+  ctx.shadowOffsetY = 2
+
+  const homeSize = fitText(ctx, home, 470, 30, 20)
+  ctx.fillStyle = '#f3fbf6'
+  ctx.font = `700 ${homeSize}px ${FONT_STACK}`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(home, WIDTH * 0.25, 196)
+
+  const awaySize = fitText(ctx, away, 470, 30, 20)
+  ctx.fillStyle = '#f3fbf6'
+  ctx.font = `700 ${awaySize}px ${FONT_STACK}`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(away, WIDTH * 0.75, 196)
+
+  ctx.shadowColor = 'rgba(3, 22, 16, 0.45)'
+  ctx.shadowBlur = 14
+  const score = `${match.homeScore ?? 0} : ${match.awayScore ?? 0}`
+  ctx.fillStyle = '#9be877'
+  ctx.font = `800 150px ${FONT_STACK}`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(score, WIDTH / 2, 330)
+  ctx.shadowColor = 'transparent'
+
+  const shade = ctx.createLinearGradient(0, HEIGHT * 0.52, 0, HEIGHT)
   shade.addColorStop(0, 'rgba(4, 31, 23, 0)')
-  shade.addColorStop(1, 'rgba(4, 31, 23, 0.4)')
+  shade.addColorStop(1, 'rgba(4, 31, 23, 0.45)')
   ctx.fillStyle = shade
-  ctx.fillRect(0, HEIGHT * 0.45, WIDTH, HEIGHT * 0.55)
+  ctx.fillRect(0, HEIGHT * 0.52, WIDTH, HEIGHT * 0.48)
 
   // JPEG 体积约为同图 PNG 的十分之一，门户头图清晰度足够，且 CMS 封面支持 JPG。
   return new Promise((resolve) => {

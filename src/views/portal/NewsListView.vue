@@ -7,7 +7,7 @@ import type { PublicContent } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 import { DEFAULT_NEWS_COVER } from '../../utils/newsCover'
-import { dedupeSummary } from '../../utils/contentDedupe'
+import { dedupeCardSummary } from '../../utils/contentDedupe'
 
 const loading = ref(false)
 const allItems = ref<PublicContent[]>([])
@@ -232,18 +232,14 @@ onMounted(() => {
                   <span class="story-type" :class="typeTone(leadStory.contentType)">
                     {{ typeLabel(leadStory.contentType) }}
                   </span>
-                  <span class="lead-story__date num">
-                    {{ dayjs(leadStory.publishedAt).format('MM.DD') }}
-                  </span>
                 </div>
                 <div class="lead-story__cover-body">
-                  <span class="lead-story__kicker">焦点 · TOP STORY</span>
                   <h2>{{ leadStory.title }}</h2>
-                  <p>{{ dedupeSummary(leadStory.title, leadStory.summary) }}</p>
+                  <p v-if="dedupeCardSummary(leadStory.title, leadStory.summary)">
+                    {{ dedupeCardSummary(leadStory.title, leadStory.summary) }}
+                  </p>
                   <div class="lead-story__meta">
                     <span>{{ dayjs(leadStory.publishedAt).format('YYYY年MM月DD日') }}</span>
-                    <span class="dot" />
-                    <span>第 {{ leadStory.revision }} 版</span>
                     <span class="lead-story__more">
                       阅读全文 <el-icon><ArrowRight /></el-icon>
                     </span>
@@ -261,13 +257,12 @@ onMounted(() => {
                   </span>
                 </div>
                 <div class="lead-story__text-body">
-                  <span class="lead-story__kicker">焦点 · TOP STORY</span>
                   <h2>{{ leadStory.title }}</h2>
-                  <p>{{ dedupeSummary(leadStory.title, leadStory.summary) }}</p>
+                  <p v-if="dedupeCardSummary(leadStory.title, leadStory.summary)">
+                    {{ dedupeCardSummary(leadStory.title, leadStory.summary) }}
+                  </p>
                   <div class="lead-story__meta">
                     <span>{{ dayjs(leadStory.publishedAt).format('YYYY年MM月DD日') }}</span>
-                    <span class="dot" />
-                    <span>第 {{ leadStory.revision }} 版</span>
                     <span class="lead-story__more">
                       阅读全文 <el-icon><ArrowRight /></el-icon>
                     </span>
@@ -292,9 +287,10 @@ onMounted(() => {
                   <span class="num">{{ dayjs(secondaryStory.publishedAt).format('YYYY.MM.DD') }}</span>
                 </div>
                 <h3>{{ secondaryStory.title }}</h3>
-                <p>{{ dedupeSummary(secondaryStory.title, secondaryStory.summary) }}</p>
+                <p v-if="dedupeCardSummary(secondaryStory.title, secondaryStory.summary)">
+                  {{ dedupeCardSummary(secondaryStory.title, secondaryStory.summary) }}
+                </p>
                 <div class="side-story__foot">
-                  <span>第 {{ secondaryStory.revision }} 版</span>
                   <span class="side-story__more">
                     阅读全文 <el-icon><ArrowRight /></el-icon>
                   </span>
@@ -327,7 +323,12 @@ onMounted(() => {
                       <span>{{ dayjs(item.publishedAt).format('MM.DD') }}</span>
                     </span>
                     <strong class="rail-item__title">{{ item.title }}</strong>
-                    <span class="rail-item__summary">{{ dedupeSummary(item.title, item.summary) }}</span>
+                    <span
+                      v-if="dedupeCardSummary(item.title, item.summary)"
+                      class="rail-item__summary"
+                    >
+                      {{ dedupeCardSummary(item.title, item.summary) }}
+                    </span>
                   </span>
                   <span v-if="hasCover(item)" class="rail-item__thumb">
                     <SafeImage :src="coverFor(item)" :alt="item.title" />
@@ -373,13 +374,12 @@ onMounted(() => {
                 <div class="news-card__body">
                   <div v-if="hasCover(item)" class="news-card__meta">
                     <span>{{ dayjs(item.publishedAt).format('YYYY.MM.DD') }}</span>
-                    <span>第 {{ item.revision }} 版</span>
                   </div>
                   <h3>{{ item.title }}</h3>
-                  <p>{{ dedupeSummary(item.title, item.summary) }}</p>
+                  <p v-if="dedupeCardSummary(item.title, item.summary)">
+                    {{ dedupeCardSummary(item.title, item.summary) }}
+                  </p>
                   <div class="news-card__foot">
-                    <span v-if="!hasCover(item)">第 {{ item.revision }} 版</span>
-                    <span v-else />
                     <span class="news-card__more">
                       阅读全文
                       <el-icon><ArrowRight /></el-icon>
@@ -616,15 +616,6 @@ onMounted(() => {
   max-width: 780px;
 }
 
-.lead-story__kicker {
-  display: block;
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--brand-700);
-}
-
 .lead-story__text-body h2 {
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -694,10 +685,6 @@ onMounted(() => {
 
 .lead-story:hover .lead-story__more .el-icon {
   transform: translateX(4px);
-}
-
-.lead-story--text .lead-story__kicker {
-  color: var(--lime);
 }
 
 .lead-story--text .lead-story__meta {
@@ -778,10 +765,6 @@ onMounted(() => {
   bottom: 28px;
   z-index: 1;
   color: #fff;
-}
-
-.lead-story__cover-body .lead-story__kicker {
-  color: var(--lime);
 }
 
 .lead-story__cover-body h2 {

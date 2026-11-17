@@ -7,7 +7,7 @@ import { publicApi } from '../../api'
 import type { PublicContent } from '../../api/types'
 import { openPolicyAssistant } from '../../composables/usePolicyAssistant'
 import SafeImage from '../../components/common/SafeImage.vue'
-import { dedupeBodyHtml, dedupeSummary } from '../../utils/contentDedupe'
+import { dedupeBodyHtml, dedupeCardSummary } from '../../utils/contentDedupe'
 
 const route = useRoute()
 const loading = ref(false)
@@ -15,9 +15,9 @@ const content = ref<PublicContent | null>(null)
 const related = ref<PublicContent[]>([])
 const relatedIsRelevant = ref(false)
 
-/** 自动推送赛果会重复带标题，展示层剥离后供模板输出。 */
+/** 摘要按句剥离与标题重复的内容（赛果快讯首句比分等），仅保留增量信息。 */
 const articleSummary = computed(() =>
-  dedupeSummary(content.value?.title, content.value?.summary),
+  dedupeCardSummary(content.value?.title, content.value?.summary),
 )
 const articleBody = computed(() => dedupeBodyHtml(content.value?.title, content.value?.bodyHtml))
 

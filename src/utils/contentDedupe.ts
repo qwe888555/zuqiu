@@ -66,3 +66,23 @@ export function dedupeBodyHtml(title: string | undefined, bodyHtml?: string | nu
     return segment
   })
 }
+
+/**
+ * 卡片摘要：按句剥离与标题内容重复的句子（如赛果快讯摘要首句
+ * "A 3:1 B"，标题与封面图已完整承载），仅保留增量信息（进球球员等）。
+ * 与 dedupeSummary 的区别：dedupeSummary 只处理"摘要以标题为前缀"的情况，
+ * 本函数逐句比对，摘要句子只要出现在标题归一化文本中即剔除。
+ * 若剔除后无剩余内容，返回空串，调用方应隐藏摘要在卡片上的展示行。
+ */
+export function dedupeCardSummary(title: string | undefined, summary?: string | null): string {
+  const raw = (summary || '').trim()
+  const t = norm(title || '')
+  if (!raw) return ''
+  if (!t) return raw
+  const kept = raw
+    .split(/(?<=。)/)
+    .map((s) => s.trim())
+    .filter((s) => s && !t.includes(norm(s)))
+    .join('')
+  return kept.trim()
+}

@@ -75,10 +75,14 @@ export function buildMatchDigest(match: StatsMatch, events: readonly MatchEvent[
     .join(' · ')
 
   const scorerSummary = goals.length
-    ? goals
-        .filter((event) => !event.ownGoal)
-        .map((event) => event.scorerName || event.athleteName || '未知球员')
-        .join('、')
+    ? [
+        // 同一球员多次进球只列一次名字，进球次数由时间线体现。
+        ...new Set(
+          goals
+            .filter((event) => !event.ownGoal)
+            .map((event) => event.scorerName || event.athleteName || '未知球员'),
+        ),
+      ].join('、')
     : ''
   const summary = `${home} ${score} ${away}。${scorerSummary ? `进球球员：${scorerSummary}。` : ''}`.slice(0, 160)
 

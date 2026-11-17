@@ -26,7 +26,7 @@ import { useConsoleEntry } from '../../composables/useConsoleEntry'
 import { rankGoalRows } from '../../utils/goalRanking'
 import { createLiveHls } from '../../utils/hls'
 import { DEFAULT_NEWS_COVER } from '../../utils/newsCover'
-import { dedupeSummary } from '../../utils/contentDedupe'
+import { dedupeCardSummary } from '../../utils/contentDedupe'
 import {
   matchDisplayStatus,
   matchResultPending,
@@ -1071,7 +1071,9 @@ function publicationLink(star: PublicityRecord) {
           <div class="lead-card__body">
             <span class="lead-card__tag">焦点</span>
             <h3>{{ featured.title }}</h3>
-            <p>{{ dedupeSummary(featured.title, featured.summary) }}</p>
+            <p v-if="dedupeCardSummary(featured.title, featured.summary)">
+              {{ dedupeCardSummary(featured.title, featured.summary) }}
+            </p>
             <span class="lead-card__meta">
               {{ formatFullDate(featured.publishedAt) }}
               <i />
@@ -1095,7 +1097,9 @@ function publicationLink(star: PublicityRecord) {
             <span class="news-line__index num">{{ String(index + 2).padStart(2, '0') }}</span>
             <span class="news-line__body">
               <strong>{{ item.title }}</strong>
-              <small>{{ dedupeSummary(item.title, item.summary) }}</small>
+              <small v-if="dedupeCardSummary(item.title, item.summary)">
+                {{ dedupeCardSummary(item.title, item.summary) }}
+              </small>
             </span>
             <span class="news-line__date num">{{ formatDate(item.publishedAt) }}</span>
           </router-link>
