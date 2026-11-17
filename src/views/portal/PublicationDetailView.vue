@@ -253,7 +253,6 @@ onMounted(async () => {
 
       <aside class="detail-aside">
         <div class="aside-card">
-          <span class="aside-kicker">NOTICE GUIDE</span>
           <h3>怎么看这份公示</h3>
           <ol>
             <li>先确认组别与公示类型是否与参赛项目一致。</li>
@@ -579,14 +578,6 @@ onMounted(async () => {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
-}
-
-.aside-kicker {
-  font-family: var(--font-display);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  color: var(--brand-600);
 }
 
 .aside-card h3 {

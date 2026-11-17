@@ -310,7 +310,6 @@ useVisiblePolling(refreshSilently, 30_000)
     <section class="page-hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <span class="hero-kicker">FIXTURES &amp; RESULTS · 2026 SEASON</span>
           <h1>赛程与比分</h1>
           <p>查询赛程安排、实时比分与比赛事件。可以按状态筛选，也可以在赛历中按日期查看。</p>
         </div>
@@ -470,7 +469,10 @@ useVisiblePolling(refreshSilently, 30_000)
                 @click="selectedDay = cell.key"
               >
                 <span class="calendar-cell__top">
-                  <span class="calendar-cell__day num">{{ cell.day }}</span>
+                  <span class="calendar-cell__day-group">
+                    <span class="calendar-cell__day num">{{ cell.day }}</span>
+                    <span v-if="cell.isToday" class="calendar-cell__today-tag">今天</span>
+                  </span>
                   <span v-if="cell.matches.length" class="calendar-cell__count num">
                     {{ cell.matches.length }}
                   </span>
@@ -498,7 +500,6 @@ useVisiblePolling(refreshSilently, 30_000)
 
         <aside class="day-panel">
           <header class="day-head">
-            <span class="day-kicker">DAY AGENDA</span>
             <div class="day-title">
               <h3>{{ formatDayLabel(selectedDay) }}</h3>
               <span>{{ selectedDayMatches.length }} 场</span>
@@ -600,16 +601,6 @@ useVisiblePolling(refreshSilently, 30_000)
 
 .hero-copy {
   min-width: 0;
-}
-
-.hero-kicker {
-  display: block;
-  margin-bottom: 9px;
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--lime);
 }
 
 .page-hero h1 {
@@ -949,6 +940,22 @@ useVisiblePolling(refreshSilently, 30_000)
   background: #fbfdf9;
 }
 
+.calendar-cell__day-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.calendar-cell__today-tag {
+  padding: 1px 4px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--brand-700);
+  background: var(--brand-50);
+  border-radius: 4px;
+}
+
 .calendar-cell.is-selected {
   border-color: var(--brand-700);
   background: var(--brand-50);
@@ -1068,14 +1075,6 @@ useVisiblePolling(refreshSilently, 30_000)
 .day-head {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
-}
-
-.day-kicker {
-  font-family: var(--font-display);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  color: var(--brand-600);
 }
 
 .day-title {

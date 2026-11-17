@@ -100,7 +100,7 @@ onMounted(async () => {
       <div class="container">
         <div class="hero-main">
           <div class="hero-copy">
-            <span class="hero-kicker">POLICY &amp; REGULATIONS · 政策文件</span>
+            <span class="hero-kicker">政策文件</span>
             <h1>政策公告</h1>
             <p>
               竞赛规程、报名办法与资格审查要求，均以本栏目发布的正式文件为准。
@@ -194,7 +194,6 @@ onMounted(async () => {
 
       <aside class="policy-aside">
         <div class="aside-card">
-          <span class="aside-kicker">CATEGORIES</span>
           <h3>政策分类</h3>
           <button
             v-for="kind in kinds"
@@ -210,7 +209,6 @@ onMounted(async () => {
         </div>
 
         <div class="aside-note">
-          <span class="aside-kicker">HOW TO READ</span>
           <h3>阅读提示</h3>
           <p>
             报名与资格审查以最新版本文件为准。点击文件条目可查看完整条款、生效时间和政策依据。
@@ -506,14 +504,6 @@ onMounted(async () => {
   border: 1px solid var(--line);
   border-radius: 9px;
   background: #fff;
-}
-
-.aside-kicker {
-  font-family: var(--font-display);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  color: var(--brand-600);
 }
 
 .aside-card h3,

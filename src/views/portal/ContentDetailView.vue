@@ -157,7 +157,6 @@ watch(() => route.params.id, load)
         <aside class="sidebar">
           <button v-if="isPolicy" type="button" class="assist-card" @click="askThisPolicy">
             <span class="assist-card__icon"><el-icon><ChatDotRound /></el-icon></span>
-            <span class="assist-card__kicker">POLICY Q&amp;A</span>
             <h3>没读懂某一条？</h3>
             <p>围绕当前文件提问，回答会附上政策原文与版本出处。</p>
             <span class="assist-card__hint">
@@ -346,15 +345,6 @@ watch(() => route.params.id, load)
   height: 36px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.1);
-  color: var(--lime);
-}
-
-.assist-card__kicker {
-  margin-top: 12px;
-  font-family: var(--font-display);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
   color: var(--lime);
 }
 

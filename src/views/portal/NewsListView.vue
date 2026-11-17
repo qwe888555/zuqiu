@@ -168,7 +168,7 @@ onMounted(() => {
     <section class="page-hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <span class="hero-kicker">MATCH REPORT · 赛事资讯</span>
+          <span class="hero-kicker">赛事资讯</span>
           <h1>赛场内外</h1>
           <p>赛事动态、球队故事与赛场图集。记录每一个比赛日，也记录绿茵场外的成长。</p>
         </div>
@@ -301,7 +301,6 @@ onMounted(() => {
             <aside v-if="layoutMode === 'lead'" class="news-rail">
               <div class="news-rail__head">
                 <div>
-                  <span class="news-rail__kicker">LATEST</span>
                   <strong>最新速递</strong>
                 </div>
                 <span>按发布时间</span>
@@ -927,16 +926,6 @@ onMounted(() => {
   gap: 12px;
   padding: 20px 22px 16px;
   border-bottom: 1px solid var(--line);
-}
-
-.news-rail__kicker {
-  display: block;
-  margin-bottom: 4px;
-  font-family: var(--font-display);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--brand-700);
 }
 
 .news-rail__head strong {

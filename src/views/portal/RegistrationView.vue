@@ -159,7 +159,7 @@ onMounted(load)
     <section class="page-hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <span class="hero-kicker">REGISTRATION · 赛事报名</span>
+          <span class="hero-kicker">赛事报名</span>
           <h1>赛事报名</h1>
           <p>
             按赛事类别查看当前开放的足球赛事。学校端可为本校及分校区球队报名，球队端可直接为本队报名，提交后依次经市州初审、省级终审。

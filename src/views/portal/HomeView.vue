@@ -1206,7 +1206,6 @@ function publicationLink(star: PublicityRecord) {
         <div class="scorer-card">
           <div class="section-head section-head--compact">
             <div>
-              <span class="scorer-kicker">TOP SCORERS</span>
               <h2>小学组射手榜</h2>
             </div>
             <router-link to="/rankings" class="section-link">
@@ -1260,7 +1259,6 @@ function publicationLink(star: PublicityRecord) {
         <div class="publication-card">
           <div class="section-head section-head--compact">
             <div>
-              <span class="publication-kicker">PUBLIC NOTICE</span>
               <h2>最新公示</h2>
             </div>
             <router-link to="/publications" class="section-link">
@@ -2634,16 +2632,6 @@ function publicationLink(star: PublicityRecord) {
   background: linear-gradient(180deg, #fff 0%, #f7fbf8 100%);
 }
 
-.scorer-kicker {
-  display: block;
-  margin-bottom: 6px;
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--brand-500);
-}
-
 .scorer-card__hint {
   margin: -4px 0 12px;
   font-size: 12px;
@@ -2838,16 +2826,6 @@ function publicationLink(star: PublicityRecord) {
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, #fff 0%, #f7fbf8 100%);
-}
-
-.publication-kicker {
-  display: block;
-  margin-bottom: 6px;
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--brand-500);
 }
 
 .publication-card__hint {

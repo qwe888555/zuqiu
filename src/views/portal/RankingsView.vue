@@ -158,7 +158,6 @@ useVisiblePolling(refreshSilently, 30_000)
       <span class="hero-orbit" aria-hidden="true" />
       <div class="container hero-grid">
         <div class="hero-copy">
-          <span class="hero-kicker">TOP SCORERS · 2026 SEASON</span>
           <h1>射手榜</h1>
           <p>按组别统计已确认赛果中的进球数据；同分并列，后续名次顺延。</p>
         </div>
@@ -369,16 +368,6 @@ useVisiblePolling(refreshSilently, 30_000)
 
 .hero-copy {
   min-width: 0;
-}
-
-.hero-kicker {
-  display: block;
-  margin-bottom: 9px;
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--lime);
 }
 
 .page-hero h1 {
