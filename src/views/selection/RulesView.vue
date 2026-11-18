@@ -313,7 +313,7 @@ onMounted(load)
 
 .rule-summary__item span {
   display: block;
-  font-size: 9.5px;
+  font-size: 12px;
   color: var(--ink-300);
 }
 
@@ -326,7 +326,7 @@ onMounted(load)
 
 .rule-summary__note {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ink-300);
 }
 
@@ -355,12 +355,12 @@ onMounted(load)
 .rule-cell small {
   display: block;
   margin-top: 2px;
-  font-size: 9.5px;
+  font-size: 11.5px;
   color: var(--ink-300);
 }
 
 .muted {
-  font-size: 10px;
+  font-size: 11.5px;
   color: var(--ink-400);
 }
 
@@ -371,10 +371,10 @@ onMounted(load)
 }
 
 .dim-item {
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 5px;
   background: var(--paper);
-  font-size: 9.5px;
+  font-size: 12px;
   color: var(--ink-500);
 }
 
@@ -397,7 +397,7 @@ onMounted(load)
 
 .weight-sum {
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--brand-700);
 }
@@ -424,7 +424,7 @@ onMounted(load)
 
 .dim-row--head {
   padding: 0 2px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--ink-300);
 }
 
