@@ -63,6 +63,7 @@ const registerRules: FormRules = {
     { required: true, message: '请填写身份证号', trigger: 'blur' },
     { pattern: /^\d{17}[\dXx]$/, message: '请输入 18 位身份证号', trigger: 'blur' },
   ],
+  // 手机号选填（系统无短信通道，仅作档案信息），填了则校验 11 位格式。
   phone: [{ validator: validateRegisterPhone, trigger: 'blur' }],
   password: [
     { required: true, message: '请设置密码', trigger: 'blur' },
@@ -362,7 +363,7 @@ async function continueCurrent() {
                 <el-input
                   v-model="registerForm.phone"
                   maxlength="11"
-                  placeholder="用于接收赛事通知"
+                  placeholder="选填，用于组委会线下联系"
                   autocomplete="tel"
                 />
               </el-form-item>

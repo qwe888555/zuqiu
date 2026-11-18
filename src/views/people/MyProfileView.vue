@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus'
 import { Collection, Lock, Refresh } from '@element-plus/icons-vue'
 import { meApi } from '../../api'
 import type { Person } from '../../api/types'
-import { EDUCATION_LABELS, educationLabel } from '../../config/labels'
+import { educationLabel, educationOptionsFor } from '../../config/labels'
 import { useAuthStore } from '../../stores/auth'
 import { httpStatusOf } from '../../utils/httpError'
 import PageHeader from '../../components/common/PageHeader.vue'
@@ -34,6 +34,8 @@ const GENDER_LABELS: Record<string, string> = {
 
 const genderLabel = computed(() => (form.gender ? GENDER_LABELS[form.gender] || form.gender : '未填写'))
 const educationDisplay = computed(() => educationLabel(form.education))
+/** 学历选项按人员身份收窄：运动员只有学段，教练只有大学。 */
+const educationOptions = computed(() => educationOptionsFor(person.value?.kinds || []))
 
 const kindLabel = computed(() => {
   const kinds = person.value?.kinds || []
@@ -281,12 +283,21 @@ onMounted(load)
             </el-form-item>
             <el-form-item label="学历">
               <div v-if="isRegistered('education')" class="readonly-field">{{ educationDisplay }}</div>
-              <el-select v-else v-model="form.education" style="width: 100%" clearable placeholder="选择学历">
+              <el-select
+                v-else
+                v-model="form.education"
+                style="width: 100%"
+                clearable
+                filterable
+                allow-create
+                default-first-option
+                placeholder="选择或输入学历"
+              >
                 <el-option
-                  v-for="(label, value) in EDUCATION_LABELS"
-                  :key="value"
-                  :label="label"
-                  :value="value"
+                  v-for="option in educationOptions"
+                  :key="option.value"
+                  :label="option.label"
+                  :value="option.value"
                 />
               </el-select>
             </el-form-item>

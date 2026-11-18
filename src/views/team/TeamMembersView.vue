@@ -7,8 +7,8 @@ import type { Person, TeamMember } from '../../api/types'
 import { useTeamScope } from '../../composables/useTeamScope'
 import { usePermission } from '../../composables/usePermission'
 import { useAuthStore } from '../../stores/auth'
-import { PERSON_KIND_LABELS, POSITION_LABELS, positionLabel } from '../../config/labels'
-import { isValidIdCard } from '../../utils/idCard'
+import { PERSON_KIND_LABELS, POSITION_LABELS, educationOptionsFor, positionLabel } from '../../config/labels'
+import { isBirthDateMatchIdCard, isValidIdCard, isValidRealName } from '../../utils/idCard'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import StatCard from '../../components/common/StatCard.vue'
@@ -210,6 +210,9 @@ const createForm = reactive({
   education: '',
 })
 
+/** 学历按人员身份收窄：运动员小学/初中/高中，教练员大学。 */
+const educationOptions = computed(() => educationOptionsFor(createForm.kinds))
+
 function openCreate() {
   Object.assign(createForm, {
     realName: '',
@@ -225,14 +228,24 @@ function openCreate() {
 
 async function savePerson() {
   if (!createForm.realName.trim()) return ElMessage.warning('请填写姓名')
+  if (!isValidRealName(createForm.realName)) {
+    return ElMessage.warning('姓名应为 2-20 位中文，不能含数字或特殊符号')
+  }
   if (!createForm.birthDate) return ElMessage.warning('请选择出生日期（报名按出生日期预检年龄）')
-  // 后端创建链强制 18 位身份证号与 11 位手机号（schema pattern），提前校验避免 400。
+  // 后端创建链强制 18 位身份证号；手机号可选，填了则校验 11 位格式。
   if (!isValidIdCard(createForm.idNumber)) return ElMessage.warning('请填写正确的 18 位身份证号')
+  // 出生日期须与身份证号第 7-14 位生日一致，避免档案自相矛盾。
+  if (!isBirthDateMatchIdCard(createForm.birthDate, createForm.idNumber)) {
+    return ElMessage.warning('出生日期与身份证号不一致，请核对')
+  }
   if (createForm.birthDate > new Date().toISOString().slice(0, 10))
     return ElMessage.warning('出生日期不能晚于今天')
-  if (!/^1[3-9]\d{9}$/.test(createForm.phone.trim())) return ElMessage.warning('请填写正确的 11 位手机号')
+  if (createForm.phone.trim() && !/^1[3-9]\d{9}$/.test(createForm.phone.trim())) {
+    return ElMessage.warning('请填写正确的 11 位手机号')
+  }
   if (createForm.kinds.length !== 1) return ElMessage.warning('人员类型只能选择一项')
-  if (!createForm.education.trim()) return ElMessage.warning('请填写学历')
+  // 学历为选填（后端 education 可选自由文本），填了才校验长度，避免超后端 max_length=100。
+  if (createForm.education.trim().length > 100) return ElMessage.warning('学历最多 100 字')
   creating.value = true
   try {
     await personApi.create({
@@ -241,9 +254,9 @@ async function savePerson() {
       gender: createForm.gender,
       birthDate: createForm.birthDate,
       idNumber: createForm.idNumber.trim(),
-      phone: createForm.phone.trim(),
+      ...(createForm.phone.trim() ? { phone: createForm.phone.trim() } : {}),
       schoolOrgId: auth.user?.orgId || undefined,
-      education: createForm.education.trim(),
+      education: createForm.education.trim() || undefined,
     })
     ElMessage.success('档案已创建，请提交复核并审核通过后加入球队')
     createVisible.value = false
@@ -685,7 +698,7 @@ onMounted(async () => {
         type="info"
         :closable="false"
         show-icon
-        title="一人一身份，且身份证号 / 手机号必填"
+        title="一人一身份，身份证号必填，手机号选填"
         description="保存后档案为草稿，需在列表中「提交复核」，待市州/省级审核通过后方可加入球队与报名。"
       />
       <el-form :model="createForm" label-position="top">
@@ -716,11 +729,28 @@ onMounted(async () => {
           <el-form-item label="身份证号" required>
             <el-input v-model="createForm.idNumber" placeholder="18 位身份证号" maxlength="18" />
           </el-form-item>
-          <el-form-item label="手机号" required>
-            <el-input v-model="createForm.phone" placeholder="11 位手机号" maxlength="11" />
+          <el-form-item label="手机号（选填）">
+            <el-input v-model="createForm.phone" placeholder="选填，用于组委会线下联系" maxlength="11" />
           </el-form-item>
-          <el-form-item label="学历" required>
-            <el-input v-model="createForm.education" placeholder="如：小学 / 初中 / 高中" maxlength="100" />
+          <el-form-item label="学历（选填）">
+            <!-- 后端 education 为可选自由文本；提供常见学段快捷项，同时允许自定义
+                 （allow-create）输入更高学历。运动员仍限小学/初中/高中，教练员自由。 -->
+            <el-select
+              v-model="createForm.education"
+              style="width: 100%"
+              clearable
+              filterable
+              allow-create
+              default-first-option
+              placeholder="选择或输入学历"
+            >
+              <el-option
+                v-for="option in educationOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
           </el-form-item>
         </div>
       </el-form>

@@ -137,12 +137,32 @@ export const EDUCATION_LABELS: Record<string, string> = {
   PRIMARY: '小学',
   JUNIOR: '初中',
   SENIOR: '高中',
-  UNIVERSITY: '大学',
+  UNIVERSITY: '本科',
+  MASTER: '硕士研究生',
+  DOCTOR: '博士研究生',
 }
 
 export function educationLabel(education?: string): string {
   if (!education) return '未填写'
   return EDUCATION_LABELS[education] || education
+}
+
+/**
+ * 学历选项按人员身份收窄：运动员只能选小学/初中/高中学段（与报名组别口径一致），
+ * 教练员提供大学以上常见学历；未区分身份时不收窄。
+ * 后端 education 为可选自由文本（max_length=100，非枚举），配合使用方
+ * el-select 的 filterable+allow-create，可自由输入更高学历（如"在读博士"）。
+ */
+export function educationOptionsFor(kinds: readonly string[] = []): Array<{ value: string; label: string }> {
+  const set = new Set(kinds)
+  // 只含教练：大学及以上；只含运动员：小学/初中/高中；双身份或未知身份：全部。
+  if (set.has('COACH') && !set.has('ATHLETE')) {
+    return ['UNIVERSITY', 'MASTER', 'DOCTOR'].map((value) => ({ value, label: EDUCATION_LABELS[value] }))
+  }
+  if (set.has('ATHLETE') && !set.has('COACH')) {
+    return ['PRIMARY', 'JUNIOR', 'SENIOR'].map((value) => ({ value, label: EDUCATION_LABELS[value] }))
+  }
+  return Object.entries(EDUCATION_LABELS).map(([value, label]) => ({ value, label }))
 }
 
 /** 后端 position 字典值：GK/DF/MF/FW。 */

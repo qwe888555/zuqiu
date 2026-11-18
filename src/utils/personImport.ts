@@ -63,7 +63,8 @@ const FIELD_ALIASES: Record<ImportField, string[]> = {
   birthDate: ['出生日期', '生日'],
 }
 
-const REQUIRED_FIELDS: ImportField[] = ['realName', 'idNumber', 'phone', 'kind', 'school']
+// 手机号选填：系统无短信通道，仅作档案信息，不参与报名/登录/通知流程。
+const REQUIRED_FIELDS: ImportField[] = ['realName', 'idNumber', 'kind', 'school']
 
 const REQUIRED_FIELD_LABELS: Record<ImportField, string> = {
   realName: '姓名',
@@ -223,8 +224,7 @@ function toRow(
   }
 
   const phone = cellText(raw.phone).replace(/[\s-]/g, '')
-  if (!phone) errors.push('请填写手机号')
-  else if (!/^1[3-9]\d{9}$/.test(phone)) errors.push('手机号应为 11 位有效号码')
+  if (phone && !/^1[3-9]\d{9}$/.test(phone)) errors.push('手机号应为 11 位有效号码')
 
   const kind = normalizeKind(cellText(raw.kind))
   if (kind.error) errors.push(kind.error)

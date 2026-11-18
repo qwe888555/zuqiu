@@ -22,3 +22,22 @@ export function idCardBirthDate(value: string): string | null {
   if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null
   return `${text.slice(6, 10)}-${text.slice(10, 12)}-${text.slice(12, 14)}`
 }
+
+/**
+ * 姓名规范校验：长度 2-20，仅允许中文与姓名间隔号「·」，
+ * 排除数字与除间隔号外的特殊符号（中文姓名为主）。
+ */
+export function isValidRealName(value: string): boolean {
+  const text = (value || '').trim()
+  return /^[\u4E00-\u9FA5·]{2,20}$/.test(text)
+}
+
+/**
+ * 出生日期是否与身份证号第 7-14 位生日一致；未填出生日期或无法从
+ * 身份证解析时视为一致（不强校验），避免误拦截。
+ */
+export function isBirthDateMatchIdCard(birthDate: string, idNumber: string): boolean {
+  if (!birthDate) return true
+  const fromId = idCardBirthDate(idNumber)
+  return fromId === null || fromId === birthDate
+}

@@ -19,10 +19,10 @@ import {
 import { fileApi, materialApi, orgApi, personApi, teamApi } from '../../api'
 import { useAuthStore } from '../../stores/auth'
 import type { Material, Organization, Person, PersonKind } from '../../api/types'
-import { COACH_CATEGORY_LABELS } from '../../config/labels'
+import { COACH_CATEGORY_LABELS, educationOptionsFor } from '../../config/labels'
 import { fetchAllPages, mapLimit } from '../../utils/asyncPool'
 import { httpMessageOf } from '../../utils/httpError'
-import { isValidIdCard } from '../../utils/idCard'
+import { isBirthDateMatchIdCard, isValidIdCard, isValidRealName } from '../../utils/idCard'
 import {
   buildPersonImportPayload,
   parsePersonImportRows,
@@ -351,6 +351,16 @@ function search() {
   load()
 }
 
+/** 手机号脱敏展示：11 位显示 138****0000，非常规格式原样回退。 */
+function maskPhone(phone?: string | null): string {
+  const value = (phone || '').trim()
+  if (value.length !== 11) return value ? value : '—'
+  return `${value.slice(0, 3)}****${value.slice(-4)}`
+}
+
+/** 学历下拉按人员身份收窄：运动员只有小学/初中/高中，教练只有大学。 */
+const educationOptions = computed(() => educationOptionsFor(form.kinds))
+
 function openCreate() {
   editingId.value = null
   editingVersion.value = 0
@@ -399,6 +409,9 @@ async function openEdit(row: Person) {
 
 async function save() {
   if (!form.realName.trim()) return ElMessage.warning('请填写姓名')
+  if (!isValidRealName(form.realName)) {
+    return ElMessage.warning('姓名应为 2-20 位中文，不能含数字或特殊符号')
+  }
   // 后端 PersonCreate/PersonUpdate 限 1 项（2026-10-30 一人一身份裁定），
   // 这里提前拦截，避免勾选两项后提交才报“请求参数不合法”。
   if (form.kinds.length !== 1) return ElMessage.warning('人员类型只能选择一项')
@@ -406,12 +419,19 @@ async function save() {
     // 后端创建链强制要求身份证号（冻结唯一约束无 NULL）；表单提前校验，
     // 避免提交后才报错。
     if (!isValidIdCard(form.idNumber)) return ElMessage.warning('请填写正确的 18 位身份证号')
+    // 出生日期若填写，应与身份证号第 7-14 位生日一致，避免档案自相矛盾。
+    if (form.birthDate && !isBirthDateMatchIdCard(form.birthDate, form.idNumber)) {
+      return ElMessage.warning('出生日期与身份证号不一致，请核对')
+    }
     // 后端 PersonCreate 的 phone 为 ^1[3-9]\d{9}$ + 11 位长度约束，提前校验格式，
     // 避免填了非手机号内容后提交才报“请求参数不合法”。
-    if (!/^1[3-9]\d{9}$/.test(form.phone.trim())) return ElMessage.warning('请填写正确的 11 位手机号')
+    if (form.phone.trim() && !/^1[3-9]\d{9}$/.test(form.phone.trim())) {
+      return ElMessage.warning('请填写正确的 11 位手机号')
+    }
   }
   if (!form.schoolOrgId) return ElMessage.warning('请选择学校 / 单位')
-  if (!form.education.trim()) return ElMessage.warning('请填写学历')
+  // 学历为选填（后端 education 可选自由文本），填了才校验长度，避免超后端 max_length=100。
+  if (form.education.trim().length > 100) return ElMessage.warning('学历最多 100 字')
   if (form.birthDate && form.birthDate > new Date().toISOString().slice(0, 10)) {
     return ElMessage.warning('出生日期不能晚于今天')
   }
@@ -887,7 +907,7 @@ async function downloadPersonTemplate() {
     const guideSheet = XLSX.utils.aoa_to_sheet([
       ['填写说明'],
       ['1. 单批最多 500 行，文件不超过 5MB；示例行请替换为真实数据或删除。'],
-      ['2. 姓名、身份证号、手机号、人员类型、学校为必填；学历、性别、出生日期可留空。'],
+      ['2. 姓名、身份证号、人员类型、学校为必填；手机号、学历、性别、出生日期选填。'],
       ['3. 身份证号必须把单元格设为「文本」再填写，否则 Excel 会丢失 18 位精度。'],
       ['4. 人员类型填写「运动员」或「教练员」；一个人只能选一种类型。'],
       ['5. 学校填写组织编码或学校全称；遇到同名学校时必须填写组织编码。'],
@@ -1082,6 +1102,12 @@ onMounted(() => {
         <el-table-column prop="schoolName" label="学校 / 单位" min-width="190">
           <template #default="{ row }">{{ row.schoolName || '—' }}</template>
         </el-table-column>
+        <!-- 建档手机号仅脱敏展示（138****0000），既有必填约束又有自查入口，避免“填了看不到”。 -->
+        <el-table-column label="手机号" width="130" align="center">
+          <template #default="{ row }">
+            <span class="muted">{{ maskPhone(row.phone) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="档案状态" width="110">
           <template #default="{ row }"><StatusTag :status="row.reviewStatus" kind="review" /></template>
         </el-table-column>
@@ -1200,8 +1226,12 @@ onMounted(() => {
             <el-form-item label="身份证号" required>
               <el-input v-model="form.idNumber" maxlength="18" placeholder="18 位，仅用于脱敏存储" />
             </el-form-item>
-            <el-form-item label="手机号" required>
-              <el-input v-model="form.phone" maxlength="11" placeholder="11 位手机号，仅用于脱敏存储" />
+            <el-form-item label="手机号（选填）">
+              <el-input
+                v-model="form.phone"
+                maxlength="11"
+                placeholder="选填，用于组委会线下联系，仅脱敏存储"
+              />
             </el-form-item>
           </template>
           <el-form-item label="学校 / 单位" required>
@@ -1215,8 +1245,26 @@ onMounted(() => {
               <el-option v-for="org in schoolOptions" :key="org.id" :label="org.name" :value="org.id" />
             </el-select>
           </el-form-item>
-          <el-form-item label="学历" required>
-            <el-input v-model="form.education" placeholder="如：本科" />
+          <el-form-item label="学历（选填）">
+            <!-- 后端 education 为可选自由文本；提供常见学段快捷项，同时允许自定义
+                 （allow-create）输入更高学历（如"在读博士"）。运动员仍限小学/初中/高中
+                 以与报名组别口径一致，教练员可自由选择大学及以上。 -->
+            <el-select
+              v-model="form.education"
+              style="width: 100%"
+              clearable
+              filterable
+              allow-create
+              default-first-option
+              placeholder="选择或输入学历"
+            >
+              <el-option
+                v-for="option in educationOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item v-if="form.kinds.includes('COACH')" label="教练员类别">
             <el-select v-model="form.coachCategory" style="width: 100%" clearable placeholder="选择类别">
