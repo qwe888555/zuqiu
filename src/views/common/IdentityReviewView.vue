@@ -30,7 +30,7 @@ const groupNames = ref<Record<string, string>>({})
 function fetchMatch(id: string) {
   let pending = matchCache.get(id)
   if (!pending) {
-    pending = matchApi.get(id).catch(() => null)
+    pending = matchApi.get(id, { silentError: true }).catch(() => null)
     matchCache.set(id, pending)
   }
   return pending
@@ -39,7 +39,7 @@ function fetchMatch(id: string) {
 function fetchEnrollment(id: string) {
   let pending = enrollmentCache.get(id)
   if (!pending) {
-    pending = enrollmentApi.get(id).catch(() => null)
+    pending = enrollmentApi.get(id, { silentError: true }).catch(() => null)
     enrollmentCache.set(id, pending)
   }
   return pending
@@ -74,7 +74,7 @@ async function attachPhoto(check: IdentityCheck): Promise<IdentityCheck> {
   let url = photoUrlCache.get(check.capturedPhotoFileId)
   if (!url) {
     try {
-      url = await fileApi.contentObjectUrl(check.capturedPhotoFileId)
+      url = await fileApi.contentObjectUrl(check.capturedPhotoFileId, { silentError: true })
       if (url) photoUrlCache.set(check.capturedPhotoFileId, url)
     } catch {
       return check
@@ -137,9 +137,15 @@ async function openDetail(row: IdentityCheck) {
   drawerVisible.value = true
   detail.value = null
   try {
-    detail.value = await attachPhoto(await enrichCheck(await identityApi.get(row.id)))
+    detail.value = await attachPhoto(
+      await enrichCheck(await identityApi.get(row.id, { silentError: true })),
+    )
   } catch {
     drawerVisible.value = false
+    // 记录可能已被删除，或页面停留过久后数据被重置；给出明确提示并刷新列表，
+    // 不再把原始 404 文案“对象不存在或不可见”直接抛给记录员。
+    ElMessage.warning('该核验记录已不存在，已为你刷新列表')
+    await load()
   }
 }
 

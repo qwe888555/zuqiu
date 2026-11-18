@@ -279,8 +279,8 @@ export const fileApi = {
   download: (fileId: string, fileName: string) =>
     http.download(`/files/${fileId}/content`, fileName),
   /** 读取私有文件并生成可直接放进 img src 的 object URL（调用方负责 revoke）。 */
-  contentObjectUrl: async (fileId: string) => {
-    const blob = await http.getBlob(`/files/${fileId}/content`)
+  contentObjectUrl: async (fileId: string, options?: RequestOptions) => {
+    const blob = await http.getBlob(`/files/${fileId}/content`, undefined, options)
     return blob instanceof Blob ? URL.createObjectURL(blob) : ''
   },
   /** 签发短期展示地址（用于 <img> 等无法携带 Authorization 头的场景）。 */
@@ -408,8 +408,8 @@ export const enrollmentApi = {
     const page = await http.get<PageResult<Enrollment>>('/enrollments', params, options)
     return { ...page, items: page.items.map((item) => normalizeEnrollment(item)) }
   },
-  get: async (id: string) =>
-    normalizeEnrollment(await http.get<EnrollmentDetail>(`/enrollments/${id}`)),
+  get: async (id: string, options?: RequestOptions) =>
+    normalizeEnrollment(await http.get<EnrollmentDetail>(`/enrollments/${id}`, undefined, options)),
   create: (data: Query) => http.post<Enrollment>('/enrollments', data),
   update: (id: string, data: Query) => http.put<Enrollment>(`/enrollments/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/enrollments/${id}`, { version }),
@@ -564,7 +564,8 @@ function unwrapPage<T>(payload: PageResult<T> | T[]): T[] {
 export const matchApi = {
   list: async (params: Query, options?: { silentError?: boolean }) =>
     normalizeMatchPage(await http.get<PageResult<Match>>('/matches', params, options)),
-  get: async (id: string) => normalizeMatch(await http.get<Match>(`/matches/${id}`)),
+  get: async (id: string, options?: RequestOptions) =>
+    normalizeMatch(await http.get<Match>(`/matches/${id}`, undefined, options)),
   create: async (data: Query) => normalizeMatch(await http.post<Match>('/matches', data)),
   update: async (id: string, data: Query) =>
     normalizeMatch(await http.put<Match>(`/matches/${id}`, data)),
@@ -676,7 +677,8 @@ export const identityApi = {
     athleteId?: string
     manualStatus?: string
   }) => http.get<PageResult<IdentityCheck>>('/identity-checks/list', params),
-  get: (id: string) => http.get<IdentityCheck>(`/identity-checks/${id}`),
+  get: (id: string, options?: RequestOptions) =>
+    http.get<IdentityCheck>(`/identity-checks/${id}`, undefined, options),
   /** 核验前探测报名参考照：后端按「名单照片 → 人员档案头像」判定，记录员无权读人员档案。 */
   referencePhoto: (
     params: { enrollmentId: string; athleteId: string },
