@@ -1,7 +1,20 @@
-import type { PublicityRecord, SelectionGroupType } from '../api/types'
+import type { PublicityRecord, PublicityType, SelectionGroupType } from '../api/types'
 import { GROUP_TYPE_LABEL } from '../api/selection'
 
 export type NoticeType = 'ENROLLMENT' | 'PERSON'
+
+/** 公示事项标题必须体现对象身份，避免“运动员/教练员”同组时标题完全一样。 */
+export const NOTICE_TYPE_LABEL: Record<PublicityType, string> = {
+  ATHLETE: '运动员名单公示',
+  COACH: '教练员名单公示',
+  TEAM: '参赛资格公示',
+}
+
+const NOTICE_TYPE_ORDER: Record<PublicityType, number> = {
+  TEAM: 0,
+  ATHLETE: 1,
+  COACH: 2,
+}
 
 export interface NoticeGroup {
   key: string
@@ -9,6 +22,7 @@ export interface NoticeGroup {
   groupType: SelectionGroupType
   groupName: string
   type: NoticeType
+  publicityType: PublicityType
   typeLabel: string
   title: string
   items: PublicityRecord[]
@@ -53,7 +67,8 @@ export function groupPublications(items: PublicityRecord[]): NoticeGroup[] {
       const first = groupItems[0]
       const type: NoticeType = first.publicityType === 'TEAM' ? 'ENROLLMENT' : 'PERSON'
       const groupName = groupCategoryLabel(first.groupType)
-      const typeLabel = type === 'ENROLLMENT' ? '参赛资格公示' : '人员名单公示'
+      const publicityType = first.publicityType
+      const typeLabel = NOTICE_TYPE_LABEL[publicityType]
       const cities = [...new Set(groupItems.map((item) => item.city).filter(Boolean) as string[])]
       return {
         key,
@@ -61,6 +76,7 @@ export function groupPublications(items: PublicityRecord[]): NoticeGroup[] {
         groupType: first.groupType || 'MIDDLE',
         groupName,
         type,
+        publicityType,
         typeLabel,
         title: `${groupName}${typeLabel}`,
         items: groupItems,
@@ -69,7 +85,9 @@ export function groupPublications(items: PublicityRecord[]): NoticeGroup[] {
     })
     .sort((a, b) => {
       if (a.type !== b.type) return a.type === 'ENROLLMENT' ? -1 : 1
-      return a.groupName.localeCompare(b.groupName, 'zh-Hans-CN')
+      const groupOrder = a.groupName.localeCompare(b.groupName, 'zh-Hans-CN')
+      if (groupOrder !== 0) return groupOrder
+      return NOTICE_TYPE_ORDER[a.publicityType] - NOTICE_TYPE_ORDER[b.publicityType]
     })
 }
 

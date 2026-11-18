@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Search } from '@element-plus/icons-vue'
-import { publicityApi } from '../../api/selection'
+import { publicityApi, PUBLICITY_TYPE_LABEL } from '../../api/selection'
 import type { PublicityRecord } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import {
@@ -35,16 +35,14 @@ const [noticeEventId, noticeType, noticeGroupType] = noticeKey.value.split('|')
 const notices = computed(() => groupPublications(allItems.value))
 const notice = computed(() => notices.value.find((item) => item.key === noticeKey.value) || null)
 
-const objectTabs = computed(() => {
-  if (notice.value?.type === 'ENROLLMENT') {
-    return [{ label: '参赛球队', value: 'TEAM' }]
-  }
-  return [
-    { label: '全部对象', value: '' },
-    { label: '运动员', value: 'ATHLETE' },
-    { label: '教练员', value: 'COACH' },
-  ]
-})
+/** 每项公示只包含一种对象类型，人员名单页无需再按运动员/教练员切换。 */
+const objectTabs = computed(() =>
+  notice.value?.type === 'ENROLLMENT' ? [{ label: '参赛球队', value: 'TEAM' }] : [],
+)
+
+const noticeObjectText = computed(() =>
+  notice.value ? (notice.value.type === 'ENROLLMENT' ? '参赛球队' : PUBLICITY_TYPE_LABEL[notice.value.publicityType]) : '人员',
+)
 
 const cityOptions = computed(() => [
   ...new Set(notice.value?.items.map((item) => item.city).filter(Boolean) as string[]),
@@ -130,7 +128,7 @@ onMounted(async () => {
             </div>
             <h1>{{ notice.title }}</h1>
             <p>
-              本页展示该组别下经审核确认可公开的{{ notice.type === 'ENROLLMENT' ? '参赛球队' : '人员' }}信息。
+              本页展示该组别下经审核确认可公开的{{ noticeObjectText }}信息。
               公示期、批次及入选依据以组委会正式发布的公告为准。
             </p>
             <router-link to="/publications" class="back-link">
@@ -170,14 +168,14 @@ onMounted(async () => {
       <section class="list-panel">
         <header class="list-head">
           <div>
-            <h2>{{ notice.type === 'ENROLLMENT' ? '参赛球队名单' : '公示人员名单' }}</h2>
-            <p>共 {{ notice.items.length }} 条公开信息，可按对象、市州或名称筛选。</p>
+            <h2>{{ noticeObjectText }}名单</h2>
+            <p>共 {{ notice.items.length }} 条公开信息，可按市州或姓名筛选。</p>
           </div>
           <span class="result-count">筛选结果 {{ total }} 条</span>
         </header>
 
         <div class="toolbar">
-          <div class="object-tabs">
+          <div v-if="objectTabs.length" class="object-tabs">
             <button
               v-for="tab in objectTabs"
               :key="tab.value"
