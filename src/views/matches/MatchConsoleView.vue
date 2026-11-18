@@ -947,10 +947,18 @@ onMounted(loadAll)
           </el-radio-group>
         </el-form-item>
         <el-form-item label="所属球队">
-          <el-select v-model="eventForm.teamId" style="width: 100%">
+          <!-- 进球由主/客队快捷按钮打开，球队已由按钮确定，不再提供可改的球队下拉框。 -->
+          <el-select
+            v-model="eventForm.teamId"
+            style="width: 100%"
+            :disabled="eventForm.eventType === 'GOAL'"
+          >
             <el-option :label="match?.homeTeamName || '主队'" :value="match?.homeTeamId || ''" />
             <el-option :label="match?.awayTeamName || '客队'" :value="match?.awayTeamId || ''" />
           </el-select>
+          <span v-if="eventForm.eventType === 'GOAL'" class="field-hint">
+            进球球队由对应的主/客队按钮确定。
+          </span>
         </el-form-item>
         <el-form-item label="比赛分钟">
           <el-input-number v-model="eventForm.minute" :min="0" :max="130" controls-position="right" />
