@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ArrowRight, InfoFilled, Search } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
-import { publicityApi } from '../../api/selection'
+import { listAllPublicity } from '../../api/selection'
 import type { PublicEvent, PublicityRecord } from '../../api/types'
 import {
   GROUP_TABS,
@@ -69,15 +69,15 @@ async function loadEvents() {
   }
 }
 
+// 后端 parse_page 会把 size 静默截到 100，原来一次请求 size=200 实际只拿到最新 100 条，
+// 后发布的“参赛资格”会挤掉更早的运动员/教练员名单，导致页面只剩一类公示。
+// 这里按页取全量后再按“类型 + 组别”归集。
 async function load() {
-  if (!eventId.value) {
-    allItems.value = []
-    return
-  }
+  allItems.value = []
+  if (!eventId.value) return
   loading.value = true
   try {
-    const res = await publicityApi.list({ eventId: eventId.value, page: 1, size: 200 })
-    allItems.value = res.items
+    allItems.value = await listAllPublicity({ eventId: eventId.value })
   } catch {
     allItems.value = []
   } finally {

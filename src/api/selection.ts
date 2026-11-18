@@ -574,6 +574,24 @@ export interface PublicityQuery {
   size?: number
 }
 
+/**
+ * 门户公示全量拉取：后端 parse_page 会把 size 静默截到 100，
+ * 单次请求只能在“最新 100 条”里归集，量大的赛事会丢掉更早发布的类型/组别。
+ */
+export async function listAllPublicity(
+  params: PublicityQuery,
+  pageSize = 100,
+  maxPages = 30,
+): Promise<PublicityRecord[]> {
+  const items: PublicityRecord[] = []
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await publicityApi.list({ ...params, page, size: pageSize })
+    items.push(...res.items)
+    if (!res.items.length || items.length >= res.total) break
+  }
+  return items
+}
+
 export const publicityApi = {
   /** 门户公示列表（仅已公示） */
   async list(params: PublicityQuery): Promise<PageResult<PublicityRecord>> {

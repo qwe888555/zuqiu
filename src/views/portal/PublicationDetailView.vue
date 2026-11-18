@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeft, Search } from '@element-plus/icons-vue'
-import { publicityApi, PUBLICITY_TYPE_LABEL } from '../../api/selection'
+import { listAllPublicity, PUBLICITY_TYPE_LABEL } from '../../api/selection'
 import type { PublicityRecord } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import {
@@ -92,14 +92,12 @@ onMounted(async () => {
   if (!noticeEventId) return
   loading.value = true
   try {
-    const res = await publicityApi.list({
+    const items = await listAllPublicity({
       eventId: noticeEventId,
       publicityType: (noticeType as 'ATHLETE' | 'COACH' | 'TEAM') || undefined,
       groupType: (noticeGroupType as PublicityRecord['groupType']) || undefined,
-      page: 1,
-      size: 500,
     })
-    allItems.value = res.items
+    allItems.value = items
   } catch {
     allItems.value = []
   } finally {
