@@ -9,6 +9,7 @@ import {
   VideoPlay,
 } from '@element-plus/icons-vue'
 import { publicApi } from '../../api'
+import { useVisiblePolling } from '../../composables/useVisiblePolling'
 import { publicityApi } from '../../api/selection'
 import type {
   GoalRankingRow,
@@ -51,6 +52,8 @@ const banners = ref<PublicResource[]>([])
 const news = ref<PublicContent[]>([])
 const policies = ref<PublicContent[]>([])
 const matches = ref<PublicMatch[]>([])
+// 首页当前展示的赛事：静默轮询据此刷新对阵状态，避免比赛管理改状态后首页一直停在旧赛况。
+const homeEventId = ref('')
 const goals = ref<GoalRankingRow[]>([])
 const stars = ref<PublicityRecord[]>([])
 const matchTab = ref<MatchTab>('LIVE')
@@ -657,6 +660,19 @@ function tabCount(key: MatchTab) {
   return finishedMatches.value.length
 }
 
+/** 静默刷新首页对阵：比赛管理改状态/比分后，首页在 30s 内与门户比赛页保持一致。 */
+async function refreshHomeMatches() {
+  if (loading.value || !homeEventId.value) return
+  const id = homeEventId.value
+  try {
+    const res = await publicApi.matches({ eventId: id, page: 1, pageSize: 50 })
+    if (id !== homeEventId.value) return
+    matches.value = res.items
+  } catch {
+    // 保留上一次结果，等下一轮
+  }
+}
+
 async function loadHome() {
   loading.value = true
   loadError.value = false
@@ -697,6 +713,7 @@ async function loadHome() {
     }
 
     matches.value = matchItems
+    homeEventId.value = publicEventId
     goals.value = goalRows.slice(0, 5)
     // 首屏直播与公示互不依赖，一起等待以免串行拖慢首屏。
     await Promise.all([
@@ -734,6 +751,7 @@ onMounted(() => {
   startHeroOfflineProbe()
   startHomeLiveRefresh()
 })
+useVisiblePolling(refreshHomeMatches, 30_000)
 onBeforeUnmount(() => {
   stopHeroRestTimer()
   stopHeroStallWatchdog()
