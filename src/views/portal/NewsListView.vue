@@ -7,10 +7,14 @@ import type { PublicContent } from '../../api/types'
 import PaginationBar from '../../components/common/PaginationBar.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 import { DEFAULT_NEWS_COVER } from '../../utils/newsCover'
-import { dedupeCardSummary } from '../../utils/contentDedupe'
+import {
+  dedupeCardSummary,
+  dedupeResultContent,
+  resultCardTitle,
+} from '../../utils/contentDedupe'
 
 const loading = ref(false)
-const allItems = ref<PublicContent[]>([])
+const rawItems = ref<PublicContent[]>([])
 const page = ref(1)
 const pageSize = 10
 const keyword = ref('')
@@ -109,9 +113,9 @@ async function load() {
   try {
     const res = await publicApi.contents({ page: 1, pageSize: 100 })
     // 政策公告在顶部导航有独立栏目，资讯流不重复收录，避免同一内容出现两个入口。
-    allItems.value = res.items.filter((item) => item.contentType !== 'POLICY')
+    rawItems.value = res.items.filter((item) => item.contentType !== 'POLICY')
   } catch {
-    allItems.value = []
+    rawItems.value = []
   } finally {
     loading.value = false
   }
@@ -141,6 +145,14 @@ function coverFor(item: PublicContent) {
 function hasCover(item: PublicContent) {
   return Boolean(coverFor(item))
 }
+
+/**
+ * 同一场比赛会被推送两条赛果内容：后端自动推送的「赛果：…」（无封面）与
+ * 前端发布的「赛果快讯｜…」（带比分海报）。资讯流只保留带海报的那条。
+ */
+const allItems = computed(() =>
+  dedupeResultContent(rawItems.value, (item) => hasCover(item)),
+)
 
 /** 头图位置始终有图：没有真实封面时用品牌默认图，避免首屏出现纯色文字块。 */
 const leadCover = computed(() => {
@@ -233,7 +245,7 @@ onMounted(() => {
                   </span>
                 </div>
                 <div class="lead-story__cover-body">
-                  <h2>{{ leadStory.title }}</h2>
+                  <h2>{{ resultCardTitle(leadStory.title) }}</h2>
                   <p v-if="dedupeCardSummary(leadStory.title, leadStory.summary)">
                     {{ dedupeCardSummary(leadStory.title, leadStory.summary) }}
                   </p>
@@ -256,7 +268,7 @@ onMounted(() => {
                   </span>
                 </div>
                 <div class="lead-story__text-body">
-                  <h2>{{ leadStory.title }}</h2>
+                  <h2>{{ resultCardTitle(leadStory.title) }}</h2>
                   <p v-if="dedupeCardSummary(leadStory.title, leadStory.summary)">
                     {{ dedupeCardSummary(leadStory.title, leadStory.summary) }}
                   </p>
@@ -285,7 +297,7 @@ onMounted(() => {
                   </span>
                   <span class="num">{{ dayjs(secondaryStory.publishedAt).format('YYYY.MM.DD') }}</span>
                 </div>
-                <h3>{{ secondaryStory.title }}</h3>
+                <h3>{{ resultCardTitle(secondaryStory.title) }}</h3>
                 <p v-if="dedupeCardSummary(secondaryStory.title, secondaryStory.summary)">
                   {{ dedupeCardSummary(secondaryStory.title, secondaryStory.summary) }}
                 </p>
@@ -320,7 +332,7 @@ onMounted(() => {
                       </span>
                       <span>{{ dayjs(item.publishedAt).format('MM.DD') }}</span>
                     </span>
-                    <strong class="rail-item__title">{{ item.title }}</strong>
+                    <strong class="rail-item__title">{{ resultCardTitle(item.title) }}</strong>
                     <span
                       v-if="dedupeCardSummary(item.title, item.summary)"
                       class="rail-item__summary"
@@ -373,7 +385,7 @@ onMounted(() => {
                   <div v-if="hasCover(item)" class="news-card__meta">
                     <span>{{ dayjs(item.publishedAt).format('YYYY.MM.DD') }}</span>
                   </div>
-                  <h3>{{ item.title }}</h3>
+                  <h3>{{ resultCardTitle(item.title) }}</h3>
                   <p v-if="dedupeCardSummary(item.title, item.summary)">
                     {{ dedupeCardSummary(item.title, item.summary) }}
                   </p>

@@ -107,3 +107,75 @@ export function dedupeCardSummary(title: string | undefined, summary?: string | 
     .join('')
   return dedupeScorerNames(kept.trim())
 }
+
+/** 赛果类内容标题：后端自动推送的「赛果：A 3:1 B」与前端快讯「赛果快讯｜A 3:1 B（组别）」。 */
+export function isResultContentTitle(title: string | null | undefined): boolean {
+  return /^\s*(?:赛果快讯\s*[|｜]|赛果\s*[:：])/.test(title || '')
+}
+
+/**
+ * 同一场比赛的赛果内容键：去掉「赛果/赛果快讯」前缀与结尾的组别括号，
+ * 只留"A 3:1 B"这类比赛要素，使两个来源的标题能对齐为同一场。
+ */
+function resultContentKey(title: string): string {
+  const core = title
+    .replace(/^\s*赛果快讯\s*[|｜]\s*/, '')
+    .replace(/^\s*赛果\s*[:：]\s*/, '')
+    .replace(/[（(][^）)]*[)）]\s*$/, '')
+  return norm(core)
+}
+
+/**
+ * 赛果内容去重：后端在发布赛果时自动推送一条「赛果：A 3:1 B」（无封面），
+ * 前端随后又生成一条带比分海报的「赛果快讯｜…」。门户只保留一条：
+ * 优先带封面的（海报版），封面相同则优先 NEWS 快讯，其余按首次出现位置保留。
+ */
+/**
+ * 赛果类标题的卡片结论句：把「赛果快讯｜A 1:0 B（组别）」这类复述比分的标题，
+ * 在卡片展示层转换为新闻标题「A 小胜/大胜/战平/不敌 B」，比分只由海报承载。
+ * 仅作用于展示层，源数据与详情页标题保持原样；无法解析时原样返回。
+ */
+export function resultCardTitle(title: string | null | undefined): string {
+  const raw = (title || '').trim()
+  if (!isResultContentTitle(raw)) return raw
+  const core = raw
+    .replace(/^\s*赛果快讯\s*[|｜]\s*/, '')
+    .replace(/^\s*赛果\s*[:：]\s*/, '')
+    .replace(/[（(][^）)]*[)）]\s*$/, '')
+    .trim()
+  const matched = core.match(/^(.+?)\s+(\d{1,3}):(\d{1,3})\s+(.+)$/)
+  if (!matched) return raw
+  const home = matched[1].trim()
+  const away = matched[4].trim()
+  const homeScore = Number(matched[2])
+  const awayScore = Number(matched[3])
+  if (homeScore > awayScore) {
+    return `${home}${homeScore - awayScore >= 3 ? '大胜' : '小胜'}${away}`
+  }
+  if (homeScore === awayScore) return `${home}战平${away}`
+  return `${home}不敌${away}`
+}
+
+export function dedupeResultContent<T extends { title: string; contentType?: string }>(
+  items: readonly T[],
+  hasCover: (item: T) => boolean,
+): T[] {
+  const keys = items.map((item) =>
+    isResultContentTitle(item.title) ? resultContentKey(item.title) : '',
+  )
+  const winners = new Map<string, number>()
+  keys.forEach((key, index) => {
+    if (!key) return
+    const current = winners.get(key)
+    if (current === undefined) {
+      winners.set(key, index)
+      return
+    }
+    const score = (i: number) => (hasCover(items[i]) ? 2 : 0) + (items[i].contentType === 'NEWS' ? 1 : 0)
+    if (score(index) > score(current)) winners.set(key, index)
+  })
+  return items.filter((_, index) => {
+    const key = keys[index]
+    return !key || winners.get(key) === index
+  })
+}

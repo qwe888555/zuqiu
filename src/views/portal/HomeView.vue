@@ -26,7 +26,7 @@ import { useConsoleEntry } from '../../composables/useConsoleEntry'
 import { rankGoalRows } from '../../utils/goalRanking'
 import { createLiveHls } from '../../utils/hls'
 import { DEFAULT_NEWS_COVER } from '../../utils/newsCover'
-import { dedupeCardSummary } from '../../utils/contentDedupe'
+import { dedupeCardSummary, resultCardTitle } from '../../utils/contentDedupe'
 import {
   matchDisplayStatus,
   matchResultPending,
@@ -1070,7 +1070,7 @@ function publicationLink(star: PublicityRecord) {
           <span v-if="featuredCover" class="lead-card__shade" />
           <div class="lead-card__body">
             <span class="lead-card__tag">焦点</span>
-            <h3>{{ featured.title }}</h3>
+            <h3>{{ resultCardTitle(featured.title) }}</h3>
             <p v-if="dedupeCardSummary(featured.title, featured.summary)">
               {{ dedupeCardSummary(featured.title, featured.summary) }}
             </p>
@@ -1096,7 +1096,7 @@ function publicationLink(star: PublicityRecord) {
           >
             <span class="news-line__index num">{{ String(index + 2).padStart(2, '0') }}</span>
             <span class="news-line__body">
-              <strong>{{ item.title }}</strong>
+              <strong>{{ resultCardTitle(item.title) }}</strong>
               <small v-if="dedupeCardSummary(item.title, item.summary)">
                 {{ dedupeCardSummary(item.title, item.summary) }}
               </small>

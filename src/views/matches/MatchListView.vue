@@ -29,7 +29,19 @@ const router = useRouter()
 const auth = useAuthStore()
 const { can } = usePermission()
 const loading = ref(false)
-const rows = ref<Match[]>([])
+const allRows = ref<Match[]>([])
+/**
+ * 管理列表把开球时间最近的比赛排在前面。
+ * 后端 /matches 固定按开球时间升序返回，直接分页会让最新一场永远落在最后一页；
+ * 因此一次取回筛选结果后在本地倒序并分页。
+ */
+const rows = computed(() => {
+  const sorted = allRows.value
+    .slice()
+    .sort((a, b) => dayjs(b.kickoffAt).valueOf() - dayjs(a.kickoffAt).valueOf())
+  const start = (page.value - 1) * pageSize.value
+  return sorted.slice(start, start + pageSize.value)
+})
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
@@ -92,8 +104,8 @@ async function load() {
   loading.value = true
   try {
     const res = await matchApi.list({
-      page: page.value,
-      pageSize: pageSize.value,
+      page: 1,
+      pageSize: 200,
       eventId: filters.eventId || undefined,
       status: filters.status || undefined,
       // 球队端按登录账号所属球队过滤；其他角色维持全量可见。
@@ -102,10 +114,13 @@ async function load() {
       teamName: filters.keyword || undefined,
     })
     if (seq !== loadSeq) return
-    rows.value = res.items
+    allRows.value = res.items
     total.value = res.total
   } catch {
-    if (seq === loadSeq) rows.value = []
+    if (seq === loadSeq) {
+      allRows.value = []
+      total.value = 0
+    }
   } finally {
     if (seq === loadSeq) loading.value = false
   }
@@ -207,6 +222,13 @@ async function saveMatch() {
   if (!form.homeTeamId || !form.awayTeamId) return ElMessage.warning('请选择对阵双方')
   if (form.homeTeamId === form.awayTeamId) return ElMessage.warning('对阵双方不能相同')
   if (!form.kickoffAt) return ElMessage.warning('请选择开赛时间')
+  // 开球时间未到就改成进行中或已结束，门户会出现“没开赛却在直播/已有赛果”的矛盾展示。
+  if (
+    ['LIVE', 'FINISHED'].includes(form.status) &&
+    dayjs(form.kickoffAt).valueOf() > Date.now()
+  ) {
+    return ElMessage.warning('开赛时间还没到，比赛尚未开始，暂不能设为进行中或已结束；如需提前开赛，请先把开赛时间改为当前时间')
+  }
   creating.value = true
   const payload = {
     ...form,

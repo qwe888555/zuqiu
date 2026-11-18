@@ -66,10 +66,13 @@ export function matchDisplayStatus(match: PublicMatch): MatchDisplayStatus {
   if (!kickoff.isValid()) return recorded
 
   const elapsed = dayjs(portalClock.value).diff(kickoff, 'minute')
-  if (elapsed < 0) return 'SCHEDULED'
+  // 记录台手动置为“进行中”时以人工状态为准：提前开赛或改期后未同步开球时间，
+  // 门户都应显示进行中，而不是按开球时间倒推成“未开赛”。
   if (recorded === 'LIVE') {
+    if (elapsed < 0) return 'LIVE'
     return elapsed > MATCH_STALE_LIVE_MINUTES ? 'FINISHED' : 'LIVE'
   }
+  if (elapsed < 0) return 'SCHEDULED'
   return elapsed <= MATCH_LIVE_WINDOW_MINUTES ? 'LIVE' : 'FINISHED'
 }
 

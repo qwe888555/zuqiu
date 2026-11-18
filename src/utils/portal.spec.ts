@@ -55,6 +55,12 @@ describe('matchDisplayStatus', () => {
     )
   })
 
+  it('记录台手动开赛优先于开球时间：提前开赛也显示进行中', () => {
+    expect(matchDisplayStatus(makeMatch({ status: 'LIVE', kickoffAt: minutesAgo(-120) }))).toBe(
+      'LIVE',
+    )
+  })
+
   it('已确认赛果与已取消不被时间改写', () => {
     expect(
       matchDisplayStatus(makeMatch({ status: 'FINISHED', kickoffAt: minutesAgo(60 * 24) })),

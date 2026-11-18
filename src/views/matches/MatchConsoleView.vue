@@ -184,8 +184,14 @@ async function loadAll() {
     documents.value = docs.items
     result.value = res
     resultForm.resultType = res.resultType
-    resultForm.manualHomeScore = res.homeScore
-    resultForm.manualAwayScore = res.awayScore
+    // 常规赛果比分跟随比赛事件：以后端赛果快照为准可能滞后于刚记录的进球，显示成 0:0。
+    if (res.resultType === 'NORMAL' || !res.resultType) {
+      resultForm.manualHomeScore = m.homeScore ?? 0
+      resultForm.manualAwayScore = m.awayScore ?? 0
+    } else {
+      resultForm.manualHomeScore = res.homeScore
+      resultForm.manualAwayScore = res.awayScore
+    }
     resultForm.reason = res.reason || ''
     if (!eventForm.teamId) eventForm.teamId = m.homeTeamId
     try {
@@ -203,7 +209,13 @@ async function loadAll() {
 
 async function refreshMatch() {
   try {
-    match.value = await matchApi.get(matchId)
+    const m = await matchApi.get(matchId)
+    match.value = m
+    // 记录进球/判罚后同步「赛果确认」面板比分，无需整页刷新。
+    if (resultForm.resultType === 'NORMAL' || !resultForm.resultType) {
+      resultForm.manualHomeScore = m.homeScore ?? 0
+      resultForm.manualAwayScore = m.awayScore ?? 0
+    }
     const ev = await matchApi.events(matchId, { page: 1, pageSize: 200 })
     events.value = ev.items
   } catch {
@@ -444,6 +456,11 @@ async function downloadDocument(doc: MatchDocument) {
 
 async function finishMatch() {
   if (!match.value) return
+  // 与比赛管理的状态校验保持一致：开球时间未到不能直接结束比赛。
+  if (match.value.kickoffAt && dayjs(match.value.kickoffAt).valueOf() > Date.now()) {
+    ElMessage.warning('开赛时间还没到，比赛尚未开始，暂不能结束比赛')
+    return
+  }
   try {
     await ElMessageBox.confirm('确认比赛已经结束？结束后才能发布赛果。', '结束比赛', {
       confirmButtonText: '确认结束',
