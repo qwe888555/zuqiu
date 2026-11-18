@@ -124,6 +124,26 @@ function requireAccount(config: AxiosRequestConfig): Account {
  */
 const messageReadAt = new Map<string, Map<string, string>>()
 
+/**
+ * 管理员群发的消息不写进共享的 messages 数组：真实后端会为每个接收账号生成
+ * 一条消息，Mock 用「消息 + 目标角色」模拟同一份内容对不同账号可见。
+ */
+const publishedMessages: Array<{ message: Message; targetRoles: string[] }> = []
+
+function publishedVisibleTo(account: Account, entry: { targetRoles: string[] }) {
+  return (
+    entry.targetRoles.length === 0 ||
+    account.roles.some((role) => entry.targetRoles.includes(role))
+  )
+}
+
+function findVisibleMessage(account: Account, messageId: string): Message | undefined {
+  const seeded = messages.find((m) => m.id === messageId)
+  if (seeded) return seeded
+  const entry = publishedMessages.find((item) => item.message.id === messageId)
+  return entry && publishedVisibleTo(account, entry) ? entry.message : undefined
+}
+
 /** 上传成功后按文件 ID 记住展示地址，供球队资料保存媒体文件 ID 时回填 URL。 */
 const mockUploadedFileUrls = new Map<string, string>()
 
@@ -276,6 +296,10 @@ on('POST', '/me/password', ({ body }) => {
 
 on('GET', '/me/messages', ({ config, query }) => {
   const account = requireAccount(config)
+  // 群发消息按目标角色可见；不套用种子数据的业务类型白名单，否则群发到球队/学校端会被误过滤。
+  const published = publishedMessages
+    .filter((entry) => publishedVisibleTo(account, entry))
+    .map((entry) => messageForAccount(account.id, entry.message))
   let items = messages.map((m) => messageForAccount(account.id, m))
   if (account.roles.includes('TEAM') || account.roles.includes('UNIVERSITY')) {
     items = items.filter(
@@ -284,6 +308,7 @@ on('GET', '/me/messages', ({ config, query }) => {
         ['ENROLLMENT', 'REVIEW', 'MATERIAL', 'MATCH', 'PUBLICATION'].includes(m.businessType),
     )
   }
+  items = [...published, ...items]
   // 后端使用 read 布尔参数；保留 unreadOnly 兼容旧调用。
   if (query.read !== undefined) {
     const read = str(query.read) === 'true'
@@ -296,20 +321,67 @@ on('GET', '/me/messages', ({ config, query }) => {
 
 on('GET', '/me/messages/:messageId', ({ config, params }) => {
   const account = requireAccount(config)
-  const msg = messages.find((m) => m.id === params.messageId)
+  const msg = findVisibleMessage(account, params.messageId)
   if (!msg) throw new MockHttpError(404, 'NOT_FOUND', '消息不存在')
   return messageForAccount(account.id, msg)
 })
 
 on('POST', '/me/messages/:messageId/read', ({ config, params }) => {
   const account = requireAccount(config)
-  const msg = messages.find((m) => m.id === params.messageId)
+  const msg = findVisibleMessage(account, params.messageId)
   if (!msg) throw new MockHttpError(404, 'NOT_FOUND', '消息不存在')
   const readAt = now()
   const state = messageReadAt.get(account.id) || new Map<string, string>()
   state.set(msg.id, readAt)
   messageReadAt.set(account.id, state)
   return { success: true, id: msg.id, version: msg.version + 1, readAt }
+})
+
+on('POST', '/messages', ({ config, body }) => {
+  const account = requireAccount(config)
+  if (!account.roles.includes('ADMIN')) {
+    throw new MockHttpError(403, 'FORBIDDEN', '仅管理员可发布系统消息')
+  }
+  const title = str(body.title).trim()
+  if (!title) throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '消息标题不能为空')
+  if (title.length > 150) {
+    throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '消息标题不能超过 150 字')
+  }
+  const text = str(body.body).trim()
+  if (text.length > 2000) {
+    throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '消息正文不能超过 2000 字')
+  }
+  const roles: string[] = Array.isArray(body.roles)
+    ? (body.roles as unknown[]).map(str).filter(Boolean)
+    : []
+  if (roles.length > 8) {
+    throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', '接收角色不能超过 8 个')
+  }
+  const unknownRole = roles.find((role) => !(role in ROLE_LABELS))
+  if (unknownRole) {
+    throw new MockHttpError(422, 'BUSINESS_VALIDATION_FAILED', `未知角色：${unknownRole}`)
+  }
+  // 与后端一致：可选分类，缺省为系统；非法值按缺省处理。
+  const publishTypes = ['REVIEW', 'MATERIAL', 'MATCH', 'PUBLICATION', 'SYSTEM']
+  const rawType = str(body.businessType).toUpperCase()
+  const businessType = publishTypes.includes(rawType) ? rawType : 'SYSTEM'
+
+  const targets = accounts.filter(
+    (item) => item.enabled && (!roles.length || item.roles.some((role) => roles.includes(role))),
+  )
+  publishedMessages.unshift({
+    message: {
+      id: nextId('msg'),
+      title,
+      body: text,
+      businessType,
+      read: false,
+      version: 1,
+      createdAt: now(),
+    },
+    targetRoles: roles,
+  })
+  return { count: targets.length }
 })
 
 on('GET', '/me/profile', ({ config }) => {

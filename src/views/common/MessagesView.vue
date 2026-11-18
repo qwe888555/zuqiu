@@ -30,6 +30,9 @@ const categories: Category[] = [
   { key: 'SYSTEM', label: '系统' },
 ]
 
+// 管理员发布时可选的分类（不含“全部分类”），与后端 businessType 口径一致。
+const publishCategories = categories.filter((item) => item.key !== 'ALL')
+
 const router = useRouter()
 const app = useAppStore()
 const auth = useAuthStore()
@@ -37,13 +40,14 @@ const { linkFor } = useMessageLink()
 
 const publishVisible = ref(false)
 const publishing = ref(false)
-const publishForm = reactive({ title: '', body: '', roles: [] as string[] })
+const publishForm = reactive({ title: '', body: '', roles: [] as string[], businessType: 'SYSTEM' as CategoryKey })
 const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
 
 function openPublish() {
   publishForm.title = ''
   publishForm.body = ''
   publishForm.roles = []
+  publishForm.businessType = 'SYSTEM'
   publishVisible.value = true
 }
 
@@ -58,6 +62,7 @@ async function submitPublish() {
       title: publishForm.title.trim(),
       body: publishForm.body.trim(),
       roles: publishForm.roles,
+      businessType: publishForm.businessType,
     })
     ElMessage.success(`消息已发布给 ${res.count} 个账号`)
     publishVisible.value = false
@@ -344,6 +349,11 @@ onMounted(load)
       <el-form label-position="top">
         <el-form-item label="消息标题" required>
           <el-input v-model="publishForm.title" maxlength="150" show-word-limit placeholder="例如：赛程调整通知" />
+        </el-form-item>
+        <el-form-item label="消息分类">
+          <el-select v-model="publishForm.businessType">
+            <el-option v-for="category in publishCategories" :key="category.key" :label="category.label" :value="category.key" />
+          </el-select>
         </el-form-item>
         <el-form-item label="消息内容">
           <el-input
