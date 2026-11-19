@@ -308,13 +308,19 @@ function openEdit(member: TeamMember) {
   editingMember.value = member
   editForm.jerseyNumber = member.jerseyNumber
   editForm.position = member.position || ''
-  editForm.effectiveFrom = new Date().toISOString().slice(0, 10)
-  editForm.effectiveTo = ''
+  // 回显真实加入日期，而不是每次打开都重置为今天（否则用户会把生效日期
+  // 误当成"本次编辑日期"，还可能出现结束日期早于生效日期）。
+  editForm.effectiveFrom = member.effectiveFrom || new Date().toISOString().slice(0, 10)
+  editForm.effectiveTo = member.effectiveTo || ''
   editVisible.value = true
 }
 
 async function saveMemberEdit() {
   if (!teamId.value || !editingMember.value) return
+  if (!editForm.effectiveFrom) return ElMessage.warning('请选择生效日期')
+  if (editForm.effectiveTo && editForm.effectiveTo < editForm.effectiveFrom) {
+    return ElMessage.warning('结束日期不能早于生效日期')
+  }
   savingEdit.value = true
   try {
     await teamApi.updateMember(teamId.value, editingMember.value.id, {
