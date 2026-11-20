@@ -46,7 +46,7 @@ const page = ref(1)
 const pageSize = ref(10)
 const events = ref<Event[]>([])
 const teams = ref<Team[]>([])
-/** 球队数据范围一期仅 ADMIN；非管理员不再请求，避免必然 403 的全局错误提示。 */
+/** 球队列表按账号数据范围返回（ADMIN/学校/球队/市州/运动员/教练/赛事记录员均可只读）。 */
 const teamsUnavailable = ref(false)
 /** 编辑已有对阵时用行上的队名回显，球队下拉不可用时也不会只剩 ID。 */
 const editingTeams = ref<{ id: string; name: string }[]>([])
