@@ -19,7 +19,6 @@ import { eventApi, matchApi, teamApi } from '../../api'
 import type { Event, EventGroup, Match, Team } from '../../api/types'
 import { usePermission } from '../../composables/usePermission'
 import { useAuthStore } from '../../stores/auth'
-import { MOCK_ENABLED } from '../../api/http'
 import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import PaginationBar from '../../components/common/PaginationBar.vue'
@@ -127,8 +126,8 @@ async function load() {
 }
 
 async function loadBase() {
-  // 赛事只读对所有业务角色开放；球队列表一期仍受 ADMIN 数据范围限制。
-  // 两者必须独立降级，且非管理员不再发必然 403 的球队请求。
+  // 赛事只读对所有业务角色开放；球队列表按账号数据范围返回，记录台也可读取。
+  // 两者必须独立降级：赛事失败不影响球队，反之亦然。
   try {
     const res = await eventApi.list({ page: 1, pageSize: 50 })
     events.value = res.items
@@ -136,14 +135,10 @@ async function loadBase() {
     events.value = []
   }
 
-  teamsUnavailable.value = !MOCK_ENABLED && !auth.isAdmin
-  if (teamsUnavailable.value) {
-    teams.value = []
-    return
-  }
   try {
     const res = await teamApi.list({ page: 1, pageSize: 100 })
     teams.value = res.items
+    teamsUnavailable.value = false
   } catch {
     teams.value = []
     teamsUnavailable.value = true
@@ -446,8 +441,8 @@ onMounted(() => {
         type="info"
         :closable="false"
         show-icon
-        title="球队下拉不可用"
-        description="球队档案查询当前仅管理员可用。新建对阵需要先由管理员维护球队档案；编辑已有对阵时仍可保留原有对阵双方。"
+        title="球队数据暂不可用"
+        description="球队档案按当前账号数据范围加载，暂未取到可用球队。请确认账号已绑定组织、范围内已维护球队档案后重试。"
       />
       <el-form :model="form" label-position="top">
         <div class="form-grid">
