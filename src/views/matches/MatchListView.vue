@@ -53,6 +53,12 @@ const editingTeams = ref<{ id: string; name: string }[]>([])
 /** 组别候选加载前先用行上的组别名回显，避免下拉框短暂露出 group_u15 这类内部 ID。 */
 const editingGroupName = ref('')
 const groups = ref<EventGroup[]>([])
+/** 后端在组别字典缺失时用 groupId 作 groupName 兜底返回，列表不展示这类内部 ID。 */
+const INTERNAL_GROUP_RE = /^group_[a-z0-9]+$/i
+function groupLabel(row: Match): string {
+  const name = row.groupName?.trim()
+  return name && !INTERNAL_GROUP_RE.test(name) ? name : '组别待补充'
+}
 const createVisible = ref(false)
 const creating = ref(false)
 const editingId = ref('')
@@ -194,7 +200,7 @@ async function openEdit(row: Match) {
     { id: row.homeTeamId, name: row.homeTeamName || '主队' },
     { id: row.awayTeamId, name: row.awayTeamName || '客队' },
   ]
-  editingGroupName.value = row.groupName || row.groupId
+  editingGroupName.value = groupLabel(row)
   form.eventId = row.eventId
   form.homeTeamId = row.homeTeamId
   form.awayTeamId = row.awayTeamId
@@ -340,7 +346,7 @@ onMounted(() => {
                 </span>
                 <strong>{{ row.awayTeamName || '未关联球队' }}</strong>
               </div>
-              <small>{{ row.groupName }} · {{ row.stage || '小组赛' }}</small>
+              <small>{{ groupLabel(row) }} · {{ row.stage || '小组赛' }}</small>
             </div>
           </template>
         </el-table-column>
@@ -434,7 +440,12 @@ onMounted(() => {
       <el-button type="primary" plain size="small" @click="router.push('/console/identity')">身份核验</el-button>
     </section>
 
-    <el-dialog v-model="createVisible" :title="editingId ? '编辑比赛' : '新建比赛'" width="640px">
+    <el-dialog
+      v-model="createVisible"
+      class="match-create-dialog"
+      :title="editingId ? '编辑比赛' : '新建比赛'"
+      width="640px"
+    >
       <el-alert
         v-if="teamsUnavailable"
         class="team-scope-alert"
@@ -524,6 +535,12 @@ onMounted(() => {
 <style scoped>
 .team-scope-alert {
   margin-bottom: 14px;
+}
+
+/* 视口较矮时弹窗内容区内部滚动，保证底部取消/创建按钮始终可达。 */
+.match-create-dialog :deep(.el-dialog__body) {
+  max-height: 64vh;
+  overflow-y: auto;
 }
 
 
