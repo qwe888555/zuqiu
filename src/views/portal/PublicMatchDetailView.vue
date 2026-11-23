@@ -286,20 +286,38 @@ async function load() {
   }
 }
 
+/**
+ * 定时刷新详情而不只是图文直播：记录台调整比分、状态和事件后，
+ * 停留在详情页的访客也要能跟随更新（原实现只在进行中刷新直播，比分与状态会一直停在旧值）。
+ */
 async function refreshLive() {
-  if (!match.value || !isLive.value) return
+  if (!match.value) return
   try {
     if (previewMode.value) {
-      const feed = await matchApi.livePosts(
-        match.value.id,
-        { page: 1, pageSize: 200 },
-        { silentError: true },
-      )
+      const [detail, feed, events] = await Promise.all([
+        matchApi.get(match.value.id),
+        matchApi.livePosts(match.value.id, { page: 1, pageSize: 200 }, { silentError: true }),
+        matchApi.events(match.value.id, { page: 1, pageSize: 200 }, { silentError: true }),
+      ])
+      match.value = {
+        ...detail,
+        homeScore: detail.homeScore ?? 0,
+        awayScore: detail.awayScore ?? 0,
+        events: events.items,
+      }
       liveFeed.value = toPublicPosts(feed.items)
       return
     }
-    const feed = await publicApi.liveFeed(match.value.id)
+    const [detail, feed] = await Promise.all([
+      publicApi.match(match.value.id),
+      publicApi.liveFeed(match.value.id),
+    ])
     liveFeed.value = feed.items
+    match.value = {
+      ...detail,
+      eventName: match.value.eventName || detail.eventName || '赛事',
+      events: detail.events || [],
+    }
   } catch {
     // 静默刷新失败不打断阅读
   }

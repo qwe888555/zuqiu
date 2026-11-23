@@ -32,6 +32,7 @@ import PageHeader from '../../components/common/PageHeader.vue'
 import StatusTag from '../../components/common/StatusTag.vue'
 import SafeImage from '../../components/common/SafeImage.vue'
 import { publishMatchDigest } from '../../utils/matchDigest'
+import { matchDisplayStatus } from '../../utils/portal'
 import { useAuthStore } from '../../stores/auth'
 
 const route = useRoute()
@@ -48,6 +49,8 @@ const links = ref<LiveLink[]>([])
 const documents = ref<MatchDocument[]>([])
 const result = ref<MatchResult | null>(null)
 const activeTab = ref('events')
+/** 记录台本地时钟：到达开球时间后按钮要及时可用，不必等手动切换比赛状态。 */
+const now = ref(Date.now())
 
 const eventVisible = ref(false)
 const savingEvent = ref(false)
@@ -99,6 +102,24 @@ const sortedEvents = computed(() =>
 
 // 后端要求比赛先进入 FINISHED，才允许发布赛果；结束比赛由记录台显式触发。
 const canFinish = computed(() => ['SCHEDULED', 'LIVE'].includes(match.value?.status || ''))
+/** 已到开球时间即视为开赛，不再要求状态先被手动改成 LIVE。 */
+const kickoffReached = computed(() => {
+  const kickoff = match.value?.kickoffAt ? dayjs(match.value.kickoffAt).valueOf() : 0
+  return Boolean(kickoff) && now.value >= kickoff
+})
+/** 未开赛或已取消的比赛不能录入赛况事件（后端同样拦截），快捷记录按钮置灰。 */
+const canRecordEvents = computed(
+  () =>
+    ['LIVE', 'FINISHED'].includes(match.value?.status || '') ||
+    (match.value?.status === 'SCHEDULED' && kickoffReached.value),
+)
+/** 状态标签跟随开球时间推进，到点即显示“进行中”，与按钮可用保持一致。 */
+const displayStatus = computed(() => {
+  if (!match.value) return ''
+  // matchDisplayStatus 依赖 PublicMatch（homeScore/awayScore 必填），管理端 Match 里是可选，
+  // 补齐后再交给它推算。
+  return matchDisplayStatus({ ...match.value, homeScore: match.value.homeScore ?? 0, awayScore: match.value.awayScore ?? 0 })
+})
 const canPublishResult = computed(
   () => match.value?.status === 'FINISHED' && !result.value?.published,
 )
@@ -163,8 +184,15 @@ function onKeydown(event: KeyboardEvent) {
   closeBigScreen()
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+let clockTimer: number | undefined
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  clockTimer = window.setInterval(() => (now.value = Date.now()), 5_000)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  if (clockTimer) window.clearInterval(clockTimer)
+})
 
 async function loadAll() {
   loading.value = true
@@ -224,6 +252,12 @@ async function refreshMatch() {
 }
 
 function openEvent(type = 'GOAL', teamId?: string) {
+  if (!canRecordEvents.value) {
+    ElMessage.warning(
+      match.value?.status === 'CANCELLED' ? '比赛已取消，不能录入赛况事件' : '比赛尚未开赛，开赛后才能录入赛况事件',
+    )
+    return
+  }
   editingEventId.value = ''
   editingEventVersion.value = 0
   eventForm.eventType = type
@@ -595,10 +629,10 @@ onMounted(loadAll)
             <span>{{ match.eventName }}</span>
             <small>{{ match.groupName }} · {{ match.stage || '小组赛' }} · {{ match.venue }}</small>
           </div>
-          <div class="bigscreen__status" :class="{ 'is-live': match.status === 'LIVE' }">
-            <span v-if="match.status === 'LIVE'" class="live-dot" />
-            <template v-if="match.status === 'LIVE'">进行中 · <b class="num">{{ liveMinute }}′</b></template>
-            <template v-else-if="match.status === 'FINISHED'">全场结束</template>
+          <div class="bigscreen__status" :class="{ 'is-live': displayStatus === 'LIVE' }">
+            <span v-if="displayStatus === 'LIVE'" class="live-dot" />
+            <template v-if="displayStatus === 'LIVE'">进行中 · <b class="num">{{ liveMinute }}′</b></template>
+            <template v-else-if="displayStatus === 'FINISHED'">全场结束</template>
             <template v-else>尚未开赛</template>
           </div>
           <button type="button" class="bigscreen__close" @click="closeBigScreen">
@@ -658,14 +692,15 @@ onMounted(loadAll)
           <div class="bigscreen__actions">
             <span class="bigscreen__eyebrow">快捷记录</span>
             <div>
-              <el-button type="primary" :icon="Plus" @click="openEvent('GOAL', match.homeTeamId)">
+              <el-button type="primary" :icon="Plus" :disabled="!canRecordEvents" @click="openEvent('GOAL', match.homeTeamId)">
                 {{ match.homeTeamName || '主队' }} 进球
               </el-button>
-              <el-button :icon="Plus" @click="openEvent('GOAL', match.awayTeamId)">
+              <el-button :icon="Plus" :disabled="!canRecordEvents" @click="openEvent('GOAL', match.awayTeamId)">
                 {{ match.awayTeamName || '客队' }} 进球
               </el-button>
-              <el-button @click="openEvent('PENALTY')">判罚</el-button>
-              <el-button @click="openEvent('SUBSTITUTION')">换人</el-button>
+              <el-button :disabled="!canRecordEvents" @click="openEvent('PENALTY')">判罚</el-button>
+              <el-button :disabled="!canRecordEvents" @click="openEvent('SUBSTITUTION')">换人</el-button>
+              <small v-if="!canRecordEvents" class="muted">未开赛，开赛后才能录入赛况事件</small>
             </div>
           </div>
         </section>
@@ -688,7 +723,7 @@ onMounted(loadAll)
             <i>:</i>
             <span>{{ match.awayScore ?? 0 }}</span>
           </div>
-          <StatusTag :status="match.status" kind="match" />
+          <StatusTag :status="displayStatus" kind="match" />
         </div>
         <div class="team team--away">
           <span class="team__badge">{{ (match.awayTeamName || '球').slice(0, 1) }}</span>
@@ -696,14 +731,15 @@ onMounted(loadAll)
         </div>
       </div>
       <div class="scoreboard__quick">
-        <el-button type="primary" :icon="Plus" @click="openEvent('GOAL', match.homeTeamId)">
+        <el-button type="primary" :icon="Plus" :disabled="!canRecordEvents" @click="openEvent('GOAL', match.homeTeamId)">
           {{ match.homeTeamName || '主队' }} 进球
         </el-button>
-        <el-button :icon="Plus" @click="openEvent('GOAL', match.awayTeamId)">
+        <el-button :icon="Plus" :disabled="!canRecordEvents" @click="openEvent('GOAL', match.awayTeamId)">
           {{ match.awayTeamName || '客队' }} 进球
         </el-button>
-        <el-button plain @click="openEvent('PENALTY')">记录判罚</el-button>
-        <el-button plain @click="openEvent('SUBSTITUTION')">记录换人</el-button>
+        <el-button plain :disabled="!canRecordEvents" @click="openEvent('PENALTY')">记录判罚</el-button>
+        <el-button plain :disabled="!canRecordEvents" @click="openEvent('SUBSTITUTION')">记录换人</el-button>
+        <span v-if="!canRecordEvents" class="muted">未开赛，开赛后才能录入赛况事件</span>
       </div>
     </section>
 

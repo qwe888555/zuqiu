@@ -232,17 +232,24 @@ async function onMatchChange() {
   if (!match) return
   loadingEnrollments.value = true
   // 报名列表只返回 groupId，组别名称需从赛事组别接口补全。
+  // 历史比赛可能引用已删除的赛事，此时组别接口 404 不应打断报名选择：
+  // 静默失败并回退到报名行自带的 groupName。
   const [enrollments, groups] = await Promise.allSettled([
     enrollmentApi.list({ page: 1, pageSize: 100, eventId: match.eventId }),
-    eventApi.groups(match.eventId),
+    eventApi.groups(match.eventId, { silentError: true }),
   ])
-  enrollmentOptions.value =
-    enrollments.status === 'fulfilled'
-      ? enrollments.value.items.filter((item) => item.status === 'APPROVED')
-      : []
-  if (groups.status === 'fulfilled') {
-    groupNames.value = Object.fromEntries(groups.value.items.map((group) => [group.id, group.name]))
+  const approved = enrollments.status === 'fulfilled'
+    ? enrollments.value.items.filter((item) => item.status === 'APPROVED')
+    : []
+  enrollmentOptions.value = approved
+  const names: Record<string, string> = {}
+  for (const item of approved) {
+    if (item.groupId && item.groupName) names[item.groupId] = item.groupName
   }
+  if (groups.status === 'fulfilled') {
+    for (const group of groups.value.items) names[group.id] = group.name
+  }
+  groupNames.value = names
   loadingEnrollments.value = false
 }
 

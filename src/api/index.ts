@@ -362,8 +362,12 @@ export const eventApi = {
   create: (data: Query) => http.post<Event>('/events', data),
   update: (id: string, data: Query) => http.put<Event>(`/events/${id}`, data),
   remove: (id: string, version?: number) => http.delete<{ success: boolean }>(`/events/${id}`, { version }),
-  groups: (id: string) =>
-    http.get<PageResult<EventGroup>>(`/events/${id}/groups`, { page: 1, pageSize: 100 }),
+  groups: (id: string, options?: RequestOptions) =>
+    http.get<PageResult<EventGroup>>(
+      `/events/${id}/groups`,
+      { page: 1, pageSize: 100 },
+      options,
+    ),
   /** 后端返回分页信封，这里统一拍平成数组，调用方无需关心 page/pageSize。 */
   availableGroups: async (id: string) => {
     const res = await http.get<PageResult<EventGroup>>(`/available-events/${id}/groups`, {
