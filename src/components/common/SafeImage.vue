@@ -11,12 +11,14 @@ defineOptions({ inheritAttrs: false })
 const props = defineProps<{ src?: string | null; alt?: string; fallbackSrc?: string }>()
 
 const resolved = ref('')
+const failed = ref(false)
 let seq = 0
 
 watch(
   () => props.src || '',
   async (raw) => {
     const token = ++seq
+    failed.value = false
     if (!raw) {
       resolved.value = ''
       return
@@ -27,21 +29,31 @@ watch(
     }
     resolved.value = ''
     const next = await resolveImageUrl(raw)
-    if (token === seq) resolved.value = next
+    if (token !== seq) return
+    resolved.value = next
+    // 文件服务预取失败（文件缺失/被清理）时直接进入失败占位，不留空白格。
+    if (!next) failed.value = true
   },
   { immediate: true },
 )
 
-/** 图片加载失败：有兜底图则切到兜底图（兜底也失败就隐藏），没有兜底则直接隐藏，不再显示破图图标。 */
+/** 图片加载失败：有兜底图则切到兜底图（兜底也失败就占位），没有兜底则占位。 */
 function handleError() {
   if (props.fallbackSrc && resolved.value !== props.fallbackSrc) {
     resolved.value = props.fallbackSrc
     return
   }
   resolved.value = ''
+  failed.value = true
 }
 </script>
 
 <template>
-  <img v-bind="$attrs" :src="resolved || undefined" :alt="alt" @error="handleError" />
+  <img
+    v-bind="$attrs"
+    :src="resolved || undefined"
+    :alt="alt"
+    :class="{ 'img-load-failed': failed }"
+    @error="handleError"
+  />
 </template>

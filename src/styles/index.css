@@ -480,3 +480,19 @@ button {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/*
+ * 图片加载失败占位：隐藏浏览器的破图图标与超长 alt 文字，改为灰底图标，
+ * 让用户能看出是「加载失败」而不是「这里本来就没图」。
+ */
+img.img-load-failed {
+  background-color: #f2f4f7;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23b4bcc8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='2'/%3E%3Ccircle cx='8.5' cy='9.5' r='1.5'/%3E%3Cpath d='M21 16l-5-5-6 6'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 32% auto;
+  color: transparent;
+  font-size: 0;
+  object-fit: contain;
+}
+

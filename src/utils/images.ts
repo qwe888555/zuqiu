@@ -78,11 +78,23 @@ export function installImageFallback() {
       const target = event.target
       if (!(target instanceof HTMLImageElement)) return
       const source = target.currentSrc || target.src || target.getAttribute('src') || ''
-      if (!isFileServiceUrl(source)) return
-      if (target.dataset.blobFallback === '1') return
+      // 非文件服务地址（外链/静态图）没有二次拉取的机会，直接标记失败占位。
+      if (!isFileServiceUrl(source)) {
+        target.classList.add('img-load-failed')
+        return
+      }
+      if (target.dataset.blobFallback === '1') {
+        target.classList.add('img-load-failed')
+        return
+      }
       target.dataset.blobFallback = '1'
       void resolveImageUrl(source).then((resolved) => {
-        if (resolved && resolved !== source) target.src = resolved
+        if (resolved && resolved !== source) {
+          target.src = resolved
+          return
+        }
+        // 二进制也取不到（文件已被清理/未同步）时不再留白，显示失败占位。
+        target.classList.add('img-load-failed')
       })
     },
     true,
